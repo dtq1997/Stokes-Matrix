@@ -510,19 +510,14 @@ async function main() {
     state.paths.clear();
     if (!state.selectedEntry) return;
     const [i, j] = state.selectedEntry;
-    const punctures = state.punctureOverrides ?? dataset.punctures;
-    let verts: ComplexNum[];
-    try {
-      // 实时构造 PL path 给当前 d (跟 cut 同步转, 同 chamber 内同伦不变但代表元 d-依赖)
-      verts = buildPathForViz(i, j, currentD, punctures);
-    } catch (err) {
-      // 退化构型, 用 dataset 的 fallback
-      const ch = dataset.chambers[state.selectedChamber];
-      const e = ch.entries[`${i},${j}`];
-      if (!e || !e.path) return;
-      verts = e.path.map(p => ({ re: p.re, im: p.im }));
-      console.warn(`buildPathForViz fail for (${i},${j}) d=${currentD}: ${(err as Error).message}; 用 dataset path fallback`);
-    }
+    // SSOT: 直接读 dataset.path (sage 端 compute_Sd_entry 算出的 algo_wp 真相).
+    // 不再 client 端用 buildPathForViz 重算 — 那是第三处 path 实现, 跟 sage 算法分叉的 silent wrong 来源.
+    // d 改变时, dataset.path 跟着 chamber 走 (chamber 内 d 变化, path 形状不重算 —
+    // 数学上同 chamber 内任意 d 给同一同伦类, path 几何代表元用 chamber midpoint 即可).
+    const ch = dataset.chambers[state.selectedChamber];
+    const e = ch.entries[`${i},${j}`];
+    if (!e || !e.path) return;
+    const verts: ComplexNum[] = e.path.map(p => ({ re: p.re, im: p.im }));
     const id = `${i},${j}`;
     state.paths.set(id, { i, j, vertices: verts, homotopyId: id, liftIndex: 0 });
   }
