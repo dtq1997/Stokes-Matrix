@@ -61,20 +61,8 @@ export class Canvas {
       overlay: this.root.append('g').attr('class', 'layer-overlay'),
     };
 
-    // 滚轮缩放 + 拖拽平移. scaleExtent [0.1, 20] 给充分缩放范围.
-    // filter: 排除 puncture/path-vertex 上的 wheel/drag (不打断 puncture 拖动).
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 20])
-      .filter((event) => {
-        if (event.type === 'wheel') return true;       // 滚轮缩放总开
-        // 拖拽平移: 不在 puncture/path-vertex 上才允许 (避免抢 drag)
-        const target = event.target as Element;
-        return !target.closest('.puncture, .path-vertex, .path-start-dot');
-      })
-      .on('zoom', (event) => {
-        this.root.attr('transform', event.transform.toString());
-      });
-    this.svg.call(zoom);
+    // TODO: 缩放/平移待加. 之前用 d3-zoom 跟 puncture/path-vertex drag 冲突
+    // (zoom 监听吞 mousedown), e2e smoke.spec.ts:29 fail. 下次会话彻底解决.
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -100,13 +88,21 @@ export class Canvas {
   private fitViewBox() {
     const ps = this.state.punctureOverrides ?? this.state.dataset.punctures;
     const pts: ComplexNum[] = [...ps];
-    // bbox 只用 punctures, 不含 path waypoints — path 现在用 -N·e^{-id} 大绕
-    // (N=2·diam) 中转点跑到很远, 进 bbox 会把整体显示比例缩得很小. 用户拖拽 / 滚轮可看远处细节.
+    // 加进 dataset 第一个 chamber 的 path waypoints (代表性大绕路径).
+    // 用所有 chamber 的会让 bbox 太大画面比例缩小; 完全不用又让 path-vertex
+    // 飞出 viewport (e2e drag 测试 fail). 用一个 chamber 折衷.
+    const ch0 = this.state.dataset.chambers[0];
+    if (ch0) {
+      for (const k of Object.keys(ch0.entries)) {
+        const e = ch0.entries[k];
+        if (e.path) for (const p of e.path) pts.push(p);
+      }
+    }
     const xs = pts.map(p => p.re), ys = pts.map(p => p.im);
     const xMin = Math.min(...xs), xMax = Math.max(...xs);
     const yMin = Math.min(...ys), yMax = Math.max(...ys);
-    const xPad = Math.max(1, (xMax - xMin) * 0.3);
-    const yPad = Math.max(1, (yMax - yMin) * 0.3);
+    const xPad = Math.max(1, (xMax - xMin) * 0.1);
+    const yPad = Math.max(1, (yMax - yMin) * 0.1);
     this.viewBox = {
       xMin: xMin - xPad, xMax: xMax + xPad,
       yMin: yMin - yPad, yMax: yMax + yPad,
@@ -338,8 +334,8 @@ export class Canvas {
       .join(
         enter => {
           const g = enter.append('g').attr('class', 'puncture-group');
-          g.append('circle').attr('class', 'puncture').attr('r', 7).call(dragBehavior);
-          g.append('text').attr('class', 'puncture-label').attr('dx', 11).attr('dy', -9);
+          g.append('circle').attr('class', 'puncture').attr('r', 4).call(dragBehavior);
+          g.append('text').attr('class', 'puncture-label').attr('dx', 8).attr('dy', -6);
           return g;
         },
         update => update,
@@ -350,7 +346,13 @@ export class Canvas {
       const [x, y] = this.toPx(d.p);
       return `translate(${x}, ${y})`;
     });
-    groups.select('text.puncture-label').text(d => `u${d.k + 1}`);
+    // u 用 italic + tspan 下标实现 u_k 数学风格 (SVG <text> 不能直接 KaTeX)
+    groups.select<SVGTextElement>('text.puncture-label').each(function (d) {
+      const t = d3.select(this);
+      t.selectAll('*').remove();
+      t.append('tspan').attr('font-style', 'italic').text('u');
+      t.append('tspan').attr('baseline-shift', 'sub').attr('font-size', '0.75em').text(String(d.k + 1));
+    });
   }
 
   private onPunctureDrag(k: number, event: d3.D3DragEvent<SVGCircleElement, any, any>) {
