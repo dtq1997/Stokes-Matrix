@@ -58,21 +58,26 @@ html, body {
 
 h2 {
   margin: 0 0 10px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--fg-dim);
+  letter-spacing: 0.02em;
+  color: var(--fg);
 }
 
 h3 {
-  margin: 18px 0 8px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--fg-muted);
+  margin: 16px 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--fg-dim);
 }
+
+/* KaTeX content 不继承父级 text-transform / letter-spacing */
+[data-tex], .katex {
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+.katex { font-size: 1em; }
 
 .dim { color: var(--fg-dim); font-weight: 400; }
 .mono { font-family: var(--font-mono); font-size: 12px; color: var(--fg); }

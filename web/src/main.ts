@@ -44,6 +44,7 @@ async function main() {
     paths: new Map(),
     punctureOverrides: dataset.punctures.map(p => ({ ...p })),
     AOverrides: initialA.map(row => row.map(c => ({ ...c }))),
+    mOverrides: [...dataset.m_sizes],
     stokesStale: false,
   };
 
@@ -157,13 +158,16 @@ async function main() {
   buildUTable();
   buildATable();
   buildStokesMatrix();
+  updateDimInfo();
   document.getElementById('state-reset')!.addEventListener('click', () => {
     state.punctureOverrides = dataset.punctures.map(p => ({ ...p }));
     state.AOverrides = initialA.map(row => row.map(c => ({ ...c })));
+    state.mOverrides = [...dataset.m_sizes];
     state.stokesStale = false;
     refreshUTable();
     refreshATable();
     updateStaleBanner();
+    updateDimInfo();
     canvas.setState(state);
   });
 
@@ -177,11 +181,13 @@ async function main() {
 
   function buildUTable() {
     const t = document.getElementById('u-table')!;
-    let html = `<thead><tr><th></th><th>${tex('\\mathrm{Re}')}</th><th>${tex('\\mathrm{Im}')}</th></tr></thead><tbody>`;
+    let html = `<thead><tr><th>${tex('k')}</th><th>${tex('\\mathrm{Re}\\,u_k')}</th>` +
+      `<th>${tex('\\mathrm{Im}\\,u_k')}</th><th>${tex('m_k')}</th></tr></thead><tbody>`;
     for (let k = 0; k < n; k++) {
-      html += `<tr><td class="row-label">${tex(`u_{${k+1}}`)}</td>` +
+      html += `<tr><td class="row-label">${tex(`${k+1}`)}</td>` +
         `<td><input class="cx" data-k="${k}" data-axis="re" /></td>` +
-        `<td><input class="cx" data-k="${k}" data-axis="im" /></td></tr>`;
+        `<td><input class="cx" data-k="${k}" data-axis="im" /></td>` +
+        `<td><input class="cx mk-input" data-k="${k}" /></td></tr>`;
     }
     html += '</tbody>';
     t.innerHTML = html;
@@ -190,24 +196,45 @@ async function main() {
   }
   function refreshUTable() {
     const ps = state.punctureOverrides!;
+    const ms = state.mOverrides!;
     document.querySelectorAll<HTMLInputElement>('#u-table input.cx').forEach(input => {
       const k = Number(input.dataset.k!);
-      const axis = input.dataset.axis as 're' | 'im';
-      input.value = fmtNum(ps[k][axis]);
+      if (input.classList.contains('mk-input')) {
+        input.value = String(ms[k]);
+      } else {
+        const axis = input.dataset.axis as 're' | 'im';
+        input.value = fmtNum(ps[k][axis]);
+      }
     });
   }
   function onUEdit(e: Event) {
     const t = e.target as HTMLInputElement;
     if (!t.classList.contains('cx')) return;
+    const k = Number(t.dataset.k!);
+    if (t.classList.contains('mk-input')) {
+      const m = Number(t.value);
+      if (!Number.isInteger(m) || m < 1) { t.classList.add('invalid'); return; }
+      t.classList.remove('invalid');
+      state.mOverrides![k] = m;
+      state.stokesStale = true;
+      updateStaleBanner();
+      updateDimInfo();
+      return;
+    }
     const v = Number(t.value);
     if (!Number.isFinite(v)) { t.classList.add('invalid'); return; }
     t.classList.remove('invalid');
-    const k = Number(t.dataset.k!);
     const axis = t.dataset.axis as 're' | 'im';
     state.punctureOverrides![k][axis] = v;
     state.stokesStale = true;
     updateStaleBanner();
     canvas.setState(state);
+  }
+  function updateDimInfo() {
+    const ms = state.mOverrides!;
+    const N = ms.reduce((a, b) => a + b, 0);
+    const el = document.getElementById('dim-info')!;
+    el.innerHTML = tex(`n = ${n},\\quad N = \\sum_k m_k = ${N}`);
   }
 
   function buildATable() {
