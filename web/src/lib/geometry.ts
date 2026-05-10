@@ -59,20 +59,48 @@ export function modTwoPi(x: number): number {
 }
 
 /**
- * Paper monodromy phase 修正 (S_d)_{ij} 跨周期值.
+ * Paper monodromy 修正 (S_d)_{ij} 跨周期值 (块版).
  *
- * dataset 存的 entry 是在 d_sample 处用 paper inf product 公式算的 (S_{d_sample}).
- * user 滑块上的真实 d 跟 d_sample 同 chamber 但可能差 2π·m 周期 (因 sample d 单调
- * 递增不 mod 2π, viz 滑块 d ∈ ℝ). 真 (S_{d_user}) 跟 (S_{d_sample}) 差 paper
- * monodromy phase: m = round((d_user - d_sample) / 2π).
+ * paper L1056: S_{d+2kπ} = e^{-2kπi · δ_u A} · S_d · e^{2kπi · δ_u A}
+ * 其中 δ_u A 是块对角部分 (m_I × m_I block matrices), 修正是左右乘 matrix exp.
  *
- * 推导: paper 公式 (S_{[\tau]})_{st} 含 (u_t-u_s)^{A_ss} · (u_t-u_s)^{-A_tt}, lift
- * 用 -τ. τ → τ+2π 时 lift -2π, (u_t-u_s)^{A_ss} 多 exp(-2πi·A_ss),
- * (u_t-u_s)^{-A_tt} 多 exp(+2πi·A_tt), 整体 (S_{d+2π}) = (S_d)·exp(2πi·(A_tt-A_ss)).
- * 所以修正 (S_{d_user}) = (S_{d_sample}) · exp(2πi·m·(A_jj-A_ii)).
+ * 块版 entry (I, a; J, b):
+ *   (S_{d+2kπ})_{Ia, Jb} = sum_{a',b'} [exp(-2πik·A_II)]_{a,a'} (S_d)_{Ia',Jb'} [exp(2πik·A_JJ)]_{b',b}
  *
- * Simple-spectrum 假设: A_ii / A_jj 是 scalar (block size 1).
+ * Simple-spectrum (m_I = m_J = 1) 退化为 scalar exp(2πim(A_jj - A_ii)).
+ *
+ * 这里返修正前后变换矩阵 (left = expm(-2πik·A_II), right = expm(2πik·A_JJ)).
+ * Caller 自己做 left · block · right.
  */
+import { expm } from './matexp.js';
+
+export function monodromyTransforms(
+  d_user: number, d_sample: number,
+  A_II: ComplexNum[][], A_JJ: ComplexNum[][],
+): { left: ComplexNum[][]; right: ComplexNum[][]; m: number } {
+  const tp = 2 * Math.PI;
+  const m = Math.round((d_user - d_sample) / tp);
+  // m=0 时 left=right=identity, 不修正.
+  if (m === 0) {
+    const idI: ComplexNum[][] = A_II.map((_, i) => A_II.map((_, j) => ({ re: i === j ? 1 : 0, im: 0 })));
+    const idJ: ComplexNum[][] = A_JJ.map((_, i) => A_JJ.map((_, j) => ({ re: i === j ? 1 : 0, im: 0 })));
+    return { left: idI, right: idJ, m: 0 };
+  }
+  // expm(-2πik·A_II): scale A_II by complex (-2πi·m), then expm.
+  // -2πi·m · (a + bi) = (2π·m·b) + i·(-2π·m·a)
+  const scaleI: ComplexNum[][] = A_II.map(row => row.map(c => ({
+    re: tp * m * c.im,
+    im: -tp * m * c.re,
+  })));
+  // expm(2πik·A_JJ): scale by +2πi·m.
+  const scaleJ: ComplexNum[][] = A_JJ.map(row => row.map(c => ({
+    re: -tp * m * c.im,
+    im: tp * m * c.re,
+  })));
+  return { left: expm(scaleI), right: expm(scaleJ), m };
+}
+
+/** Simple-spectrum scalar phase (m_I = m_J = 1 时退化). 仍保留给 simple 调用方. */
 export function monodromyPhase(
   d_user: number, d_sample: number, A_ii: number, A_jj: number,
 ): { re: number; im: number } {

@@ -2,9 +2,9 @@ import type { SimpleDataset } from './types.js';
 
 export async function loadDataset(): Promise<SimpleDataset> {
   // BASE_URL: GH Pages = "/Stokes-Matrix/", 本地 dev = "/". cache-bust v= 强制每次拉新.
-  // URL ?dataset=block 切到 (2,2,2,2) 重数版; 默认 n4_simple (m=(1,1,1,1)).
+  // 默认: (2,2,2,2) 块版. URL ?dataset=simple 切回 (1,1,1,1) simple-spectrum.
   const params = new URLSearchParams(window.location.search);
-  const which = params.get('dataset') === 'block' ? 'n4_block' : 'n4_simple';
+  const which = params.get('dataset') === 'simple' ? 'n4_simple' : 'n4_block';
   const url = `${import.meta.env.BASE_URL}data/${which}.json?v=${Date.now()}`.replace(/([^:])\/+/g, '$1/');
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Failed to load dataset: ${r.status}`);
