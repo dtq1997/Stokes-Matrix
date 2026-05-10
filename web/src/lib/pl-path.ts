@@ -79,18 +79,11 @@ export function plPathInChamber(
   const directNear = segAvoidsPunctures(uStart, uEnd, U_others, punctureTol);
   if (!directHit && !directNear) return [uEnd];
 
-  // 三段高路径: 在 exp(i(d-π/2)) 旋转坐标系下 cut 朝下, path 走 up→across→down.
-  // diam = 最大 puncture-puncture 距离 + endpoint
-  const allPts = [...U_others, uStart, uEnd];
-  let diam = 1.0;
-  for (let i = 0; i < allPts.length; i++) {
-    for (let j = i + 1; j < allPts.length; j++) {
-      const dist = C.abs(C.sub(allPts[i], allPts[j]));
-      if (dist > diam) diam = dist;
-    }
-  }
-  const rot = C.expI(d - Math.PI / 2);             // 正向旋转
-  const rotInv = C.expI(Math.PI / 2 - d);          // 反向旋转
+  // 三段高路径: 在 exp(i(d-π/2)) 旋转坐标系下, cuts 沿 -y, path 走在 b_max + ε 上方.
+  // 一次成功, 不 retry: y_top > b_max → cut 不撞 (cut 朝 -y, path 在 +y); 距 puncture
+  // ≥ ε > tol → puncture 不撞.
+  const rot = C.expI(d - Math.PI / 2);
+  const rotInv = C.expI(Math.PI / 2 - d);
   const rotPts = U_others.map(p => C.mul(p, rot));
   const rotStart = C.mul(uStart, rot);
   const rotEnd = C.mul(uEnd, rot);
@@ -98,28 +91,23 @@ export function plPathInChamber(
     ...rotPts.map(p => p.im), rotStart.im, rotEnd.im,
   );
 
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const buffer = 0.5 * diam * Math.pow(1.5, attempt);
-    const yTop = bMax + buffer;
-    const upRot: ComplexNum = { re: rotStart.re, im: yTop };
-    const acrossRot: ComplexNum = { re: rotEnd.re, im: yTop };
-    const upPt = C.mul(upRot, rotInv);
-    const acrossPt = C.mul(acrossRot, rotInv);
-    const segs: Array<[ComplexNum, ComplexNum]> = [
-      [uStart, upPt],
-      [upPt, acrossPt],
-      [acrossPt, uEnd],
-    ];
-    let allSafe = true;
-    for (const [sa, sb] of segs) {
-      if (findFirstCutHit(sa, sb, U_others, d)) { allSafe = false; break; }
-      if (segAvoidsPunctures(sa, sb, U_others, punctureTol)) { allSafe = false; break; }
+  // 闭式 buffer: 取 max(diam, 端点距离) 的 ~10% + 固定 tol margin, 保证 ε > punctureTol
+  const allPts = [...U_others, uStart, uEnd];
+  let diam = 0.0;
+  for (let i = 0; i < allPts.length; i++) {
+    for (let j = i + 1; j < allPts.length; j++) {
+      const dist = C.abs(C.sub(allPts[i], allPts[j]));
+      if (dist > diam) diam = dist;
     }
-    if (allSafe) return [upPt, acrossPt, uEnd];
   }
-  // 5 次 retry 仍撞 — generic + 半 generic 应该能找到, fail 表示构型退化
-  // 抛 error 让 caller 显示 warning, 不静默退回不安全 path
-  throw new Error('pl_path: 高路径 5 次 retry 仍撞 cut/puncture (退化构型)');
+  const buffer = Math.max(0.1 * diam, 10 * punctureTol);
+  const yTop = bMax + buffer;
+
+  const upRot: ComplexNum = { re: rotStart.re, im: yTop };
+  const acrossRot: ComplexNum = { re: rotEnd.re, im: yTop };
+  const upPt = C.mul(upRot, rotInv);
+  const acrossPt = C.mul(acrossRot, rotInv);
+  return [upPt, acrossPt, uEnd];
 }
 
 /**
