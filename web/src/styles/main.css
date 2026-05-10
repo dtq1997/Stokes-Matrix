@@ -140,20 +140,30 @@ h3 {
 #d-input:focus { border-color: var(--accent); }
 #d-input.invalid { border-color: var(--bad); }
 
+#d-slider-wrap {
+  position: relative;
+  height: 28px;
+  margin-bottom: 8px;
+}
 #d-slider-wrap input[type=range] {
+  position: absolute;
+  top: 6px;
+  left: 0;
   width: 100%;
   accent-color: var(--accent);
-  margin: 0 0 4px;
+  margin: 0;
+  z-index: 2;
+  background: transparent;
 }
 
 #d-marker-strip {
-  position: relative;
-  width: 100%;
-  height: 14px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  margin-bottom: 8px;
+  position: absolute;
+  top: 0;
+  left: 8px;       /* slider thumb 半径补偿: thumb 中心范围 = strip 内宽 */
+  right: 8px;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1;
 }
 
 #d-marker-strip .d-mark {
@@ -165,6 +175,8 @@ h3 {
 #d-marker-strip .d-mark.ray {
   background: var(--accent-3);
   opacity: 0.85;
+  width: 2px;
+  margin-left: -1px;   /* 让线在 left% 位置正中 */
 }
 
 #d-readout { margin-top: 6px; line-height: 1.5; }

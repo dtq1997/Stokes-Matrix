@@ -244,8 +244,8 @@ async function main() {
     if (ok) {
       recomputeStatus.textContent = 'backend online :8000';
     } else {
-      recomputeStatus.innerHTML =
-        'backend offline (启动: <span class="mono">sage -python server/push_server.py</span>)';
+      recomputeStatus.textContent = '';   // 不挤占空间, button disabled 已表达
+      recomputeBtn.title = 'Recompute 需本地后端: sage -python server/push_server.py';
     }
     refreshRecomputeBtn();
   });
