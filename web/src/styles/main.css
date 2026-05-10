@@ -159,25 +159,12 @@ h3 {
 #d-marker-strip .d-mark {
   position: absolute;
   top: 0;
+  bottom: 0;
   width: 1px;
-  height: 100%;
 }
 #d-marker-strip .d-mark.ray {
   background: var(--accent-3);
-  width: 1px;
-  opacity: 0.7;
-}
-#d-marker-strip .d-mark.ray-piZ {
-  background: var(--bad);
-  width: 2px;
-  opacity: 0.9;
-}
-#d-marker-strip .d-mark.chamber {
-  background: var(--good);
-  opacity: 0.4;
-  width: 2px;
-  top: 4px;
-  height: 6px;
+  opacity: 0.85;
 }
 
 #d-readout { margin-top: 6px; line-height: 1.5; }

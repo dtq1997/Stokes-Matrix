@@ -137,21 +137,12 @@ async function main() {
   function buildMarkerStrip(el: HTMLDivElement) {
     el.innerHTML = '';
     const tp = 2 * Math.PI;
-    // anti-Stokes rays (含 πℤ at 0/π)
+    // 只画 anti-Stokes rays (chamber 边界), chamber center 多余去掉
     for (const r of dataset.rays) {
       const m = document.createElement('div');
-      const isPiZ = Math.abs(r) < 1e-6 || Math.abs(r - Math.PI) < 1e-6;
-      m.className = isPiZ ? 'd-mark ray-piZ' : 'd-mark ray';
+      m.className = 'd-mark ray';
       m.style.left = `${(r / tp) * 100}%`;
-      m.title = isPiZ
-        ? `πℤ admissibility excluded (${(r * 180 / Math.PI).toFixed(0)}°)`
-        : `anti-Stokes ray ${(r * 180 / Math.PI).toFixed(2)}°`;
-      el.appendChild(m);
-    }
-    for (const cd of chamberDs) {
-      const m = document.createElement('div');
-      m.className = 'd-mark chamber';
-      m.style.left = `${(cd / tp) * 100}%`;
+      m.title = `anti-Stokes ray  ${(r * 180 / Math.PI).toFixed(2)}°  =  ${(r / Math.PI).toFixed(4)} π`;
       el.appendChild(m);
     }
   }
