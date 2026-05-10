@@ -1,5 +1,6 @@
 import katex from 'katex';
-import { loadDataset, recompute, backendOnline } from './lib/data.js';
+import { loadDataset, recomputeAsync, cancelJob, backendOnline } from './lib/data.js';
+import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
 import { chamberOfDirection } from './lib/geometry.js';
@@ -258,21 +259,40 @@ async function main() {
     if (recomputeBtn.classList.contains('computing')) return;
     recomputeBtn.disabled = !(backendAvailable && state.stokesStale);
   }
+  let currentJobId: string | null = null;
   recomputeBtn.addEventListener('click', async () => {
+    // Cancel 模式: 如果正在 computing, 点击发送 cancel
+    if (recomputeBtn.classList.contains('computing')) {
+      if (currentJobId) await cancelJob(currentJobId);
+      return;
+    }
     if (recomputeBtn.disabled) return;
-    recomputeBtn.disabled = true;
+    recomputeBtn.disabled = false;
     recomputeBtn.classList.add('computing');
-    recomputeBtn.textContent = 'Computing... (~5 min)';
-    recomputeStatus.textContent = 'sage running, n×n×chamber = ' +
-      `${n*(n-1)} × ${dataset.chambers.length} entries`;
-    const t0 = performance.now();
+    recomputeBtn.textContent = 'Cancel';
+    recomputeStatus.style.color = '';
     try {
-      const newDs = await recompute({
-        punctures: state.punctureOverrides!,
-        A: state.AOverrides!,
-        m_sizes: state.mOverrides!,
-      });
-      // 替换 dataset 内容 (in-place, 保留 const 引用)
+      const { result: newDs } = await recomputeAsync(
+        {
+          punctures: state.punctureOverrides!,
+          A: state.AOverrides!,
+          m_sizes: state.mOverrides!,
+        },
+        (s: JobStatus) => {
+          if (s.chambers_total > 0) {
+            const pct = Math.round(s.progress * 100);
+            recomputeStatus.innerHTML =
+              `<div class="progress-bar"><div style="width:${pct}%"></div></div>` +
+              `chamber ${s.chambers_done} / ${s.chambers_total} ` +
+              `<span class="dim">(${s.elapsed_s.toFixed(1)}s)</span>`;
+          } else {
+            recomputeStatus.innerHTML =
+              `starting sage... <span class="dim">(${s.elapsed_s.toFixed(1)}s)</span>`;
+          }
+        },
+        (jobId) => { currentJobId = jobId; },
+      );
+      // 替换 dataset 内容
       Object.keys(dataset).forEach(k => delete (dataset as any)[k]);
       Object.assign(dataset, newDs);
       chamberDs.length = 0;
@@ -287,15 +307,15 @@ async function main() {
       updateStokesPanel();
       updatePathInfo();
       updateStaleBanner();
-      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-      recomputeStatus.textContent = `done in ${elapsed}s`;
+      const elapsed = (newDs as any)._compute_seconds?.toFixed(1) ?? '?';
+      recomputeStatus.innerHTML = `<span style="color: var(--good)">done in ${elapsed}s</span>`;
     } catch (e) {
-      recomputeStatus.textContent = `failed: ${(e as Error).message}`;
-      recomputeStatus.style.color = 'var(--bad)';
+      recomputeStatus.innerHTML = `<span style="color: var(--bad)">${(e as Error).message}</span>`;
     } finally {
+      currentJobId = null;
       recomputeBtn.classList.remove('computing');
       recomputeBtn.textContent = 'Recompute Stokes';
-      recomputeBtn.disabled = !state.stokesStale;
+      refreshRecomputeBtn();
     }
   });
 
