@@ -2,7 +2,8 @@ import type { SimpleDataset } from './types.js';
 
 export async function loadDataset(): Promise<SimpleDataset> {
   // import.meta.env.BASE_URL 在 GH Pages 下 = "/path-algebroid/", 本地 = "/"
-  const url = `${import.meta.env.BASE_URL}data/n4_simple.json`.replace(/\/+/g, '/');
+  // cache-bust query 强制浏览器拉最新 dataset, 否则 deploy 后旧 dataset 可能残留.
+  const url = `${import.meta.env.BASE_URL}data/n4_simple.json?v=${Date.now()}`.replace(/([^:])\/+/g, '$1/');
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Failed to load dataset: ${r.status}`);
   return r.json();
