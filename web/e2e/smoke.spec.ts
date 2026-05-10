@@ -22,6 +22,10 @@ test.describe('Sd-viz smoke tests', () => {
   test('拖动 path vertex 跟手 (像素级精确)', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
+    // 先把 d 设到 0.025π (chamber 1, (0,2) path 段数 3 含中间 vertex)
+    const dInput = page.locator('#d-input');
+    await dInput.fill('0.025');
+    await dInput.press('Enter');
     await page.locator('#entry-grid .cell').nth(2).click();
     await page.waitForSelector('.path-vertex');
 
@@ -73,13 +77,49 @@ test.describe('Sd-viz smoke tests', () => {
 
   test('d slider 连续, cuts 跟着旋转', async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('.cut-line');
+    await page.waitForSelector('.cut-line', { state: 'attached' });
 
-    const slider = page.locator('#d-slider-wrap input[type=range]');
-    const cut0 = await page.locator('.cut-line').first().getAttribute('x2');
-    await slider.fill('1.5'); // d = 1.5 rad
+    const getXY2 = async () => {
+      const x = await page.locator('.cut-line').first().getAttribute('x2');
+      const y = await page.locator('.cut-line').first().getAttribute('y2');
+      return `${x},${y}`;
+    };
+    const cut0 = await getXY2();
+    const dInput = page.locator('#d-input');
+    await dInput.fill('0.3');  // 不是 ±π/2 倍数, 避免 cut 仍然垂直巧合
+    await dInput.press('Enter');
     await page.waitForTimeout(50);
-    const cut1 = await page.locator('.cut-line').first().getAttribute('x2');
+    const cut1 = await getXY2();
     expect(cut0).not.toBe(cut1);
+  });
+
+  test('输入框: 分数 + 自动选 k 区间', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    const dInput = page.locator('#d-input');
+    const slider = page.locator('#d-slider-wrap input[type=range]');
+
+    // 默认 d = -0.5 π, k = -1, range [-2π, 0]
+    expect(await dInput.inputValue()).toBe('-0.5');
+    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(-2 * Math.PI, 4);
+    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(0, 4);
+
+    // 输入 "1/3" → π/3, k=0, range [0, 2π]
+    await dInput.fill('1/3');
+    await dInput.press('Enter');
+    expect(Number(await slider.inputValue())).toBeCloseTo(Math.PI / 3, 4);
+    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(0, 4);
+    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(2 * Math.PI, 4);
+
+    // 输入 "2.3" → 2.3π, k=1, range [2π, 4π]
+    await dInput.fill('2.3');
+    await dInput.press('Enter');
+    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(2 * Math.PI, 4);
+    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(4 * Math.PI, 4);
+
+    // 无效输入还原
+    await dInput.fill('abc');
+    await dInput.press('Enter');
+    expect(await dInput.inputValue()).toBe('2.3');
   });
 });

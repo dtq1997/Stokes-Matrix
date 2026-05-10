@@ -2,6 +2,7 @@ import { loadDataset } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
 import { chamberOfDirection } from './lib/geometry.js';
+import { parsePiInput, formatPi } from './lib/pi-input.js';
 
 const fmtComplex = (re: number, im: number, digits = 4) => {
   const r = re.toFixed(digits);
@@ -44,27 +45,33 @@ async function main() {
     }
   }
 
-  // ---------- d slider (连续 0..2π) ----------
+  // ---------- d slider (连续, 区间 [2kπ, (2k+2)π], 输入框 π 单位) ----------
   const sliderWrap = document.getElementById('d-slider-wrap')!;
   const slider = document.createElement('input');
   slider.type = 'range';
-  slider.min = '0';
-  slider.max = String(2 * Math.PI);
-  slider.step = '0.001';
-  slider.value = String(dataset.chambers[0].d);
+  slider.step = '0.0001';
   sliderWrap.appendChild(slider);
   const dReadout = document.getElementById('d-readout')!;
+  const dInput = document.getElementById('d-input') as HTMLInputElement;
 
   const chamberDs = dataset.chambers.map(c => c.d);
 
-  // 在 slider 下方画 chamber/anti-Stokes ray 标记条
   const markStrip = document.createElement('div');
   markStrip.id = 'd-marker-strip';
   sliderWrap.appendChild(markStrip);
   buildMarkerStrip(markStrip);
 
-  slider.addEventListener('input', () => {
-    const d = Number(slider.value);
+  let currentD = -Math.PI / 2;  // 默认 d = -π/2 (k = -1)
+
+  function setD(d: number, source: 'slider' | 'input' | 'init' = 'init') {
+    currentD = d;
+    const k = Math.floor(d / (2 * Math.PI));
+    const lo = 2 * k * Math.PI;
+    const hi = (2 * k + 2) * Math.PI;
+    slider.min = String(lo);
+    slider.max = String(hi);
+    if (source !== 'slider') slider.value = String(d);
+    if (source !== 'input') dInput.value = formatPi(d / Math.PI);
     canvas.setDirection(d);
     const newCh = chamberOfDirection(d, chamberDs);
     if (newCh !== state.selectedChamber) {
@@ -75,7 +82,24 @@ async function main() {
     updateDReadout();
     updateStokesPanel();
     updatePathInfo();
+  }
+
+  slider.addEventListener('input', () => setD(Number(slider.value), 'slider'));
+
+  dInput.addEventListener('change', () => commitInput());
+  dInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commitInput(); dInput.blur(); }
   });
+  function commitInput() {
+    const v = parsePiInput(dInput.value);
+    if (v === null) {
+      dInput.value = formatPi(currentD / Math.PI);   // 还原
+      dInput.classList.add('invalid');
+      setTimeout(() => dInput.classList.remove('invalid'), 600);
+      return;
+    }
+    setD(v * Math.PI, 'input');
+  }
 
   function buildMarkerStrip(el: HTMLDivElement) {
     el.innerHTML = '';
@@ -98,14 +122,18 @@ async function main() {
   }
 
   function updateDReadout() {
-    const d = Number(slider.value);
-    const dPi = (d / Math.PI).toFixed(4);
+    const d = currentD;
+    const k = Math.floor(d / (2 * Math.PI));
     const deg = (d * 180 / Math.PI).toFixed(1);
     const chDPi = (dataset.chambers[state.selectedChamber].d / Math.PI).toFixed(4);
-    dReadout.innerHTML = `d = ${dPi} π <span class="dim">(${deg}°)</span><br/>` +
+    dReadout.innerHTML =
+      `<span class="dim">${deg}° &nbsp; k=${k} &nbsp; range [${2*k}π, ${2*k+2}π]</span><br/>` +
       `chamber ${state.selectedChamber + 1}/${dataset.chambers.length} ` +
       `<span class="dim">@ d̂ = ${chDPi} π</span>`;
   }
+
+  // 初始化默认值
+  setD(currentD, 'init');
 
   function selectEntry(i: number, j: number) {
     state.selectedEntry = [i, j];
@@ -171,9 +199,6 @@ async function main() {
     el.textContent = lines.join('\n');
   }
 
-  updateDReadout();
-  updateStokesPanel();
-  updatePathInfo();
 }
 
 main().catch(err => {

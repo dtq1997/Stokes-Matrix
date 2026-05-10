@@ -102,6 +102,27 @@ h3 {
 #entry-grid .cell.diag { background: transparent; cursor: default; color: var(--fg-muted); opacity: 0.4; }
 #entry-grid .cell.selected { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 
+#d-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+#d-input {
+  flex: 1;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 4px 6px;
+  outline: none;
+  width: 100%;
+}
+#d-input:focus { border-color: var(--accent); }
+#d-input.invalid { border-color: var(--bad); }
+
 #d-slider-wrap input[type=range] {
   width: 100%;
   accent-color: var(--accent);
