@@ -1,7 +1,7 @@
 import katex from 'katex';
 import { loadDataset, recomputeAsync, cancelJob, backendOnline } from './lib/data.js';
 import type { JobStatus } from './lib/data.js';
-import type { VizState, ComplexNum, PathRep } from './lib/types.js';
+import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
 import { chamberOfDirection, monodromyPhase } from './lib/geometry.js';
 import { parsePiInput, formatPi } from './lib/pi-input.js';
@@ -29,14 +29,34 @@ async function main() {
   const dataset = await loadDataset();
 
   let n = dataset.punctures.length;
-  // 初始 A 从 dataset.A_diag + A_off 装回 n×n 复矩阵
-  const initialA: ComplexNum[][] = Array.from({ length: n }, (_, i) =>
-    Array.from({ length: n }, (_, j) =>
-      i === j
-        ? { re: dataset.A_diag[i], im: 0 }
-        : { re: 0, im: 0 }
-    ));
-  for (const e of dataset.A_off) initialA[e.i][e.j] = { re: e.re, im: e.im };
+  // 块结构: n 个块, 每块 m_k 大小, 总维度 N = sum m_k.
+  // SSOT: A 内部存 N×N 复矩阵, 块结构由 m_sizes 描述.
+  const N0 = dataset.m_sizes.reduce((a, b) => a + b, 0);
+  const blockStarts = (ms: number[]) => {
+    const s = [0]; for (let k = 0; k < ms.length - 1; k++) s.push(s[k] + ms[k]); return s;
+  };
+  function rebuildInitialA(): ComplexNum[][] {
+    const ms = dataset.m_sizes;
+    const N = ms.reduce((a, b) => a + b, 0);
+    const starts = blockStarts(ms);
+    const A: ComplexNum[][] = Array.from({ length: N }, () =>
+      Array.from({ length: N }, () => ({ re: 0, im: 0 })));
+    // 对角块: A_diag_block 优先 (块版), 否则 A_diag (simple 退化, m_k 个 entry 全填 A_diag[k]).
+    for (let k = 0; k < n; k++) {
+      const s = starts[k], mk = ms[k];
+      const diagVals = dataset.A_diag_block?.[k]
+        ?? Array.from({ length: mk }, () => dataset.A_diag[k]);
+      for (let a = 0; a < mk; a++) A[s + a][s + a] = { re: diagVals[a], im: 0 };
+    }
+    // off: 块下标 (i, j) + 可选 sub (a, b). simple case 没 (a, b) 时填到 block 的 (0, 0).
+    for (const e of dataset.A_off) {
+      const sI = starts[e.i], sJ = starts[e.j];
+      const a = e.a ?? 0, b = e.b ?? 0;
+      A[sI + a][sJ + b] = { re: e.re, im: e.im };
+    }
+    return A;
+  }
+  const initialA = rebuildInitialA();
 
   const state: VizState = {
     dataset,
@@ -405,18 +425,38 @@ async function main() {
     el.innerHTML = tex(`m = \\sum_k m_k = ${m_total}`);
   }
 
+  /** A 表: N×N 复矩阵 (N = sum m_k), 按块结构加视觉分隔.
+   * 列/行 header 显示 "u_I (a)" 表示 block I 的 sub-index a (m_I>1 时), 否则只 "u_I". */
   function buildATable() {
     const t = document.getElementById('a-table') as HTMLTableElement;
     t.classList.add('a-table');
+    const ms = state.mOverrides!;
+    const N = ms.reduce((a, b) => a + b, 0);
+    const starts = blockStarts(ms);
+    const blockOf = (fi: number) => {
+      for (let k = ms.length - 1; k >= 0; k--) if (fi >= starts[k]) return [k, fi - starts[k]];
+      return [-1, -1];
+    };
     let html = '<thead><tr><th></th>';
-    for (let j = 0; j < n; j++) html += `<th>${tex(`{}_{${j+1}}`)}</th>`;
+    for (let fj = 0; fj < N; fj++) {
+      const [J, b] = blockOf(fj);
+      const cls = (fj > 0 && b === 0) ? 'block-left' : '';
+      const lbl = ms[J] > 1 ? `{}_{${J+1},${b+1}}` : `{}_{${J+1}}`;
+      html += `<th class="${cls}">${tex(lbl)}</th>`;
+    }
     html += '</tr></thead><tbody>';
-    for (let i = 0; i < n; i++) {
-      html += `<tr><td class="row-label">${tex(`{}_{${i+1}}`)}</td>`;
-      for (let j = 0; j < n; j++) {
-        html += `<td><div class="cx-pair">` +
-          `<input class="cx" data-i="${i}" data-j="${j}" data-axis="re" placeholder="Re" />` +
-          `<input class="cx" data-i="${i}" data-j="${j}" data-axis="im" placeholder="Im" />` +
+    for (let fi = 0; fi < N; fi++) {
+      const [I, a] = blockOf(fi);
+      const trCls = (fi > 0 && a === 0) ? 'block-top' : '';
+      html += `<tr class="${trCls}">`;
+      const rLbl = ms[I] > 1 ? `{}_{${I+1},${a+1}}` : `{}_{${I+1}}`;
+      html += `<td class="row-label">${tex(rLbl)}</td>`;
+      for (let fj = 0; fj < N; fj++) {
+        const [J, b] = blockOf(fj);
+        const cls = (fj > 0 && b === 0) ? 'block-left' : '';
+        html += `<td class="${cls}"><div class="cx-pair">` +
+          `<input class="cx" data-i="${fi}" data-j="${fj}" data-axis="re" placeholder="Re" />` +
+          `<input class="cx" data-i="${fi}" data-j="${fj}" data-axis="im" placeholder="Im" />` +
           `</div></td>`;
       }
       html += '</tr>';
@@ -455,33 +495,75 @@ async function main() {
     refreshRecomputeBtn();
   }
 
+  /** Stokes 矩阵网格: N×N flat grid, 按块结构加视觉分隔.
+   * 对角块 (I, I) 显示单位 m_I × m_I (1/0).
+   * 非对角块 (I, J) 显示 m_I × m_J entry 矩阵 (从 entry.value_block 取 (a, b)).
+   * 点击任意 sub-cell 选 block (I, J).
+   */
   function buildStokesMatrix() {
     const sm = document.getElementById('stokes-matrix')!;
-    sm.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+    const ms = state.mOverrides ?? dataset.m_sizes;
+    const N = ms.reduce((a, b) => a + b, 0);
+    const starts = blockStarts(ms);
+    const blockOf = (fi: number) => {
+      for (let k = ms.length - 1; k >= 0; k--) if (fi >= starts[k]) return [k, fi - starts[k]];
+      return [-1, -1];
+    };
+    sm.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
     sm.innerHTML = '';
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
+    for (let fi = 0; fi < N; fi++) {
+      const [I, a] = blockOf(fi);
+      for (let fj = 0; fj < N; fj++) {
+        const [J, b] = blockOf(fj);
         const cell = document.createElement('div');
-        cell.className = 'sm-cell' + (i === j ? ' diag' : '');
-        cell.dataset.i = String(i);
-        cell.dataset.j = String(j);
-        if (i !== j) cell.addEventListener('click', () => selectEntry(i, j));
+        cell.className = 'sm-cell' + (I === J ? ' diag' : '');
+        if (fi > 0 && a === 0) cell.classList.add('block-top');
+        if (fj > 0 && b === 0) cell.classList.add('block-left');
+        cell.dataset.i = String(I);
+        cell.dataset.j = String(J);
+        cell.dataset.a = String(a);
+        cell.dataset.b = String(b);
+        if (I !== J) cell.addEventListener('click', () => selectEntry(I, J));
         sm.appendChild(cell);
       }
     }
     refreshStokesMatrix();
   }
-  /** 取 entry value 并乘 paper monodromy phase 把 cached d_sample 值修到 d_user 处. */
-  function entryDisplayValue(e: { value_re?: number; value_im?: number },
-                              d_sample: number, i: number, j: number): { re: number; im: number } {
-    const re0 = e.value_re ?? 0, im0 = e.value_im ?? 0;
-    const A_diag = dataset.A_diag;
-    const ph = monodromyPhase(currentD, d_sample, A_diag[i], A_diag[j]);
-    // (re0+im0i)·(ph.re+ph.im i)
+
+  /** 取 entry value_block 的 (a, b) sub-entry, 乘 paper monodromy phase.
+   *
+   * paper L1056: S_{d+2kπ} = e^{-2kπi δ_u A} S_d e^{2kπi δ_u A}
+   * 取 (I, a; J, b) entry: (S_{d+2kπ})_{Ia, Jb} = e^{-2kπi A_{Ia,Ia}} · (S_d)_{Ia,Jb} · e^{2kπi A_{Jb,Jb}}
+   * Simple-spectrum 退化为 monodromyPhase scalar 公式.
+   *
+   * 当前简化: 块版只支持 m=0 (sample d 同周期) phase=1. m≠0 时 console.warn 不修正
+   * (块版 left-right 矩阵 exp 修正后续做). */
+  function entryDisplayValue(
+    e: SdEntryData, d_sample: number, i: number, j: number, a = 0, b = 0,
+  ): ComplexNum {
+    // 优先从 value_block 取 (a, b) entry (块版); 否则用 value_re/value_im (老 simple schema).
+    let re0: number, im0: number;
+    if (e.value_block && e.value_block[a] && e.value_block[a][b]) {
+      re0 = e.value_block[a][b].re;
+      im0 = e.value_block[a][b].im;
+    } else {
+      re0 = e.value_re ?? 0;
+      im0 = e.value_im ?? 0;
+    }
+    // 块版 phase 修正 (block-diagonal A): 用每 sub-index 对应的对角谱值.
+    const A_ii = blockDiagValue(i, a);
+    const A_jj = blockDiagValue(j, b);
+    const ph = monodromyPhase(currentD, d_sample, A_ii, A_jj);
     return {
       re: re0 * ph.re - im0 * ph.im,
       im: re0 * ph.im + im0 * ph.re,
     };
+  }
+
+  /** 取 block I 的 sub-index a 对应的 A 对角值 (块对角谱). 块版从 A_diag_block, 否则 A_diag. */
+  function blockDiagValue(I: number, a: number): number {
+    if (dataset.A_diag_block && dataset.A_diag_block[I]) return dataset.A_diag_block[I][a];
+    return dataset.A_diag[I];  // simple case 退化
   }
 
   /** 复数 entry 渲染为 HTML grid (4 列: sign | 整数 | 小数 | i).
@@ -511,23 +593,29 @@ async function main() {
   function refreshStokesMatrix() {
     const sm = document.getElementById('stokes-matrix')!;
     const ch = dataset.chambers[state.selectedChamber];
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        const cell = sm.children[i * n + j] as HTMLElement;
-        if (i === j) {
-          cell.innerHTML = tex('1');
-          continue;
-        }
-        const e = ch.entries[`${i},${j}`];
-        const sel = !!(state.selectedEntry &&
-          state.selectedEntry[0] === i && state.selectedEntry[1] === j);
-        cell.classList.toggle('selected', sel);
-        if (!e || e.error) {
-          cell.innerHTML = `<span style="color: var(--bad)">!</span>`;
-        } else {
-          const v = entryDisplayValue(e, ch.d, i, j);
-          cell.innerHTML = renderComplex(v);
-        }
+    const cells = sm.children;
+    for (let k = 0; k < cells.length; k++) {
+      const cell = cells[k] as HTMLElement;
+      const I = Number(cell.dataset.i!);
+      const J = Number(cell.dataset.j!);
+      const a = Number(cell.dataset.a!);
+      const b = Number(cell.dataset.b!);
+      if (I === J) {
+        // 对角块 = identity sub-cell (a==b ? 1 : 0)
+        cell.innerHTML = a === b
+          ? '<span class="cs-int">1</span>'
+          : '<span class="cs-zero">0</span>';
+        continue;
+      }
+      const e = ch.entries[`${I},${J}`];
+      const sel = !!(state.selectedEntry &&
+        state.selectedEntry[0] === I && state.selectedEntry[1] === J);
+      cell.classList.toggle('selected', sel);
+      if (!e || e.error) {
+        cell.innerHTML = `<span style="color: var(--bad)">!</span>`;
+      } else {
+        const v = entryDisplayValue(e, ch.d, I, J, a, b);
+        cell.innerHTML = renderComplex(v);
       }
     }
   }
@@ -575,10 +663,24 @@ async function main() {
         <div class="value" style="color: var(--bad)">FAIL: ${e.error}</div>`;
       return;
     }
-    const v = entryDisplayValue(e, ch.d, i, j);
-    el.innerHTML =
-      `<div class="label">${tex(labelTex)}</div>` +
-      `<div class="value">${renderComplex(v, 5)}</div>`;
+    // 块版: 列出整个 m_i × m_j sub-block (每行 m_j 个 entry).
+    const m_i = e.m_i ?? 1, m_j = e.m_j ?? 1;
+    let blockHtml = '';
+    if (m_i === 1 && m_j === 1) {
+      const v = entryDisplayValue(e, ch.d, i, j, 0, 0);
+      blockHtml = `<div class="value">${renderComplex(v, 5)}</div>`;
+    } else {
+      blockHtml = '<div class="block-grid" style="display:grid;'
+        + `grid-template-columns:repeat(${m_j}, 1fr);gap:6px;margin-top:4px">`;
+      for (let a = 0; a < m_i; a++) {
+        for (let b = 0; b < m_j; b++) {
+          const v = entryDisplayValue(e, ch.d, i, j, a, b);
+          blockHtml += `<div class="block-sub-cell">${renderComplex(v, 4)}</div>`;
+        }
+      }
+      blockHtml += '</div>';
+    }
+    el.innerHTML = `<div class="label">${tex(labelTex)}</div>` + blockHtml;
   }
 
   function updatePathInfo() {

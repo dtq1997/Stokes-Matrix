@@ -4,12 +4,21 @@ export interface ComplexNum { re: number; im: number; }
 
 export interface Puncture { re: number; im: number; }
 
-export interface AOff { i: number; j: number; re: number; im: number; }
+// A_off entry: (i, j) 是块下标; (a, b) sub-index 在 block case 时存在,
+// simple case (m_k=1) 时省略 → 默认 (0, 0).
+export interface AOff {
+  i: number; j: number;
+  a?: number; b?: number;
+  re: number; im: number;
+}
 
 export interface SdEntryData {
-  value_re?: number;
+  value_re?: number;            // block[0,0] 显示用 scalar (向后兼容 simple-case 老 schema).
   value_im?: number;
-  path?: ComplexNum[];          // waypoints, 含起点 u_i, 终点 u_target ≈ u_j
+  value_block?: ComplexNum[][]; // 完整 m_i × m_j block (block case 必有, simple 也存 1×1).
+  m_i?: number;
+  m_j?: number;
+  path?: ComplexNum[];
   tau_code?: number;
   theta_t_lift?: number;
   error?: string;
@@ -24,10 +33,11 @@ export interface ChamberData {
 
 export interface SimpleDataset {
   punctures: Puncture[];
-  A_diag: number[];
+  A_diag: number[];              // n 个标量 (每块 [0,0] 谱). 兼容老 schema.
+  A_diag_block?: number[][];     // 块版: n × m_k 谱矩阵 (块 k 对角的 m_k 个值).
   A_off: AOff[];
   m_sizes: number[];
-  rays: number[];                // paper anti-Stokes: -arg(u_p-u_q) mod 2π, sorted ∈ [0, 2π)
+  rays: number[];
   chambers: ChamberData[];
 }
 

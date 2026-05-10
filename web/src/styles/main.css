@@ -389,6 +389,23 @@ h3 {
   text-align: center;
   align-items: center;
 }
+
+/* 块结构分隔: block-top/left 加粗边框 (块边界视觉分隔, 区分 m_k>1 的子块) */
+#stokes-matrix .sm-cell.block-top { border-top: 2px solid var(--accent); border-top-color: rgba(92, 200, 255, 0.4); }
+#stokes-matrix .sm-cell.block-left { border-left: 2px solid var(--accent); border-left-color: rgba(92, 200, 255, 0.4); }
+
+/* A 表块分隔 */
+.a-table td.block-left, .a-table th.block-left { border-left: 2px solid rgba(92, 200, 255, 0.4); }
+.a-table tr.block-top td, .a-table tr.block-top th { border-top: 2px solid rgba(92, 200, 255, 0.4); }
+
+/* Selected entry 详细面板的 block sub-cell */
+.block-sub-cell {
+  background: var(--bg-elev);
+  padding: 4px 6px;
+  border-radius: 2px;
+  font-family: 'KaTeX_Main', 'Times New Roman', serif;
+  font-size: 11px;
+}
 #stokes-matrix .sm-cell.selected {
   border-color: var(--accent);
   background: rgba(92, 200, 255, 0.1);
