@@ -484,6 +484,16 @@ async function main() {
     };
   }
 
+  /** 复数 entry 格式化: `a + b\,i`. 模长 ≈ 0 → '0'. */
+  function fmtComplex(v: { re: number; im: number }, precision = 2): string {
+    const mag = Math.hypot(v.re, v.im);
+    if (mag < 5 * 10 ** -(precision + 1)) return '0';
+    const re = v.re.toFixed(precision);
+    const sign = v.im >= 0 ? '+' : '-';
+    const imAbs = Math.abs(v.im).toFixed(precision);
+    return `${re} ${sign} ${imAbs}\\,\\mathrm{i}`;
+  }
+
   function refreshStokesMatrix() {
     const sm = document.getElementById('stokes-matrix')!;
     const ch = dataset.chambers[state.selectedChamber];
@@ -502,11 +512,7 @@ async function main() {
           cell.innerHTML = `<span style="color: var(--bad)">!</span>`;
         } else {
           const v = entryDisplayValue(e, ch.d, i, j);
-          const mag = Math.hypot(v.re, v.im);
-          const argDeg = Math.atan2(v.im, v.re) * 180 / Math.PI;
-          cell.innerHTML =
-            `<div><div class="sm-mag">${tex(mag.toFixed(2))}</div>` +
-            `<div class="sm-arg">${tex(`${argDeg >= 0 ? '+' : ''}${argDeg.toFixed(0)}^\\circ`)}</div></div>`;
+          cell.innerHTML = tex(fmtComplex(v));
         }
       }
     }
@@ -556,13 +562,9 @@ async function main() {
       return;
     }
     const v = entryDisplayValue(e, ch.d, i, j);
-    const reS = v.re.toFixed(5);
-    const imS = (v.im >= 0 ? '+' : '') + v.im.toFixed(5);
-    const mag = Math.hypot(v.re, v.im).toFixed(5);
     el.innerHTML =
       `<div class="label">${tex(labelTex)}</div>` +
-      `<div class="value">${tex(`${reS} ${imS} \\mathrm{i}`)}</div>` +
-      `<div class="label" style="margin-top: 12px">${tex(`|\\,\\cdot\\,| = ${mag}`)}</div>`;
+      `<div class="value">${tex(fmtComplex(v, 5))}</div>`;
   }
 
   function updatePathInfo() {

@@ -379,6 +379,7 @@ h3 {
   font-size: 9px;
 }
 
+
 /* SVG element styling */
 .axis-line { stroke: var(--fg-muted); stroke-width: 1; opacity: 0.18; }
 .axis-tick { fill: var(--fg-muted); opacity: 0.6; }
