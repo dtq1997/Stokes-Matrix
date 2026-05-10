@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 
-// GitHub Pages: 部署到 https://dtq1997.github.io/path-algebroid/
+// GitHub Pages: 部署到 https://dtq1997.github.io/Stokes-Matrix/
 // VITE_BASE 环境变量在 CI 里设, 本地 dev 走 '/'
 const base = process.env.VITE_BASE || '/';
 

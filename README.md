@@ -1,6 +1,6 @@
 # Path Algebroid Viz — Stokes Matrix Interactive Visualizer
 
-[![Live Demo](https://img.shields.io/badge/demo-live-2ea44f)](https://dtq1997.github.io/path-algebroid/)
+[![Live Demo](https://img.shields.io/badge/demo-live-2ea44f)](https://dtq1997.github.io/Stokes-Matrix/)
 
 非奇异 ODE 系统 Stokes 矩阵 + path algebroid 的交互式可视化。每个 entry $(S_d)_{ij}$ 对应代数胚里 $\boldsymbol{\gamma}_{ij}^{(d)}$ 的几何代表元 — 用户可以拖动顶点（同伦类内）、拖动 punctures（沿 isomonodromy 流演化 A）、连续切换方向 d。
 

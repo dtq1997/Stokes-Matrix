@@ -34,7 +34,7 @@ jobs:
       - run: npm run test:e2e
       - name: Build
         env:
-          VITE_BASE: /path-algebroid/
+          VITE_BASE: /Stokes-Matrix/
         run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
