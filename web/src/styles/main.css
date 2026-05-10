@@ -347,16 +347,21 @@ h3 {
 }
 #stokes-matrix .sm-cell {
   background: var(--bg-elev);
-  padding: 5px 4px;
+  padding: 4px 6px;
   border-radius: 2px;
   border: 1px solid transparent;
   cursor: pointer;
-  text-align: center;
-  line-height: 1.2;
-  min-height: 30px;
+  line-height: 1.1;
+  min-height: 38px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   justify-content: center;
+  gap: 1px;
+}
+#stokes-matrix .sm-re, #stokes-matrix .sm-im {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 #stokes-matrix .sm-cell:hover { background: #232932; }
 #stokes-matrix .sm-cell.diag {
@@ -364,6 +369,8 @@ h3 {
   cursor: default;
   color: var(--fg-muted);
   font-size: 12px;
+  text-align: center;
+  align-items: center;
 }
 #stokes-matrix .sm-cell.selected {
   border-color: var(--accent);
