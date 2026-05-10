@@ -65,12 +65,14 @@ async function main() {
 
   function setD(d: number, source: 'slider' | 'input' | 'init' = 'init') {
     currentD = d;
-    const k = Math.floor(d / (2 * Math.PI));
-    const lo = 2 * k * Math.PI;
-    const hi = (2 * k + 2) * Math.PI;
-    slider.min = String(lo);
-    slider.max = String(hi);
-    if (source !== 'slider') slider.value = String(d);
+    // slider 源拖动时不重算 k 区间, 避免边界浮点把 k 跳到 -4 之类
+    // 只有 input 框 / init 才切区间
+    if (source !== 'slider') {
+      const k = Math.floor(d / (2 * Math.PI));
+      slider.min = String(2 * k * Math.PI);
+      slider.max = String((2 * k + 2) * Math.PI);
+      slider.value = String(d);
+    }
     if (source !== 'input') dInput.value = formatPi(d / Math.PI);
     canvas.setDirection(d);
     const newCh = chamberOfDirection(d, chamberDs);
@@ -122,14 +124,10 @@ async function main() {
   }
 
   function updateDReadout() {
-    const d = currentD;
-    const k = Math.floor(d / (2 * Math.PI));
-    const deg = (d * 180 / Math.PI).toFixed(1);
-    const chDPi = (dataset.chambers[state.selectedChamber].d / Math.PI).toFixed(4);
-    dReadout.innerHTML =
-      `<span class="dim">${deg}° &nbsp; k=${k} &nbsp; range [${2*k}π, ${2*k+2}π]</span><br/>` +
-      `chamber ${state.selectedChamber + 1}/${dataset.chambers.length} ` +
-      `<span class="dim">@ d̂ = ${chDPi} π</span>`;
+    const k = Math.floor(currentD / (2 * Math.PI));
+    const lo = 2 * k === 0 ? '0' : `${2*k}π`;
+    const hi = 2 * k + 2 === 0 ? '0' : `${2*k+2}π`;
+    dReadout.innerHTML = `range [${lo}, ${hi}]`;
   }
 
   // 初始化默认值

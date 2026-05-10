@@ -2,9 +2,9 @@
   --bg: #0d0f12;
   --bg-panel: #14171c;
   --bg-elev: #1a1e25;
-  --fg: #e6e8eb;
-  --fg-dim: #9099a6;
-  --fg-muted: #5c6573;
+  --fg: #f0f3f8;
+  --fg-dim: #c1c8d4;
+  --fg-muted: #8a93a3;
   --accent: #5cc8ff;
   --accent-2: #ffb86c;
   --accent-3: #ff79c6;
@@ -74,8 +74,8 @@ h3 {
   color: var(--fg-muted);
 }
 
-.dim { color: var(--fg-muted); font-weight: 400; }
-.mono { font-family: var(--font-mono); font-size: 11px; color: var(--fg-dim); }
+.dim { color: var(--fg-dim); font-weight: 400; }
+.mono { font-family: var(--font-mono); font-size: 12px; color: var(--fg); }
 
 #entry-grid {
   display: grid;
