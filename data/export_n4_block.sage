@@ -82,15 +82,17 @@ print(f"n=4 m=(2,2,2,2) → N={N}, rays={len(rays)}, chambers={len(chambers)}")
 
 # dataset header
 def _pack_A_off():
-    """简单展开 N×N matrix 的非对角块成 list (兼容老 schema 用; viz 块版要看 value_block).
-    每个 (I, J) block 的每个非零 entry 一个 record."""
+    """展开 N×N 矩阵的所有非对角 entry: 含跨块 (I≠J) + 块内 off-diag (I=J, a≠b).
+    块对角 (I=J, a=b) 谱已在 A_diag_block, 不重复 dump.
+    viz monodromyTransforms 需要完整 A_II 块矩阵做 expm, 之前漏块内 off-diag
+    让 paper 共轭因子算错."""
     out = []
     for I in range(4):
         for J in range(4):
-            if I == J: continue
             sI, sJ = starts[I], starts[J]
             for a in range(2):
                 for b in range(2):
+                    if I == J and a == b: continue  # 谱在 A_diag_block
                     v = complex(A_global[sI+a, sJ+b])
                     if abs(v) > 1e-12:
                         out.append({
