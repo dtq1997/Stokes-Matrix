@@ -1,7 +1,7 @@
 import type { SimpleDataset } from './types.js';
 
 export async function loadDataset(): Promise<SimpleDataset> {
-  // import.meta.env.BASE_URL 在 GH Pages 下 = "/path-algebroid-viz/", 本地 = "/"
+  // import.meta.env.BASE_URL 在 GH Pages 下 = "/path-algebroid/", 本地 = "/"
   const url = `${import.meta.env.BASE_URL}data/n4_simple.json`.replace(/\/+/g, '/');
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Failed to load dataset: ${r.status}`);
