@@ -165,7 +165,9 @@ def recompute(inp):
                     other_dists = [abs(complex(U_list[l]) - u_j_f)
                                    for l in range(n) if l not in (i, j)]
                     target_dist = 0.5 * min(other_dists) if other_dists else 0.5 * abs(u_i_f - u_j_f)
-                    u_target = u_j_f + target_dist * complex(math.cos(d), math.sin(d))
+                    # u_target = u_j - ε·e^{-id}, 让 arg(u_j - u_target) = -d = paper τ_paper.
+                    # 详见 compute_Sd_entry.sage 内同款注释.
+                    u_target = u_j_f - target_dist * complex(math.cos(-d), math.sin(-d))
                     U_others = [complex(U_list[k]) for k in range(n)
                                 if k != i and k != j]
                     wp = pl_path_in_chamber(u_i_f, u_target, U_others, d,
