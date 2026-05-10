@@ -269,10 +269,18 @@ async function main() {
   backendOnline().then(ok => {
     backendAvailable = ok;
     if (ok) {
-      recomputeStatus.textContent = 'backend online :8000';
+      recomputeStatus.innerHTML = '<span style="color:var(--good)">● backend online :8000</span>';
     } else {
-      recomputeStatus.textContent = '';   // 不挤占空间, button disabled 已表达
-      recomputeBtn.title = 'Recompute 需本地后端: sage -python server/push_server.py';
+      // GH Pages 部署没 backend, 按钮永久锁. 清楚告诉用户为啥 + 怎么本地启用.
+      recomputeStatus.innerHTML =
+        '<div style="color:var(--fg-muted);font-size:11px;line-height:1.4;margin-top:4px">' +
+        '<span style="color:var(--warn,#d4a76a)">● Demo mode</span> — backend 离线, 改 U/A/m 无法重算.<br/>' +
+        '本地启用 (改 input → 真重算):<br/>' +
+        '<code style="background:var(--bg-elev);padding:1px 4px;border-radius:2px;font-size:10px">' +
+        'cd 60-outputs/sd-viz/server && sage -python push_server.py</code><br/>' +
+        '然后 npm run dev (localhost:5174) 改输入即时重算.' +
+        '</div>';
+      recomputeBtn.title = '需本地后端: sage -python server/push_server.py';
     }
     refreshRecomputeBtn();
   });
