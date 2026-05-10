@@ -100,6 +100,26 @@ test.describe('Sd-viz smoke tests', () => {
     expect(cut0).not.toBe(cut1);
   });
 
+  test('chamberOfDirection: ray-interval 不是最近 center', async ({ page }) => {
+    // n=4 simple case 含相邻很近 anti-Stokes (16.19° 跟 350.91°), wrap chamber
+    // center 在 3.55°, 下一 chamber center 36.73°. d=18° 在 (16.19, 57.26) 内
+    // (chamber idx 跟 ray idx 对应), 但离 3.55° 比离 36.73° 更近 → 旧 nearest
+    // 算法选错 chamber.
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    const dInput = page.locator('#d-input');
+    // d = 0.1 π = 18°
+    await dInput.fill('0.1');
+    await dInput.press('Enter');
+    await page.click('#entry-grid .cell:nth-child(2)'); // (0,1)
+    const stokes18 = await page.locator('#stokes-display .value').textContent();
+    // d = 0.12 π ≈ 21.6°, 同一 chamber, entry 应该一样
+    await dInput.fill('0.12');
+    await dInput.press('Enter');
+    const stokes22 = await page.locator('#stokes-display .value').textContent();
+    expect(stokes18).toBe(stokes22);
+  });
+
   test('输入框: 分数 + 自动选 k 区间', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');

@@ -131,45 +131,24 @@ export function modTwoPi(x: number): number {
 
 /**
  * 给定 d, 找包含它的 chamber 索引.
- * 用 anti-Stokes rays 划分 [0, 2π): chamber k 对应区间 (rays_sorted[k], rays_sorted[k+1]).
- * dataset.chambers[k].d 是该区间中点 (export 时按 ray-pair 顺序生成).
+ * Anti-Stokes rays 划分 [0, 2π) 成 chamber 数 = rays 数; 第 k 个 chamber 是
+ * (sortedRays[k], sortedRays[k+1]) (k=last 时绕回到 sortedRays[0]+2π).
+ * dataset.chambers[k] 严格对应这个 ray-interval (sage 端 chamber_midpoints 按
+ * sorted ray 顺序生成 → dataset 顺序 ≡ sorted ray-interval 顺序).
  *
- * 不能用"找最近 chamber center" — chamber 间距不均匀, 某些 d 离错 chamber center 更近.
+ * 严禁用"找最近 chamber center" — chamber 不等宽, 某些 d 离错 chamber center 更近.
  */
 export function chamberOfDirection(d: number, rays: number[], chamberDs: number[]): number {
-  const tp = 2 * Math.PI;
+  if (rays.length !== chamberDs.length) {
+    throw new Error(
+      `chamberOfDirection: rays.length=${rays.length} ≠ chamberDs.length=${chamberDs.length}; dataset 不一致`
+    );
+  }
   const dMod = modTwoPi(d);
   const sortedRays = [...rays].sort((a, b) => a - b);
-
-  // 找 dMod 在哪个 ray-interval (sortedRays[k], sortedRays[k+1])
-  let intervalIdx = sortedRays.length - 1;  // wrap 默认: dMod 在 (last, first + 2π)
   for (let k = 0; k < sortedRays.length - 1; k++) {
-    if (dMod >= sortedRays[k] && dMod < sortedRays[k + 1]) {
-      intervalIdx = k;
-      break;
-    }
+    if (dMod >= sortedRays[k] && dMod < sortedRays[k + 1]) return k;
   }
-  // wrap case: dMod < sortedRays[0] 也属于 last interval
-  if (dMod < sortedRays[0]) intervalIdx = sortedRays.length - 1;
-
-  // 算该 interval 的 midpoint
-  const a = sortedRays[intervalIdx];
-  const b = intervalIdx === sortedRays.length - 1
-    ? sortedRays[0] + tp
-    : sortedRays[intervalIdx + 1];
-  let mid = (a + b) / 2;
-  if (mid >= tp) mid -= tp;
-
-  // 找 chamberDs 中最接近 mid 的 idx (export 顺序跟 ray-pair 顺序一致 by construction)
-  let bestIdx = 0;
-  let bestDist = Infinity;
-  for (let i = 0; i < chamberDs.length; i++) {
-    const dist = Math.min(
-      Math.abs(chamberDs[i] - mid),
-      Math.abs(chamberDs[i] + tp - mid),
-      Math.abs(chamberDs[i] - tp - mid),
-    );
-    if (dist < bestDist) { bestDist = dist; bestIdx = i; }
-  }
-  return bestIdx;
+  // wrap: dMod 在 (last, 2π) ∪ [0, first) 都属于最后一个 chamber
+  return sortedRays.length - 1;
 }
