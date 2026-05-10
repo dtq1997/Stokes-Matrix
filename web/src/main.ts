@@ -5,6 +5,7 @@ import type { VizState, ComplexNum, PathRep } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
 import { chamberOfDirection } from './lib/geometry.js';
 import { parsePiInput, formatPi } from './lib/pi-input.js';
+import { buildPathForViz } from './lib/pl-path.js';
 
 function tex(s: string, displayMode = false): string {
   return katex.renderToString(s, { displayMode, throwOnError: false, strict: false });
@@ -105,12 +106,12 @@ async function main() {
     if (source !== 'input') dInput.value = formatPi(d / Math.PI);
     canvas.setDirection(d);
     const newCh = chamberOfDirection(d, chamberDs);
-    if (newCh !== state.selectedChamber) {
-      state.selectedChamber = newCh;
-      refreshAllPaths();
-      canvas.setState(state);
-      refreshStokesMatrix();
-    }
+    const chamberChanged = newCh !== state.selectedChamber;
+    state.selectedChamber = newCh;
+    // d 每变, path PL 代表元跟着重 build (cut 转, path 也跟着转)
+    refreshAllPaths();
+    canvas.setState(state);
+    if (chamberChanged) refreshStokesMatrix();
     updateDReadout();
     updateStokesPanel();
     updatePathInfo();
@@ -516,17 +517,21 @@ async function main() {
     state.paths.clear();
     if (!state.selectedEntry) return;
     const [i, j] = state.selectedEntry;
-    const ch = dataset.chambers[state.selectedChamber];
-    const e = ch.entries[`${i},${j}`];
-    if (!e || !e.path) return;
-    const verts: ComplexNum[] = e.path.map(p => ({ re: p.re, im: p.im }));
+    const punctures = state.punctureOverrides ?? dataset.punctures;
+    let verts: ComplexNum[];
+    try {
+      // 实时构造 PL path 给当前 d (跟 cut 同步转, 同 chamber 内同伦不变但代表元 d-依赖)
+      verts = buildPathForViz(i, j, currentD, punctures);
+    } catch (err) {
+      // 退化构型, 用 dataset 的 fallback
+      const ch = dataset.chambers[state.selectedChamber];
+      const e = ch.entries[`${i},${j}`];
+      if (!e || !e.path) return;
+      verts = e.path.map(p => ({ re: p.re, im: p.im }));
+      console.warn(`buildPathForViz fail for (${i},${j}) d=${currentD}: ${(err as Error).message}; 用 dataset path fallback`);
+    }
     const id = `${i},${j}`;
-    state.paths.set(id, {
-      i, j,
-      vertices: verts,
-      homotopyId: id,
-      liftIndex: 0,
-    });
+    state.paths.set(id, { i, j, vertices: verts, homotopyId: id, liftIndex: 0 });
   }
 
   function updateStokesPanel() {

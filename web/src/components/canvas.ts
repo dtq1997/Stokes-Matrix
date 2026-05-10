@@ -35,6 +35,20 @@ export class Canvas {
     this.state = state;
     this.onStateChange = onStateChange;
     this.dCurrent = state.dataset.chambers[state.selectedChamber]?.d ?? 0;
+    // SVG defs: arrow marker
+    const defs = this.svg.append('defs');
+    defs.append('marker')
+      .attr('id', 'arrow-end')
+      .attr('viewBox', '0 -4 8 8')
+      .attr('refX', 7)
+      .attr('refY', 0)
+      .attr('markerWidth', 8)
+      .attr('markerHeight', 8)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d', 'M0,-3 L7,0 L0,3 z')
+      .attr('fill', 'var(--accent-3)');
+
     this.root = this.svg.append('g').attr('class', 'root');
     this.layers = {
       axes: this.root.append('g').attr('class', 'layer-axes'),
@@ -191,6 +205,7 @@ export class Canvas {
 
   private renderPaths() {
     const arr = Array.from(this.state.paths.values());
+    // path line + arrow at end (via marker-end)
     this.layers.paths.selectAll<SVGPathElement, PathRep>('path.path-line')
       .data(arr, (d: any) => d.homotopyId)
       .join(
@@ -198,7 +213,29 @@ export class Canvas {
         update => update,
         exit => exit.remove(),
       )
-      .attr('d', p => d3.line()(p.vertices.map(v => this.toPx(v)) as any));
+      .attr('d', p => {
+        // 让箭头落在 puncture 边缘外 ~10px (避免被 puncture circle 盖住)
+        const pts = p.vertices.map(v => this.toPx(v));
+        if (pts.length < 2) return null;
+        const last = pts[pts.length - 1];
+        const prev = pts[pts.length - 2];
+        const dx = last[0] - prev[0], dy = last[1] - prev[1];
+        const len = Math.hypot(dx, dy);
+        if (len > 12) {
+          pts[pts.length - 1] = [last[0] - dx / len * 10, last[1] - dy / len * 10];
+        }
+        return d3.line()(pts as any);
+      });
+    // 起点大圆点
+    this.layers.paths.selectAll<SVGCircleElement, PathRep>('circle.path-start-dot')
+      .data(arr, (d: any) => d.homotopyId + '-start')
+      .join(
+        enter => enter.append('circle').attr('class', 'path-start-dot').attr('r', 4),
+        update => update,
+        exit => exit.remove(),
+      )
+      .attr('cx', p => this.toPx(p.vertices[0])[0])
+      .attr('cy', p => this.toPx(p.vertices[0])[1]);
   }
 
   private renderVertices() {
