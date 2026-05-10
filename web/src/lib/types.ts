@@ -46,5 +46,7 @@ export interface VizState {
   selectedChamber: number;       // chambers[].索引
   selectedEntry: [number, number] | null; // (i, j)
   paths: Map<string, PathRep>;   // 当前 displayed paths, key = "i,j"
-  punctureOverrides: Puncture[] | null; // 用户拖动后的 U (null = 用 dataset 默认)
+  punctureOverrides: Puncture[] | null; // 用户拖动 / U 表后的值 (null = 默认)
+  AOverrides: ComplexNum[][] | null;     // 用户编辑后的 A (n×n 复矩阵)
+  stokesStale: boolean;                  // A/U 改了 Stokes 数值还没重算
 }

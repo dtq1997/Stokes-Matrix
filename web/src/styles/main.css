@@ -32,7 +32,7 @@ html, body {
 
 #app {
   display: grid;
-  grid-template-columns: 240px 1fr 280px;
+  grid-template-columns: 320px 1fr 360px;
   height: 100vh;
   gap: 1px;
   background: var(--border);
@@ -191,6 +191,123 @@ h3 {
   padding: 10px;
   border-radius: 4px;
   white-space: pre-wrap;
+}
+
+/* ---------- State (U, A) tables ---------- */
+.state-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.state-table th {
+  font-weight: 500;
+  color: var(--fg-muted);
+  text-align: center;
+  padding: 2px 0;
+}
+.state-table td {
+  background: var(--bg-elev);
+  padding: 0;
+  border-radius: 2px;
+}
+.state-table input.cx {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 4px;
+  outline: none;
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+.state-table input.cx:focus { border-color: var(--accent); background: var(--bg); }
+.state-table input.cx.invalid { border-color: var(--bad); }
+.state-table .cx-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+}
+.state-table .row-label {
+  color: var(--fg-muted);
+  text-align: right;
+  padding-right: 4px;
+  font-size: 11px;
+}
+.state-table.a-table { font-size: 10px; }
+.state-table.a-table input.cx { font-size: 9px; padding: 2px 3px; }
+
+.state-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.btn-secondary {
+  background: var(--bg-elev);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 3px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 100ms ease;
+}
+.btn-secondary:hover { background: var(--border); }
+.stale-banner {
+  font-size: 10px;
+  color: var(--warn);
+  background: rgba(255, 184, 108, 0.1);
+  border: 1px solid rgba(255, 184, 108, 0.25);
+  border-radius: 3px;
+  padding: 6px 8px;
+  line-height: 1.4;
+}
+
+/* ---------- Stokes matrix grid (right panel) ---------- */
+#stokes-matrix {
+  display: grid;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin-bottom: 12px;
+}
+#stokes-matrix .sm-cell {
+  background: var(--bg-elev);
+  padding: 5px 4px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: center;
+  line-height: 1.2;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#stokes-matrix .sm-cell:hover { background: #232932; }
+#stokes-matrix .sm-cell.diag {
+  background: transparent;
+  cursor: default;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+#stokes-matrix .sm-cell.selected {
+  border-color: var(--accent);
+  background: rgba(92, 200, 255, 0.1);
+}
+#stokes-matrix .sm-mag {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 500;
+}
+#stokes-matrix .sm-arg {
+  color: var(--fg-muted);
+  font-size: 9px;
 }
 
 /* SVG element styling */

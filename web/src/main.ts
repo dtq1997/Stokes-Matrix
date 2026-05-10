@@ -1,8 +1,21 @@
+import katex from 'katex';
 import { loadDataset } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
 import { chamberOfDirection } from './lib/geometry.js';
 import { parsePiInput, formatPi } from './lib/pi-input.js';
+
+function tex(s: string, displayMode = false): string {
+  return katex.renderToString(s, { displayMode, throwOnError: false, strict: false });
+}
+function renderAllTex(root: ParentNode = document) {
+  root.querySelectorAll<HTMLElement>('[data-tex]').forEach(el => {
+    const src = el.dataset.tex!;
+    if (el.dataset.texRendered === src) return;
+    el.innerHTML = tex(src);
+    el.dataset.texRendered = src;
+  });
+}
 
 const fmtComplex = (re: number, im: number, digits = 4) => {
   const r = re.toFixed(digits);
@@ -14,12 +27,24 @@ const fmtComplex = (re: number, im: number, digits = 4) => {
 async function main() {
   const dataset = await loadDataset();
 
+  const n = dataset.punctures.length;
+  // 初始 A 从 dataset.A_diag + A_off 装回 n×n 复矩阵
+  const initialA: ComplexNum[][] = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) =>
+      i === j
+        ? { re: dataset.A_diag[i], im: 0 }
+        : { re: 0, im: 0 }
+    ));
+  for (const e of dataset.A_off) initialA[e.i][e.j] = { re: e.re, im: e.im };
+
   const state: VizState = {
     dataset,
     selectedChamber: 0,
     selectedEntry: null,
     paths: new Map(),
-    punctureOverrides: null,
+    punctureOverrides: dataset.punctures.map(p => ({ ...p })),
+    AOverrides: initialA.map(row => row.map(c => ({ ...c }))),
+    stokesStale: false,
   };
 
   const onStateChange = (_s: VizState) => {
@@ -32,15 +57,12 @@ async function main() {
 
   // ---------- left panel: entry grid ----------
   const grid = document.getElementById('entry-grid')!;
-  const n = dataset.punctures.length;
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
       const cell = document.createElement('div');
       cell.className = 'cell' + (i === j ? ' diag' : '');
-      cell.textContent = i === j ? '·' : `${i + 1}${j + 1}`;
-      if (i !== j) {
-        cell.addEventListener('click', () => selectEntry(i, j));
-      }
+      cell.innerHTML = i === j ? '·' : tex(`{}_{${i+1}${j+1}}`);
+      if (i !== j) cell.addEventListener('click', () => selectEntry(i, j));
       grid.appendChild(cell);
     }
   }
@@ -80,6 +102,7 @@ async function main() {
       state.selectedChamber = newCh;
       refreshAllPaths();
       canvas.setState(state);
+      refreshStokesMatrix();
     }
     updateDReadout();
     updateStokesPanel();
@@ -125,13 +148,160 @@ async function main() {
 
   function updateDReadout() {
     const k = Math.floor(currentD / (2 * Math.PI));
-    const lo = 2 * k === 0 ? '0' : `${2*k}π`;
-    const hi = 2 * k + 2 === 0 ? '0' : `${2*k+2}π`;
-    dReadout.innerHTML = `range [${lo}, ${hi}]`;
+    const loTex = 2 * k === 0 ? '0' : (2*k === 1 ? '\\pi' : `${2*k}\\pi`);
+    const hiTex = 2 * k + 2 === 0 ? '0' : (2*k+2 === 1 ? '\\pi' : `${2*k+2}\\pi`);
+    dReadout.innerHTML = tex(`d \\in [${loTex},\\ ${hiTex}]`);
   }
+
+  // ---------- left panel: U / A 表格, reset ----------
+  buildUTable();
+  buildATable();
+  buildStokesMatrix();
+  document.getElementById('state-reset')!.addEventListener('click', () => {
+    state.punctureOverrides = dataset.punctures.map(p => ({ ...p }));
+    state.AOverrides = initialA.map(row => row.map(c => ({ ...c })));
+    state.stokesStale = false;
+    refreshUTable();
+    refreshATable();
+    updateStaleBanner();
+    canvas.setState(state);
+  });
 
   // 初始化默认值
   setD(currentD, 'init');
+
+  function fmtNum(x: number): string {
+    if (x === 0) return '0';
+    return x.toFixed(4).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  }
+
+  function buildUTable() {
+    const t = document.getElementById('u-table')!;
+    let html = `<thead><tr><th></th><th>${tex('\\mathrm{Re}')}</th><th>${tex('\\mathrm{Im}')}</th></tr></thead><tbody>`;
+    for (let k = 0; k < n; k++) {
+      html += `<tr><td class="row-label">${tex(`u_{${k+1}}`)}</td>` +
+        `<td><input class="cx" data-k="${k}" data-axis="re" /></td>` +
+        `<td><input class="cx" data-k="${k}" data-axis="im" /></td></tr>`;
+    }
+    html += '</tbody>';
+    t.innerHTML = html;
+    refreshUTable();
+    t.addEventListener('change', onUEdit);
+  }
+  function refreshUTable() {
+    const ps = state.punctureOverrides!;
+    document.querySelectorAll<HTMLInputElement>('#u-table input.cx').forEach(input => {
+      const k = Number(input.dataset.k!);
+      const axis = input.dataset.axis as 're' | 'im';
+      input.value = fmtNum(ps[k][axis]);
+    });
+  }
+  function onUEdit(e: Event) {
+    const t = e.target as HTMLInputElement;
+    if (!t.classList.contains('cx')) return;
+    const v = Number(t.value);
+    if (!Number.isFinite(v)) { t.classList.add('invalid'); return; }
+    t.classList.remove('invalid');
+    const k = Number(t.dataset.k!);
+    const axis = t.dataset.axis as 're' | 'im';
+    state.punctureOverrides![k][axis] = v;
+    state.stokesStale = true;
+    updateStaleBanner();
+    canvas.setState(state);
+  }
+
+  function buildATable() {
+    const t = document.getElementById('a-table') as HTMLTableElement;
+    t.classList.add('a-table');
+    let html = '<thead><tr><th></th>';
+    for (let j = 0; j < n; j++) html += `<th>${tex(`{}_{${j+1}}`)}</th>`;
+    html += '</tr></thead><tbody>';
+    for (let i = 0; i < n; i++) {
+      html += `<tr><td class="row-label">${tex(`{}_{${i+1}}`)}</td>`;
+      for (let j = 0; j < n; j++) {
+        html += `<td><div class="cx-pair">` +
+          `<input class="cx" data-i="${i}" data-j="${j}" data-axis="re" placeholder="Re" />` +
+          `<input class="cx" data-i="${i}" data-j="${j}" data-axis="im" placeholder="Im" />` +
+          `</div></td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody>';
+    t.innerHTML = html;
+    refreshATable();
+    t.addEventListener('change', onAEdit);
+  }
+  function refreshATable() {
+    const A = state.AOverrides!;
+    document.querySelectorAll<HTMLInputElement>('#a-table input.cx').forEach(input => {
+      const i = Number(input.dataset.i!);
+      const j = Number(input.dataset.j!);
+      const axis = input.dataset.axis as 're' | 'im';
+      input.value = fmtNum(A[i][j][axis]);
+    });
+  }
+  function onAEdit(e: Event) {
+    const t = e.target as HTMLInputElement;
+    if (!t.classList.contains('cx')) return;
+    const v = Number(t.value);
+    if (!Number.isFinite(v)) { t.classList.add('invalid'); return; }
+    t.classList.remove('invalid');
+    const i = Number(t.dataset.i!);
+    const j = Number(t.dataset.j!);
+    const axis = t.dataset.axis as 're' | 'im';
+    state.AOverrides![i][j][axis] = v;
+    state.stokesStale = true;
+    updateStaleBanner();
+  }
+
+  function updateStaleBanner() {
+    const b = document.getElementById('state-stale-banner')!;
+    b.hidden = !state.stokesStale;
+  }
+
+  function buildStokesMatrix() {
+    const sm = document.getElementById('stokes-matrix')!;
+    sm.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+    sm.innerHTML = '';
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const cell = document.createElement('div');
+        cell.className = 'sm-cell' + (i === j ? ' diag' : '');
+        cell.dataset.i = String(i);
+        cell.dataset.j = String(j);
+        if (i !== j) cell.addEventListener('click', () => selectEntry(i, j));
+        sm.appendChild(cell);
+      }
+    }
+    refreshStokesMatrix();
+  }
+  function refreshStokesMatrix() {
+    const sm = document.getElementById('stokes-matrix')!;
+    const ch = dataset.chambers[state.selectedChamber];
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const cell = sm.children[i * n + j] as HTMLElement;
+        if (i === j) {
+          cell.innerHTML = tex('1');
+          continue;
+        }
+        const e = ch.entries[`${i},${j}`];
+        const sel = !!(state.selectedEntry &&
+          state.selectedEntry[0] === i && state.selectedEntry[1] === j);
+        cell.classList.toggle('selected', sel);
+        if (!e || e.error) {
+          cell.innerHTML = `<span style="color: var(--bad)">!</span>`;
+        } else {
+          const re = e.value_re ?? 0, im = e.value_im ?? 0;
+          const mag = Math.hypot(re, im);
+          const argDeg = Math.atan2(im, re) * 180 / Math.PI;
+          cell.innerHTML =
+            `<div><div class="sm-mag">${tex(mag.toFixed(2))}</div>` +
+            `<div class="sm-arg">${tex(`${argDeg >= 0 ? '+' : ''}${argDeg.toFixed(0)}^\\circ`)}</div></div>`;
+        }
+      }
+    }
+  }
 
   function selectEntry(i: number, j: number) {
     state.selectedEntry = [i, j];
@@ -141,6 +311,7 @@ async function main() {
     });
     refreshAllPaths();
     canvas.setState(state);
+    refreshStokesMatrix();
     updateStokesPanel();
     updatePathInfo();
   }
@@ -172,14 +343,20 @@ async function main() {
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];
     if (!e) { el.innerHTML = '<span class="label">no data</span>'; return; }
+    const labelTex = `(S_d)_{${i+1}${j+1}}`;
     if (e.error) {
-      el.innerHTML = `<span class="label">(S<sub>d</sub>)<sub>${i+1},${j+1}</sub></span>
+      el.innerHTML = `<div class="label">${tex(labelTex)}</div>
         <div class="value" style="color: var(--bad)">FAIL: ${e.error}</div>`;
       return;
     }
-    el.innerHTML = `<span class="label">(S<sub>d</sub>)<sub>${i+1},${j+1}</sub></span>
-      <div class="value">${fmtComplex(e.value_re ?? 0, e.value_im ?? 0)}</div>
-      <div class="label" style="margin-top: 12px">|·| = ${Math.hypot(e.value_re ?? 0, e.value_im ?? 0).toFixed(5)}</div>`;
+    const re = e.value_re ?? 0, im = e.value_im ?? 0;
+    const reS = re.toFixed(5);
+    const imS = (im >= 0 ? '+' : '') + im.toFixed(5);
+    const mag = Math.hypot(re, im).toFixed(5);
+    el.innerHTML =
+      `<div class="label">${tex(labelTex)}</div>` +
+      `<div class="value">${tex(`${reS} ${imS} \\mathrm{i}`)}</div>` +
+      `<div class="label" style="margin-top: 12px">${tex(`|\\,\\cdot\\,| = ${mag}`)}</div>`;
   }
 
   function updatePathInfo() {
@@ -189,14 +366,16 @@ async function main() {
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];
     if (!e || !e.path) { el.textContent = '—'; return; }
-    const lines = [
-      `vertices: ${e.path.length}`,
-      `τ_code = ${e.tau_code?.toFixed(4) ?? '—'}`,
-      `θ_t lift = ${e.theta_t_lift?.toFixed(4) ?? '—'}`,
-    ];
-    el.textContent = lines.join('\n');
+    const tau = e.tau_code?.toFixed(4) ?? '—';
+    const lift = e.theta_t_lift?.toFixed(4) ?? '—';
+    el.innerHTML =
+      `<div>vertices: ${e.path.length}</div>` +
+      `<div>${tex(`\\tau_{\\mathrm{code}} = ${tau}`)}</div>` +
+      `<div>${tex(`\\theta_t\\ \\mathrm{lift} = ${lift}`)}</div>`;
   }
 
+  // 入口处渲染所有 data-tex 标签
+  renderAllTex(document);
 }
 
 main().catch(err => {

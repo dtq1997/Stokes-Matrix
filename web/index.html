@@ -10,25 +10,38 @@
   <body>
     <div id="app">
       <aside id="left-panel">
-        <h2>Entries <span class="dim">(i, j)</span></h2>
-        <div id="entry-grid"></div>
-        <h3>Direction <span class="mono">d</span></h3>
+        <h2>Input</h2>
+        <h3>Punctures <span data-tex="U = \mathrm{diag}(u_1, \ldots, u_n)"></span></h3>
+        <table id="u-table" class="state-table"></table>
+        <h3>Spectral matrix <span data-tex="A \in \mathrm{Mat}_n(\mathbb{C})"></span></h3>
+        <table id="a-table" class="state-table"></table>
+        <div class="state-actions">
+          <div id="state-stale-banner" class="stale-banner" hidden>
+            <span data-tex="(U, A)"></span> 已改, Stokes 数值是旧 dataset (Phase 1.5 接后端实时重算)
+          </div>
+          <button id="state-reset" class="btn-secondary">Reset</button>
+        </div>
+        <h3>Direction <span data-tex="d"></span></h3>
         <div id="d-input-wrap" class="mono">
-          <span class="dim">d =</span>
+          <span data-tex="d ="></span>
           <input id="d-input" type="text" inputmode="decimal" autocomplete="off" />
-          <span class="dim">π</span>
+          <span data-tex="\pi"></span>
         </div>
         <div id="d-slider-wrap"></div>
         <div id="d-readout" class="mono"></div>
+        <h3>Entry <span data-tex="(i, j)"></span></h3>
+        <div id="entry-grid"></div>
       </aside>
       <main id="canvas-wrap">
         <svg id="canvas"></svg>
         <div id="hud" class="mono"></div>
       </main>
       <aside id="right-panel">
-        <h2>(S<sub>d</sub>)<sub>ij</sub></h2>
+        <h2>Stokes matrix <span data-tex="S_d"></span></h2>
+        <div id="stokes-matrix"></div>
+        <h3>Selected entry</h3>
         <div id="stokes-display"></div>
-        <h3>Path <span class="dim">γ<sub>ij</sub><sup>(d)</sup></span></h3>
+        <h3>Path info <span data-tex="\boldsymbol{\gamma}_{ij}^{(d)}"></span></h3>
         <div id="path-info" class="mono"></div>
       </aside>
     </div>
