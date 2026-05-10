@@ -60,6 +60,22 @@ export class Canvas {
       punctures: this.root.append('g').attr('class', 'layer-punctures'),
       overlay: this.root.append('g').attr('class', 'layer-overlay'),
     };
+
+    // 滚轮缩放 + 拖拽平移. scaleExtent [0.1, 20] 给充分缩放范围.
+    // filter: 排除 puncture/path-vertex 上的 wheel/drag (不打断 puncture 拖动).
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.1, 20])
+      .filter((event) => {
+        if (event.type === 'wheel') return true;       // 滚轮缩放总开
+        // 拖拽平移: 不在 puncture/path-vertex 上才允许 (避免抢 drag)
+        const target = event.target as Element;
+        return !target.closest('.puncture, .path-vertex, .path-start-dot');
+      })
+      .on('zoom', (event) => {
+        this.root.attr('transform', event.transform.toString());
+      });
+    this.svg.call(zoom);
+
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }

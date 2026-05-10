@@ -162,55 +162,41 @@ def recompute(inp):
                 try:
                     u_i_f = complex(U_list[i])
                     u_j_f = complex(U_list[j])
-                    other_dists = [abs(complex(U_list[l]) - u_j_f)
-                                   for l in range(n) if l not in (i, j)]
-                    target_dist = 0.5 * min(other_dists) if other_dists else 0.5 * abs(u_i_f - u_j_f)
-                    # u_target = u_j - ε·e^{-id}, 让 arg(u_j - u_target) = -d = paper τ_paper.
-                    # 详见 compute_Sd_entry.sage 内同款注释.
-                    u_target = u_j_f - target_dist * complex(math.cos(-d), math.sin(-d))
-                    U_others = [complex(U_list[k]) for k in range(n)
-                                if k != i and k != j]
-                    wp = pl_path_in_chamber(u_i_f, u_target, U_others, d,
-                                             epsilon_factor=0.3, verbose=False)
-                    full_path = [u_i_f] + list(wp)
-                    # lift: 起点 θ_s = -d, 终点 θ_t = arg(u_j - u_i_pushed) lift to (-d-π, -d+π)
-                    diff = u_target - u_i_f
-                    theta_t_raw = math.atan2(diff.imag, diff.real)
-                    # lift to closest 2π mod center -d
-                    twopi = 2 * math.pi
-                    theta_t = theta_t_raw
-                    while theta_t > -d + math.pi: theta_t -= twopi
-                    while theta_t < -d - math.pi: theta_t += twopi
-                    theta_s = -d  # 起点 θ_s = -d (paper convention)
+                    # SSOT: 直接调 compute_Sd_entry, 让算法决定 u_target/wp/lift.
+                    # runner 不自己重算 — 否则两边公式分叉就 silent wrong.
+                    val, info = compute_Sd_entry(
+                        U_list, A_global, m_sizes,
+                        i, j, d,
+                        p_base=400, p_factor=3, verbose=(i==3 and j==0 and ch_idx==0),
+                    )
+                    # 算法实际走的 PL: u_i + algo_wp (含 u_target).
+                    full_path = [u_i_f] + list(info['algo_wp'])
+                    # cache key: 同伦 signature (path 圈数 + lift)
+                    theta_t = info['theta_t_lift']
+                    theta_s = -d
                     sig = homotopy_signature(full_path, U_list, i, j, theta_s, theta_t)
+                    # display_path = beautify_path(algo_wp): 当前恒等(viz 显示算法跑的真实几何),
+                    # 将来可换平滑曲线/Bezier 等视觉美化, 但必须跟 algo_wp 同伦
+                    # (不撞 cut/puncture, 同样 winding). 末段补 → u_j 表示 ε→0 极限到 puncture.
+                    display_path = list(full_path) + [complex(U_list[j])]
                     if sig in cache:
                         cached = cache[sig]
-                        # 显示算法实际走的几何 (含 u_target ε-偏移点) + 最后画一段 → u_j 表示极限.
-                        display_path_hit = list(full_path) + [complex(U_list[j])]
                         chamber_data['entries'][f'{i},{j}'] = {
                             'value_re': cached['value_re'],
                             'value_im': cached['value_im'],
-                            'path': pack_path(display_path_hit),
-                            'tau_code': float(-theta_t),
+                            'path': pack_path(display_path),
+                            'tau_code': float(info['tau_code']),
                             'theta_t_lift': float(theta_t),
                             '_cache': 'hit',
                         }
                         cache_hits += 1
                         continue
-                    val, info = compute_Sd_entry(
-                        U_list, A_global, m_sizes,
-                        i, j, d, waypoints=wp,
-                        p_base=400, p_factor=3, verbose=(i==3 and j==0 and ch_idx==0),
-                    )
-                    # Visualization: 如实显示算法走的 PL (含 u_target = u_j+ε·e^{id}),
-                    # 末段补 → u_j 表示极限到 puncture (ODE 实际进不去 u_j 因为奇异).
-                    display_path = list(full_path) + [complex(U_list[j])]
                     entry = {
                         'value_re': float(val.real),
                         'value_im': float(val.imag),
                         'path': pack_path(display_path),
                         'tau_code': float(info['tau_code']),
-                        'theta_t_lift': float(info['theta_t_lift']),
+                        'theta_t_lift': float(theta_t),
                     }
                     cache[sig] = entry
                     cache_miss += 1
