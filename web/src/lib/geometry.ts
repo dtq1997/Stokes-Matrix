@@ -130,17 +130,44 @@ export function modTwoPi(x: number): number {
 }
 
 /**
- * 给定 d, 找最近的 chamber 索引 (chambers 是按 d 升序的代表方向).
+ * 给定 d, 找包含它的 chamber 索引.
+ * 用 anti-Stokes rays 划分 [0, 2π): chamber k 对应区间 (rays_sorted[k], rays_sorted[k+1]).
+ * dataset.chambers[k].d 是该区间中点 (export 时按 ray-pair 顺序生成).
+ *
+ * 不能用"找最近 chamber center" — chamber 间距不均匀, 某些 d 离错 chamber center 更近.
  */
-export function chamberOfDirection(d: number, chamberDs: number[]): number {
+export function chamberOfDirection(d: number, rays: number[], chamberDs: number[]): number {
+  const tp = 2 * Math.PI;
   const dMod = modTwoPi(d);
+  const sortedRays = [...rays].sort((a, b) => a - b);
+
+  // 找 dMod 在哪个 ray-interval (sortedRays[k], sortedRays[k+1])
+  let intervalIdx = sortedRays.length - 1;  // wrap 默认: dMod 在 (last, first + 2π)
+  for (let k = 0; k < sortedRays.length - 1; k++) {
+    if (dMod >= sortedRays[k] && dMod < sortedRays[k + 1]) {
+      intervalIdx = k;
+      break;
+    }
+  }
+  // wrap case: dMod < sortedRays[0] 也属于 last interval
+  if (dMod < sortedRays[0]) intervalIdx = sortedRays.length - 1;
+
+  // 算该 interval 的 midpoint
+  const a = sortedRays[intervalIdx];
+  const b = intervalIdx === sortedRays.length - 1
+    ? sortedRays[0] + tp
+    : sortedRays[intervalIdx + 1];
+  let mid = (a + b) / 2;
+  if (mid >= tp) mid -= tp;
+
+  // 找 chamberDs 中最接近 mid 的 idx (export 顺序跟 ray-pair 顺序一致 by construction)
   let bestIdx = 0;
   let bestDist = Infinity;
   for (let i = 0; i < chamberDs.length; i++) {
     const dist = Math.min(
-      Math.abs(chamberDs[i] - dMod),
-      Math.abs(chamberDs[i] + 2 * Math.PI - dMod),
-      Math.abs(chamberDs[i] - 2 * Math.PI - dMod),
+      Math.abs(chamberDs[i] - mid),
+      Math.abs(chamberDs[i] + tp - mid),
+      Math.abs(chamberDs[i] - tp - mid),
     );
     if (dist < bestDist) { bestDist = dist; bestIdx = i; }
   }

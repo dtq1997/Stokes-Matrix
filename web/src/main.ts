@@ -105,7 +105,7 @@ async function main() {
     }
     if (source !== 'input') dInput.value = formatPi(d / Math.PI);
     canvas.setDirection(d);
-    const newCh = chamberOfDirection(d, chamberDs);
+    const newCh = chamberOfDirection(d, dataset.rays, chamberDs);
     const chamberChanged = newCh !== state.selectedChamber;
     state.selectedChamber = newCh;
     // d 每变, path PL 代表元跟着重 build (cut 转, path 也跟着转)
@@ -301,7 +301,7 @@ async function main() {
       chamberDs.length = 0;
       chamberDs.push(...newDs.chambers.map(c => c.d));
       buildMarkerStrip(markStrip);
-      state.selectedChamber = chamberOfDirection(currentD, chamberDs);
+      state.selectedChamber = chamberOfDirection(currentD, dataset.rays, chamberDs);
       state.stokesStale = false;
       refreshAllPaths();
       canvas.setState(state);
