@@ -1,7 +1,7 @@
 import type { SimpleDataset } from './types.js';
 
 export async function loadDataset(): Promise<SimpleDataset> {
-  // import.meta.env.BASE_URL 在 GH Pages 下 = "/Stokes-Matrix/", 本地 = "/"
+  // BASE_URL: GH Pages = "/Stokes-Matrix/", 本地 dev = "/". cache-bust v= 强制每次拉新.
   // cache-bust query 强制浏览器拉最新 dataset, 否则 deploy 后旧 dataset 可能残留.
   const url = `${import.meta.env.BASE_URL}data/n4_simple.json?v=${Date.now()}`.replace(/([^:])\/+/g, '$1/');
   const r = await fetch(url);

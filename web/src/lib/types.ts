@@ -34,13 +34,11 @@ export interface SimpleDataset {
 // ---------- 前端运行时状态 ----------
 
 export interface PathRep {
-  // 显示出来的几何代表元 — vertices (含起点终点)
+  // 显示出来的几何代表元 — vertices (含起点 u_i, 终点 u_j)
   i: number;                     // block 起点
   j: number;                     // block 终点
-  vertices: ComplexNum[];        // [u_i, ...waypoints, u_target]
-  // 同伦类不变量 (此期 = i, j, chamber_idx, lift)
+  vertices: ComplexNum[];        // dataset.path 原样: [u_i, ...waypoints, u_target, u_j]
   homotopyId: string;
-  liftIndex: number;             // 端点 lift 整数 (跨 cut 时 ±1)
 }
 
 export interface VizState {

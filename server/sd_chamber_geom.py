@@ -1,16 +1,10 @@
-"""SSOT: anti-Stokes rays + chamber_midpoints 共享实现.
+"""SSOT: anti-Stokes rays + chamber sample d + dataset 生成的共享实现.
 
 Used by:
 - 60-outputs/sd-viz/data/export_n4_simple.sage
 - 60-outputs/sd-viz/server/recompute_runner.sage
 
 Paper convention: anti-Stokes ray for ordered pair (p, q) is -arg(u_q - u_p) mod 2π.
-
-chamber_midpoints 输出 mid ∈ (-π, π], 不在 [0, 2π).
-Why: mid 喂给 compute_Stau 当 tau, 内部 arg_near(., -tau) 选 lift; 若 mid 在 [0, 2π)
-约定下相邻 chamber 跨 0/2π wrap (e.g. ch_a mid≈6.09, ch_b mid≈0.06 差 ≈2π), 跨边界
-时 lift 集体 +2π 给 entry 多 spurious exp(2πi·(A_ss-A_tt)). 压到 (-π, π] 后相邻
-chamber mid 在数轴上连续, lift 不再跳.
 """
 import math
 

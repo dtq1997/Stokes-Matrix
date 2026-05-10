@@ -5,7 +5,6 @@ import type { VizState, ComplexNum, PathRep } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
 import { chamberOfDirection, monodromyPhase } from './lib/geometry.js';
 import { parsePiInput, formatPi } from './lib/pi-input.js';
-import { buildPathForViz } from './lib/pl-path.js';
 
 function tex(s: string, displayMode = false): string {
   return katex.renderToString(s, { displayMode, throwOnError: false, strict: false });
@@ -51,6 +50,12 @@ async function main() {
   };
 
   const onStateChange = (_s: VizState) => {
+    // canvas 触发 (拖 puncture / path vertex) 后, 标 Stokes 数值 stale.
+    // path-vertex drag 不改 punctureOverrides 但 path 几何变了 — 数值还是旧 dataset 的
+    // 值 (因为算法走的 algo_wp 没变, 同伦类 cache 命中). 这里宁可标 stale 用户决定.
+    state.stokesStale = !!state.punctureOverrides || !!state.AOverrides;
+    refreshRecomputeBtn();
+    updateStaleBanner();
     updateStokesPanel();
     updatePathInfo();
   };
@@ -84,7 +89,6 @@ async function main() {
   const dReadout = document.getElementById('d-readout')!;
   const dInput = document.getElementById('d-input') as HTMLInputElement;
 
-  const chamberDs = dataset.chambers.map(c => c.d);
 
   const markStrip = document.createElement('div');
   markStrip.id = 'd-marker-strip';
@@ -105,7 +109,7 @@ async function main() {
     }
     if (source !== 'input') dInput.value = formatPi(d / Math.PI);
     canvas.setDirection(d);
-    const newCh = chamberOfDirection(d, dataset.rays, chamberDs);
+    const newCh = chamberOfDirection(d, dataset.rays);
     state.selectedChamber = newCh;
     // d 每变, path PL 代表元跟着重 build (cut 转, path 也跟着转)
     refreshAllPaths();
@@ -290,10 +294,8 @@ async function main() {
       // 替换 dataset 内容
       Object.keys(dataset).forEach(k => delete (dataset as any)[k]);
       Object.assign(dataset, newDs);
-      chamberDs.length = 0;
-      chamberDs.push(...newDs.chambers.map(c => c.d));
       buildMarkerStrip(markStrip);
-      state.selectedChamber = chamberOfDirection(currentD, dataset.rays, chamberDs);
+      state.selectedChamber = chamberOfDirection(currentD, dataset.rays);
       state.stokesStale = false;
       refreshAllPaths();
       canvas.setState(state);
@@ -524,16 +526,14 @@ async function main() {
     state.paths.clear();
     if (!state.selectedEntry) return;
     const [i, j] = state.selectedEntry;
-    // SSOT: 直接读 dataset.path (sage 端 compute_Sd_entry 算出的 algo_wp 真相).
-    // 不再 client 端用 buildPathForViz 重算 — 那是第三处 path 实现, 跟 sage 算法分叉的 silent wrong 来源.
-    // d 改变时, dataset.path 跟着 chamber 走 (chamber 内 d 变化, path 形状不重算 —
-    // 数学上同 chamber 内任意 d 给同一同伦类, path 几何代表元用 chamber midpoint 即可).
+    // SSOT: 直接读 dataset.path (sage compute_Sd_entry 算出的 algo_wp). 同 chamber
+    // 内 d 变 path 几何不变 (chamber-local 同伦不变性).
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];
     if (!e || !e.path) return;
     const verts: ComplexNum[] = e.path.map(p => ({ re: p.re, im: p.im }));
     const id = `${i},${j}`;
-    state.paths.set(id, { i, j, vertices: verts, homotopyId: id, liftIndex: 0 });
+    state.paths.set(id, { i, j, vertices: verts, homotopyId: id });
   }
 
   function updateStokesPanel() {

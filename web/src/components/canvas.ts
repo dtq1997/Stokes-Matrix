@@ -3,7 +3,7 @@
 
 import * as d3 from 'd3';
 import type { VizState, ComplexNum, PathRep } from '../lib/types.js';
-import { C, pathPathIntersections, homotopyPreserved } from '../lib/geometry.js';
+import { C, pathPathIntersections } from '../lib/geometry.js';
 
 interface ViewBox { xMin: number; xMax: number; yMin: number; yMax: number; }
 
@@ -361,27 +361,11 @@ export class Canvas {
     const ps = (this.state.punctureOverrides ?? this.state.dataset.punctures).map((p, i) =>
       i === k ? newPos : p);
     this.state.punctureOverrides = ps;
-    // path 起点/终点没变 (起点 = u_i, 终点 = u_target ≈ u_j, 但 u_i/u_j 跟着 puncture 移动)
-    // 第一阶段简化: 让 path 起点/终点跟着 puncture 移, 中间 vertex 保留用户拖动后的位置
-    this.state.paths.forEach(path => {
-      // path.i 是 block index of starting puncture
-      if (path.vertices.length >= 1) {
-        path.vertices[0] = ps[path.i];
-      }
-      // 终点也跟着 u_j 走 (保持 path 起终点连贯)
-      if (path.vertices.length >= 2) {
-        const last = path.vertices.length - 1;
-        // target_dist 跟 d 方向不变, 跟 u_j 一起平移即可 (Phase 1 简化: 直接挪到 u_j)
-        const ujOld = (this.state.punctureOverrides ?? this.state.dataset.punctures)[path.j];
-        // 注意: 此时 punctureOverrides 已经更新, 不能再读
-        // 直接把终点挪到 ps[path.j] 附近 (用 d 方向的小偏移占位, 后端 push 后会修正)
-        path.vertices[last] = { ...ps[path.j] };
-      }
-    });
+    // path 不动 — dataset 还没重算, 旧 path 的几何/数值都是旧 puncture 配置下的真相;
+    // 改 path 端点会让几何跟数值脱节. 让 path 保留旧形 (视觉上指向旧 puncture 位置),
+    // 等用户点 Recompute 拉新 dataset 再 refreshAllPaths.
+    // main.ts 那边监听 onStateChange 标 stokesStale=true.
     this.renderCuts();
-    this.renderPaths();
-    this.renderVertices();
-    this.renderIntersections();
     this.renderPunctures();
     this.onStateChange(this.state);
   }

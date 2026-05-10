@@ -1,7 +1,6 @@
-// 几何原语: 复数运算, 线段-线段交, 扫掠三角形 puncture 包含判定.
-// 全部纯函数, 不依赖 D3.
+// 几何原语 + chamber 索引 + paper monodromy phase. 全部纯函数, 不依赖 D3.
 
-import type { ComplexNum, Puncture } from './types.js';
+import type { ComplexNum } from './types.js';
 
 export const C = {
   add: (a: ComplexNum, b: ComplexNum): ComplexNum => ({ re: a.re + b.re, im: a.im + b.im }),
@@ -52,76 +51,6 @@ export function pathPathIntersections(
 }
 
 /**
- * 三角形 [P, Q, R] 是否包含点 X (含边).
- */
-export function triangleContains(P: ComplexNum, Q: ComplexNum, R: ComplexNum, X: ComplexNum): boolean {
-  const sign = (a: ComplexNum, b: ComplexNum, c: ComplexNum) =>
-    (a.re - c.re) * (b.im - c.im) - (b.re - c.re) * (a.im - c.im);
-  const d1 = sign(X, P, Q);
-  const d2 = sign(X, Q, R);
-  const d3 = sign(X, R, P);
-  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
-  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
-  return !(hasNeg && hasPos);
-}
-
-/**
- * 拖动 path vertex 从 oldPos 到 newPos, 邻居为 prev/next.
- * 旧路径 [prev, oldPos, next] 跟新路径 [prev, newPos, next] 之间扫出两个三角形:
- *   T1 = [prev, oldPos, newPos], T2 = [next, oldPos, newPos]
- * 任何 puncture 落入 T1 ∪ T2 → 同伦类变了 → 拒绝.
- */
-export function homotopyPreserved(
-  prev: ComplexNum,
-  oldPos: ComplexNum,
-  newPos: ComplexNum,
-  next: ComplexNum,
-  punctures: Puncture[],
-): { ok: boolean; offending?: number } {
-  for (let k = 0; k < punctures.length; k++) {
-    const u = punctures[k];
-    if (
-      triangleContains(prev, oldPos, newPos, u) ||
-      triangleContains(next, oldPos, newPos, u)
-    ) {
-      return { ok: false, offending: k };
-    }
-  }
-  return { ok: true };
-}
-
-/**
- * 折线穿过沿 -d 方向 cut (从 u_k 出发) 的次数 (有向, 跟 lift 跳变正负相关).
- * cut: { u_k + t · e^{-i d} : t ≥ 0 }
- */
-export function cutCrossings(
-  vertices: ComplexNum[], punctures: Puncture[], d: number,
-): Array<{ k: number; segIdx: number; sign: number; P: ComplexNum }> {
-  const out: Array<{ k: number; segIdx: number; sign: number; P: ComplexNum }> = [];
-  const dir: ComplexNum = C.expI(-d);
-  for (let segIdx = 0; segIdx < vertices.length - 1; segIdx++) {
-    const a = vertices[segIdx];
-    const b = vertices[segIdx + 1];
-    const segDir = C.sub(b, a);
-    for (let k = 0; k < punctures.length; k++) {
-      const u = punctures[k];
-      // ray-segment 交: 段参数化 a + s*(b-a), s∈(0,1); ray u + t*dir, t > 0
-      const rhs = C.sub(u, a);
-      const det = segDir.re * (-dir.im) - (-dir.re) * segDir.im;
-      if (Math.abs(det) < 1e-12) continue;
-      const s = (rhs.re * (-dir.im) - (-dir.re) * rhs.im) / det;
-      const t = (segDir.re * rhs.im - rhs.re * segDir.im) / det;
-      if (s <= 1e-9 || s >= 1 - 1e-9 || t <= 1e-9) continue;
-      // sign = 段方向跨 cut 是 ccw 还是 cw 相对 cut 方向
-      // cross(segDir, dir) > 0 → ccw 跨, lift +1
-      const sign = (segDir.re * dir.im - segDir.im * dir.re) > 0 ? 1 : -1;
-      out.push({ k, segIdx, sign, P: { re: a.re + s * segDir.re, im: a.im + s * segDir.im } });
-    }
-  }
-  return out;
-}
-
-/**
  * 把绝对方向角 d 落入区间 [0, 2π).
  */
 export function modTwoPi(x: number): number {
@@ -156,24 +85,17 @@ export function monodromyPhase(
 
 /**
  * 给定 d, 找包含它的 chamber 索引.
- * Anti-Stokes rays 划分 [0, 2π) 成 chamber 数 = rays 数; 第 k 个 chamber 是
- * (sortedRays[k], sortedRays[k+1]) (k=last 时绕回到 sortedRays[0]+2π).
- * dataset.chambers[k] 严格对应这个 ray-interval (sage 端 chamber_midpoints 按
- * sorted ray 顺序生成 → dataset 顺序 ≡ sorted ray-interval 顺序).
+ * rays 必须已 sorted 升序 (sage 端 anti_stokes_rays 已 sort). chamber k 对应
+ * ray-interval (rays[k], rays[k+1]) (k=last 时绕回到 rays[0]+2π).
+ * dataset.chambers[k] 顺序严格对齐 (sage chamber_midpoints 按同顺序生成).
  *
  * 严禁用"找最近 chamber center" — chamber 不等宽, 某些 d 离错 chamber center 更近.
  */
-export function chamberOfDirection(d: number, rays: number[], chamberDs: number[]): number {
-  if (rays.length !== chamberDs.length) {
-    throw new Error(
-      `chamberOfDirection: rays.length=${rays.length} ≠ chamberDs.length=${chamberDs.length}; dataset 不一致`
-    );
-  }
+export function chamberOfDirection(d: number, rays: number[]): number {
   const dMod = modTwoPi(d);
-  const sortedRays = [...rays].sort((a, b) => a - b);
-  for (let k = 0; k < sortedRays.length - 1; k++) {
-    if (dMod >= sortedRays[k] && dMod < sortedRays[k + 1]) return k;
+  for (let k = 0; k < rays.length - 1; k++) {
+    if (dMod >= rays[k] && dMod < rays[k + 1]) return k;
   }
   // wrap: dMod 在 (last, 2π) ∪ [0, first) 都属于最后一个 chamber
-  return sortedRays.length - 1;
+  return rays.length - 1;
 }
