@@ -28,13 +28,16 @@ load(os.path.join(_WS, "50-computation/compute_Sd_entry.sage"))
 
 
 def anti_stokes_rays(U):
+    """Paper convention: aS(u) = {-arg(u_p - u_q) mod 2π} for ordered pairs.
+    几何: cut 从 u_q 出发沿 -d 撞 u_p 时 d = -arg(u_p - u_q).
+    跨这条 ray 时 Im((u_p - u_q) e^{id}) 跨零 → σ_d 邻位 transposition."""
     rays = set()
     twopi = 2 * math.pi
     for i in range(len(U)):
         for j in range(len(U)):
             if i == j: continue
             diff = U[i] - U[j]
-            ang = math.atan2(diff.imag, diff.real) % twopi
+            ang = (-math.atan2(diff.imag, diff.real)) % twopi
             rays.add(round(ang, 10))
     rays.add(0.0)
     rays.add(round(math.pi, 10))
@@ -181,10 +184,11 @@ def recompute(inp):
                     sig = homotopy_signature(full_path, U_list, i, j, theta_s, theta_t)
                     if sig in cache:
                         cached = cache[sig]
+                        display_path_hit = list(full_path[:-1]) + [complex(U_list[j])]
                         chamber_data['entries'][f'{i},{j}'] = {
                             'value_re': cached['value_re'],
                             'value_im': cached['value_im'],
-                            'path': pack_path(full_path),
+                            'path': pack_path(display_path_hit),
                             'tau_code': float(-theta_t),
                             'theta_t_lift': float(theta_t),
                             '_cache': 'hit',
@@ -196,10 +200,13 @@ def recompute(inp):
                         i, j, d, waypoints=wp,
                         p_base=400, p_factor=3, verbose=False,
                     )
+                    # Visualization: path 端点应该是 puncture u_j, 不是 ε-偏移的 u_target
+                    # (内部 evaluation 用 u_target 因为 u_j 是奇异点 ODE 进不去)
+                    display_path = list(full_path[:-1]) + [complex(U_list[j])]
                     entry = {
                         'value_re': float(val.real),
                         'value_im': float(val.imag),
-                        'path': pack_path(full_path),
+                        'path': pack_path(display_path),
                         'tau_code': float(info['tau_code']),
                         'theta_t_lift': float(info['theta_t_lift']),
                     }
