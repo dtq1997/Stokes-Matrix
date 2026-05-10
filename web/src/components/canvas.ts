@@ -100,18 +100,13 @@ export class Canvas {
   private fitViewBox() {
     const ps = this.state.punctureOverrides ?? this.state.dataset.punctures;
     const pts: ComplexNum[] = [...ps];
-    // 所有 chamber 内所有 path waypoints 一起进 bbox, 不论当前选哪个
-    for (const ch of this.state.dataset.chambers) {
-      for (const k of Object.keys(ch.entries)) {
-        const e = ch.entries[k];
-        if (e.path) for (const p of e.path) pts.push(p);
-      }
-    }
+    // bbox 只用 punctures, 不含 path waypoints — path 现在用 -N·e^{-id} 大绕
+    // (N=2·diam) 中转点跑到很远, 进 bbox 会把整体显示比例缩得很小. 用户拖拽 / 滚轮可看远处细节.
     const xs = pts.map(p => p.re), ys = pts.map(p => p.im);
     const xMin = Math.min(...xs), xMax = Math.max(...xs);
     const yMin = Math.min(...ys), yMax = Math.max(...ys);
-    const xPad = Math.max(1, (xMax - xMin) * 0.1);
-    const yPad = Math.max(1, (yMax - yMin) * 0.1);
+    const xPad = Math.max(1, (xMax - xMin) * 0.3);
+    const yPad = Math.max(1, (yMax - yMin) * 0.3);
     this.viewBox = {
       xMin: xMin - xPad, xMax: xMax + xPad,
       yMin: yMin - yPad, yMax: yMax + yPad,
