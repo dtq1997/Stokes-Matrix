@@ -16,7 +16,8 @@ Output schema: SimpleDataset (跟 web/src/lib/types.ts 对齐).
 注意: 当前 simple-spectrum (m_k=1) 才稳; 重数 case compute_Sd_entry 块版返回
 m_i×m_j entry, 需要扩展输出 schema (TODO).
 """
-import os, sys, math, json, time
+import os, sys, math, json, time, builtins
+py_int = builtins.int     # sage preparser 把 int() 替换成 Integer(), 用 builtins 绕开
 
 _WS = "/Users/dtq1997/ai/workspace/academic-formula-workbench"
 sys.path.insert(0, os.path.join(_WS, "50-computation"))
@@ -57,6 +58,37 @@ def chamber_midpoints(rays):
 
 def pack_path(waypoints):
     return [{'re': float(p.real), 'im': float(p.imag)} for p in waypoints]
+
+
+def winding_around(path_pts, u_k, eps=1e-9):
+    """折线 path_pts 围 u_k 的 winding number (signed python int)."""
+    total = 0.0
+    for q in range(len(path_pts) - 1):
+        a = path_pts[q] - u_k
+        b = path_pts[q + 1] - u_k
+        if abs(a) < eps or abs(b) < eps:
+            continue
+        ang_a = math.atan2(a.imag, a.real)
+        ang_b = math.atan2(b.imag, b.real)
+        diff = ang_b - ang_a
+        if diff > math.pi: diff -= 2 * math.pi
+        elif diff < -math.pi: diff += 2 * math.pi
+        total += diff
+    # int(round(...)) 在 sage preparser 下可能返回 sage.Integer; 强制 python int
+    return py_int(round(total / (2 * math.pi)))
+
+
+def homotopy_signature(path_pts, U_all, i, j, lift_s, lift_t):
+    """同伦类签名: (i, j, winding around each u_k for k != i,j, lift_s, lift_t).
+    两条 path 同 signature ⇒ 在 ℂ\{u_k\} 中同伦 + 同 lift ⇒ S entry 相同.
+    """
+    windings = []
+    for k in range(len(U_all)):
+        if k == i or k == j: continue
+        windings.append(winding_around(path_pts, U_all[k]))
+    return (py_int(i), py_int(j), tuple(windings),
+            py_int(round(lift_s / math.pi * 2)),
+            py_int(round(lift_t / math.pi * 2)))
 
 
 def recompute(inp):
@@ -117,6 +149,9 @@ def recompute(inp):
     }
 
     t0 = time.time()
+    cache = {}        # (i, j, winding_tuple, lift_s_q, lift_t_q) → entry dict
+    cache_hits = py_int(0)
+    cache_miss = py_int(0)
     for ch_idx, d in enumerate(chambers):
         chamber_data = {'d': float(d), 'entries': {}}
         for i in range(n):
@@ -134,25 +169,55 @@ def recompute(inp):
                     wp = pl_path_in_chamber(u_i_f, u_target, U_others, d,
                                              epsilon_factor=0.3, verbose=False)
                     full_path = [u_i_f] + list(wp)
+                    # lift: 起点 θ_s = -d, 终点 θ_t = arg(u_j - u_i_pushed) lift to (-d-π, -d+π)
+                    diff = u_target - u_i_f
+                    theta_t_raw = math.atan2(diff.imag, diff.real)
+                    # lift to closest 2π mod center -d
+                    twopi = 2 * math.pi
+                    theta_t = theta_t_raw
+                    while theta_t > -d + math.pi: theta_t -= twopi
+                    while theta_t < -d - math.pi: theta_t += twopi
+                    theta_s = -d  # 起点 θ_s = -d (paper convention)
+                    sig = homotopy_signature(full_path, U_list, i, j, theta_s, theta_t)
+                    if sig in cache:
+                        cached = cache[sig]
+                        chamber_data['entries'][f'{i},{j}'] = {
+                            'value_re': cached['value_re'],
+                            'value_im': cached['value_im'],
+                            'path': pack_path(full_path),
+                            'tau_code': float(-theta_t),
+                            'theta_t_lift': float(theta_t),
+                            '_cache': 'hit',
+                        }
+                        cache_hits += 1
+                        continue
                     val, info = compute_Sd_entry(
                         U_list, A_global, m_sizes,
                         i, j, d, waypoints=wp,
                         p_base=400, p_factor=3, verbose=False,
                     )
-                    chamber_data['entries'][f'{i},{j}'] = {
+                    entry = {
                         'value_re': float(val.real),
                         'value_im': float(val.imag),
                         'path': pack_path(full_path),
                         'tau_code': float(info['tau_code']),
                         'theta_t_lift': float(info['theta_t_lift']),
                     }
+                    cache[sig] = entry
+                    cache_miss += 1
+                    chamber_data['entries'][f'{i},{j}'] = entry
+                    continue
                 except Exception as e:
                     chamber_data['entries'][f'{i},{j}'] = {'error': str(e)}
         out['chambers'].append(chamber_data)
         # progress 行 (push_server 接 stdout 转 SSE 用)
         print(f"PROGRESS chamber {ch_idx+1}/{len(chambers)} d={d:.4f}", flush=True)
 
-    print(f"DONE elapsed={time.time()-t0:.1f}s", flush=True)
+    total = cache_hits + cache_miss
+    rate = (100.0 * cache_hits / total) if total else 0
+    print(f"DONE elapsed={time.time()-t0:.1f}s cache_hit={cache_hits}/{total} ({rate:.0f}%)",
+          flush=True)
+    out['_cache_stats'] = {'hits': py_int(cache_hits), 'miss': py_int(cache_miss)}
     return out
 
 
