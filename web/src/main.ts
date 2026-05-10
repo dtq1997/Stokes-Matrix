@@ -99,11 +99,12 @@ async function main() {
 
   function updateDReadout() {
     const d = Number(slider.value);
-    const deg = (d * 180 / Math.PI).toFixed(2);
-    const chD = dataset.chambers[state.selectedChamber].d;
-    dReadout.innerHTML = `d = ${d.toFixed(4)} rad <span class="dim">(${deg}°)</span><br/>` +
+    const dPi = (d / Math.PI).toFixed(4);
+    const deg = (d * 180 / Math.PI).toFixed(1);
+    const chDPi = (dataset.chambers[state.selectedChamber].d / Math.PI).toFixed(4);
+    dReadout.innerHTML = `d = ${dPi} π <span class="dim">(${deg}°)</span><br/>` +
       `chamber ${state.selectedChamber + 1}/${dataset.chambers.length} ` +
-      `<span class="dim">@ d̂ = ${chD.toFixed(4)}</span>`;
+      `<span class="dim">@ d̂ = ${chDPi} π</span>`;
   }
 
   function selectEntry(i: number, j: number) {
