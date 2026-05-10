@@ -167,6 +167,11 @@ h3 {
   width: 1px;
   opacity: 0.7;
 }
+#d-marker-strip .d-mark.ray-piZ {
+  background: var(--bad);
+  width: 2px;
+  opacity: 0.9;
+}
 #d-marker-strip .d-mark.chamber {
   background: var(--good);
   opacity: 0.4;
