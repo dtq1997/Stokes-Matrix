@@ -30,19 +30,49 @@ html, body {
   overflow: hidden;
 }
 
+:root {
+  --left-w: 380px;
+  --right-w: 420px;
+  --handle-w: 6px;
+}
+
 #app {
   display: grid;
-  grid-template-columns: 320px 1fr 360px;
+  grid-template-columns: var(--left-w) var(--handle-w) 1fr var(--handle-w) var(--right-w);
   height: 100vh;
-  gap: 1px;
   background: var(--border);
 }
 
 #left-panel, #right-panel {
   background: var(--bg-panel);
   padding: 16px 14px;
-  overflow-y: auto;
+  overflow: auto;       /* 水平+垂直都滚 (X 给 N×N 大矩阵, Y 给长内容) */
+  min-width: 0;         /* 让 grid track 收紧时 panel 不溢出 */
 }
+
+/* 拖动分隔条 */
+.resize-handle {
+  background: var(--bg-elev);
+  cursor: ew-resize;
+  user-select: none;
+  position: relative;
+  touch-action: none;
+  z-index: 5;
+}
+.resize-handle:hover { background: var(--accent); }
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px; height: 28px;
+  background: var(--fg-muted);
+  border-radius: 1px;
+  opacity: 0.35;
+  pointer-events: none;
+}
+.resize-handle:hover::after { opacity: 1; background: var(--accent); }
+.resize-handle.dragging { background: var(--accent); }
 
 #canvas-wrap {
   background: var(--bg);
@@ -227,11 +257,12 @@ h3 {
 
 /* ---------- State (U, A) tables ---------- */
 .state-table {
-  width: 100%;
+  width: auto;             /* 不强制填满 panel, 让 cell 保持自然宽度 (panel 横向滚) */
   border-collapse: separate;
   border-spacing: 2px;
   font-family: var(--font-mono);
   font-size: 11px;
+  table-layout: fixed;
 }
 .state-table th {
   font-weight: 500;
@@ -258,11 +289,19 @@ h3 {
 }
 .state-table input.cx:focus { border-color: var(--accent); background: var(--bg); }
 .state-table input.cx.invalid { border-color: var(--bad); }
+/* cx-pair: Re 一行 / Im 一行 (跟 output Stokes entry 两行布局一致) */
 .state-table .cx-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 1px;
 }
+.state-table .cx-pair input.cx {
+  min-width: 64px;        /* 数字 4 位 + 小数点 + sign 大致需要 */
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Re/Im 视觉区分: Re 默认色, Im 略 muted */
+.state-table .cx-pair input.cx[data-axis="im"] { color: var(--fg-dim); }
 .state-table .row-label {
   color: var(--fg-muted);
   text-align: right;

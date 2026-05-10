@@ -9,7 +9,7 @@
   </head>
   <body>
     <div id="app">
-      <aside id="left-panel">
+      <aside id="left-panel" data-panel="left">
         <h2>Input</h2>
         <div class="n-input-wrap mono">
           <span data-tex="n ="></span>
@@ -47,11 +47,13 @@
         <h3>Entry <span data-tex="(i, j)"></span></h3>
         <div id="entry-grid"></div>
       </aside>
+      <div class="resize-handle" id="resize-left" data-side="left" title="拖动调整 input 宽度"></div>
       <main id="canvas-wrap">
         <svg id="canvas"></svg>
         <div id="hud" class="mono"></div>
       </main>
-      <aside id="right-panel">
+      <div class="resize-handle" id="resize-right" data-side="right" title="拖动调整 output 宽度"></div>
+      <aside id="right-panel" data-panel="right">
         <h2>Stokes matrix <span data-tex="S_d"></span></h2>
         <div id="stokes-matrix"></div>
         <h3>Selected entry</h3>

@@ -261,6 +261,7 @@ async function main() {
   buildATable();
   buildStokesMatrix();
   updateDimInfo();
+  setupResizeHandles();
   // Recompute 按钮 (后端可用 + state stale 时启用)
   const recomputeBtn = document.getElementById('state-recompute') as HTMLButtonElement;
   const recomputeStatus = document.getElementById('recompute-status')!;
@@ -701,6 +702,41 @@ async function main() {
 
   // 入口处渲染所有 data-tex 标签
   renderAllTex(document);
+
+  /** 三栏 layout: 拖动 left/right handle 改 CSS 变量 --left-w / --right-w. */
+  function setupResizeHandles() {
+    const root = document.documentElement;
+    const handles = document.querySelectorAll<HTMLDivElement>('.resize-handle');
+    handles.forEach(h => {
+      const side = h.dataset.side as 'left' | 'right';
+      const varName = side === 'left' ? '--left-w' : '--right-w';
+      let startX = 0, startW = 0, active = false;
+      h.addEventListener('pointerdown', (e) => {
+        active = true;
+        h.classList.add('dragging');
+        h.setPointerCapture(e.pointerId);
+        startX = e.clientX;
+        const cur = getComputedStyle(root).getPropertyValue(varName).trim();
+        startW = parseFloat(cur) || (side === 'left' ? 380 : 420);
+        e.preventDefault();
+      });
+      h.addEventListener('pointermove', (e) => {
+        if (!active) return;
+        const dx = e.clientX - startX;
+        const delta = side === 'left' ? dx : -dx;
+        const newW = Math.max(200, Math.min(900, startW + delta));
+        root.style.setProperty(varName, `${newW}px`);
+      });
+      const finish = (e: PointerEvent) => {
+        if (!active) return;
+        active = false;
+        h.classList.remove('dragging');
+        try { h.releasePointerCapture(e.pointerId); } catch {}
+      };
+      h.addEventListener('pointerup', finish);
+      h.addEventListener('pointercancel', finish);
+    });
+  }
 }
 
 main().catch(err => {
