@@ -13,6 +13,7 @@ export class Canvas {
   private svg: d3.Selection<SVGSVGElement, unknown, null, undefined>;
   private root: d3.Selection<SVGGElement, unknown, null, undefined>;
   private layers: {
+    axes: d3.Selection<SVGGElement, unknown, null, undefined>;
     chambers: d3.Selection<SVGGElement, unknown, null, undefined>;
     cuts: d3.Selection<SVGGElement, unknown, null, undefined>;
     paths: d3.Selection<SVGGElement, unknown, null, undefined>;
@@ -36,6 +37,7 @@ export class Canvas {
     this.dCurrent = state.dataset.chambers[state.selectedChamber]?.d ?? 0;
     this.root = this.svg.append('g').attr('class', 'root');
     this.layers = {
+      axes: this.root.append('g').attr('class', 'layer-axes'),
       chambers: this.root.append('g').attr('class', 'layer-chambers'),
       cuts: this.root.append('g').attr('class', 'layer-cuts'),
       paths: this.root.append('g').attr('class', 'layer-paths'),
@@ -119,11 +121,49 @@ export class Canvas {
   }
 
   render() {
+    this.renderAxes();
     this.renderCuts();
     this.renderPaths();
     this.renderVertices();
     this.renderIntersections();
     this.renderPunctures();
+  }
+
+  private renderAxes() {
+    const vb = this.viewBox;
+    const layer = this.layers.axes;
+    layer.selectAll('*').remove();
+    // 实轴 y=0
+    const xAxis = [
+      this.toPx({ re: vb.xMin, im: 0 }),
+      this.toPx({ re: vb.xMax, im: 0 }),
+    ];
+    layer.append('line').attr('class', 'axis-line')
+      .attr('x1', xAxis[0][0]).attr('y1', xAxis[0][1])
+      .attr('x2', xAxis[1][0]).attr('y2', xAxis[1][1]);
+    // 虚轴 x=0
+    const yAxis = [
+      this.toPx({ re: 0, im: vb.yMin }),
+      this.toPx({ re: 0, im: vb.yMax }),
+    ];
+    layer.append('line').attr('class', 'axis-line')
+      .attr('x1', yAxis[0][0]).attr('y1', yAxis[0][1])
+      .attr('x2', yAxis[1][0]).attr('y2', yAxis[1][1]);
+
+    // 0, 1, i 三个 tick + label
+    const ticks: Array<{ at: ComplexNum; label: string; offX: number; offY: number }> = [
+      { at: { re: 0, im: 0 }, label: '0',  offX: -8,  offY: 12 },
+      { at: { re: 1, im: 0 }, label: '1',  offX: 0,   offY: 14 },
+      { at: { re: 0, im: 1 }, label: 'i',  offX: -10, offY: 4 },
+    ];
+    for (const t of ticks) {
+      const [x, y] = this.toPx(t.at);
+      layer.append('circle').attr('class', 'axis-tick')
+        .attr('cx', x).attr('cy', y).attr('r', 1.5);
+      layer.append('text').attr('class', 'axis-label')
+        .attr('x', x + t.offX).attr('y', y + t.offY)
+        .text(t.label);
+    }
   }
 
   private renderCuts() {

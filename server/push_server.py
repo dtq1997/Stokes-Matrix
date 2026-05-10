@@ -1,52 +1,53 @@
 """
-Push 后端: 接收 (k, u_k_new), 调 isoeq pusher 演化 A,
-返回新 (U', A', 所有 chamber 内所有 entry 的 S_d 数值).
+Sd-viz push 后端: 接 (U, A, m) 重算 Stokes (跑 sage subprocess).
 
-用法:
-  sage -python 60-outputs/sd-viz/server/push_server.py
-
-依赖: FastAPI + uvicorn (sage 自带 pip 装).
-  sage -pip install fastapi uvicorn
+启动:
+  cd 60-outputs/sd-viz/server
+  sage -python push_server.py     # http://127.0.0.1:8000
 
 热路径:
-  POST /api/push  body {"k": int, "re": float, "im": float}
-  返回新 SimpleDataset JSON (跟静态 export 同 schema).
+  POST /api/recompute  body { punctures, A, m_sizes }
+       → 返回新 SimpleDataset (跟 web/src/lib/types.ts 对齐)
+       同步阻塞, n=4 simple 大概 5 分钟; loading spinner 等
 
-非热路径:
-  GET  /api/dataset 返回当前 (U_curr, A_curr) 对应的全量数据 (回到初始).
-  POST /api/reset   重置 U, A 到 export 时的初始状态.
+  GET  /api/dataset    返回当前缓存 (初始 = 磁盘 JSON)
+  POST /api/reset      恢复初始 dataset
+
+实现: subprocess 调 sage runner. 每 request 5s sage startup + 5min compute.
+后续优化: 持久 sage worker / wall-crossing / SSE progress.
 """
-import os, sys, math, json, time, copy
-sys.path.insert(0, "/Users/dtq1997/ai/workspace/academic-formula-workbench/50-computation")
-
-# 不在这里 sage import — sage 启动慢, 用 worker 进程模型
-# 第一阶段先做接口契约, 实际计算用静态 JSON 当 oracle, 后续接通
+import os, sys, json, time, copy, subprocess, tempfile
+from typing import List
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 
-DATA_PATH = "/Users/dtq1997/ai/workspace/academic-formula-workbench/60-outputs/sd-viz/data/n4_simple.json"
+WS = "/Users/dtq1997/ai/workspace/academic-formula-workbench"
+DATA_PATH = os.path.join(WS, "60-outputs/sd-viz/data/n4_simple.json")
+RUNNER = os.path.join(WS, "60-outputs/sd-viz/server/recompute_runner.sage")
 
-app = FastAPI(title="Sd-viz push backend")
+app = FastAPI(title="Sd-viz backend")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
 
 
-class PushRequest(BaseModel):
-    k: int
+class Complex(BaseModel):
     re: float
     im: float
 
 
-# 内存中的当前 dataset (初始 = 磁盘 JSON)
+class RecomputeRequest(BaseModel):
+    punctures: List[Complex]
+    A: List[List[Complex]] = Field(..., description="N×N matrix, N=sum(m_sizes)")
+    m_sizes: List[int]
+
+
 _state = {'dataset': None, 'initial': None}
 
 
 def _load_initial():
-    if not os.path.exists(DATA_PATH):
-        raise RuntimeError(f"dataset not found: {DATA_PATH}; 先跑 export_n4_simple.sage")
     with open(DATA_PATH) as f:
         d = json.load(f)
     _state['dataset'] = d
@@ -55,7 +56,8 @@ def _load_initial():
 
 @app.on_event("startup")
 def startup():
-    _load_initial()
+    if os.path.exists(DATA_PATH):
+        _load_initial()
 
 
 @app.get("/api/dataset")
@@ -73,25 +75,43 @@ def reset():
     return {"ok": True}
 
 
-@app.post("/api/push")
-def push(req: PushRequest):
-    """
-    占位实现 (Phase 1.0): 仅更新 punctures, 不重算 Stokes.
-    Phase 1.5 接 isoeq_pusher + tq, 实时重算所有 chamber × entry.
-    """
-    ds = _state['dataset']
-    if ds is None:
-        _load_initial()
-        ds = _state['dataset']
-    if not (0 <= req.k < len(ds['punctures'])):
-        raise HTTPException(400, f"k={req.k} out of range")
-    ds['punctures'][req.k] = {'re': req.re, 'im': req.im}
-    # TODO Phase 1.5: 调 isoeq pusher 演化 A, 重算所有 entry
-    # 先标记 entries 为 stale
-    for ch in ds['chambers']:
-        for key in ch['entries']:
-            ch['entries'][key]['_stale'] = True
-    return ds
+@app.post("/api/recompute")
+def recompute(req: RecomputeRequest):
+    n = len(req.punctures)
+    N = sum(req.m_sizes)
+    if N != len(req.A):
+        raise HTTPException(400, f"A is {len(req.A)}×… but N=sum(m)={N}")
+    if n != len(req.m_sizes):
+        raise HTTPException(400, f"len(punctures)={n} != len(m_sizes)={len(req.m_sizes)}")
+
+    inp = {
+        'punctures': [p.dict() for p in req.punctures],
+        'A': [[c.dict() for c in row] for row in req.A],
+        'm_sizes': req.m_sizes,
+    }
+
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+        json.dump(inp, f)
+        in_path = f.name
+    out_path = in_path + '.out'
+
+    try:
+        t0 = time.time()
+        proc = subprocess.run(
+            ['sage', RUNNER, in_path, out_path],
+            capture_output=True, text=True, timeout=900,
+        )
+        if proc.returncode != 0:
+            raise HTTPException(500, f"sage failed: {proc.stderr[-1000:]}")
+        with open(out_path) as f:
+            ds = json.load(f)
+        ds['_compute_seconds'] = time.time() - t0
+        _state['dataset'] = ds
+        return ds
+    finally:
+        for p in (in_path, out_path):
+            try: os.unlink(p)
+            except FileNotFoundError: pass
 
 
 if __name__ == '__main__':

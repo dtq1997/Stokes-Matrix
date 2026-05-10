@@ -1,5 +1,5 @@
 import katex from 'katex';
-import { loadDataset } from './lib/data.js';
+import { loadDataset, recompute, backendOnline } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
 import { chamberOfDirection } from './lib/geometry.js';
@@ -27,7 +27,7 @@ const fmtComplex = (re: number, im: number, digits = 4) => {
 async function main() {
   const dataset = await loadDataset();
 
-  const n = dataset.punctures.length;
+  let n = dataset.punctures.length;
   // 初始 A 从 dataset.A_diag + A_off 装回 n×n 复矩阵
   const initialA: ComplexNum[][] = Array.from({ length: n }, (_, i) =>
     Array.from({ length: n }, (_, j) =>
@@ -57,14 +57,19 @@ async function main() {
   const canvas = new Canvas(svg, state, onStateChange);
 
   // ---------- left panel: entry grid ----------
-  const grid = document.getElementById('entry-grid')!;
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      const cell = document.createElement('div');
-      cell.className = 'cell' + (i === j ? ' diag' : '');
-      cell.innerHTML = i === j ? '·' : tex(`{}_{${i+1}${j+1}}`);
-      if (i !== j) cell.addEventListener('click', () => selectEntry(i, j));
-      grid.appendChild(cell);
+  buildEntryGrid();
+  function buildEntryGrid() {
+    const grid = document.getElementById('entry-grid')!;
+    grid.innerHTML = '';
+    grid.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell' + (i === j ? ' diag' : '');
+        cell.innerHTML = i === j ? '·' : tex(`{}_{${i+1}${j+1}}`);
+        if (i !== j) cell.addEventListener('click', () => selectEntry(i, j));
+        grid.appendChild(cell);
+      }
     }
   }
 
@@ -154,21 +159,164 @@ async function main() {
     dReadout.innerHTML = tex(`d \\in [${loTex},\\ ${hiTex}]`);
   }
 
+  // ---------- n input ----------
+  const nInput = document.getElementById('n-input') as HTMLInputElement;
+  nInput.value = String(n);
+  nInput.addEventListener('change', () => {
+    const newN = Number(nInput.value);
+    if (!Number.isInteger(newN) || newN < 1 || newN > 20) {
+      nInput.value = String(n);
+      return;
+    }
+    if (newN !== n) resizeN(newN);
+  });
+
+  function resizeN(newN: number) {
+    const oldN = n;
+    const oldM = state.mOverrides!;
+    const oldA = state.AOverrides!;
+    const oldU = state.punctureOverrides!;
+
+    // 新 U: 保留前 min, 多出来在半径 2 等距圆上
+    const newU = Array.from({ length: newN }, (_, k) => {
+      if (k < oldN) return { ...oldU[k] };
+      const ang = 2 * Math.PI * k / newN;
+      return { re: 2 * Math.cos(ang), im: 2 * Math.sin(ang) };
+    });
+    // 新 m: 保留前 min, 多出来 1
+    const newM = Array.from({ length: newN }, (_, k) =>
+      k < oldN ? oldM[k] : 1);
+    // 新 A: N_new × N_new, 按 block 索引保留 oldA, 新位置默认 0 (对角 0.1)
+    const newN_total = newM.reduce((a, b) => a + b, 0);
+    const newA = Array.from({ length: newN_total }, () =>
+      Array.from({ length: newN_total }, () => ({ re: 0, im: 0 })));
+    // 拷贝旧 block 数据 (block index < min(oldN, newN))
+    const minN = Math.min(oldN, newN);
+    const oldStarts: number[] = []; let s = 0;
+    for (const m of oldM) { oldStarts.push(s); s += m; }
+    const newStarts: number[] = []; s = 0;
+    for (const m of newM) { newStarts.push(s); s += m; }
+    for (let I = 0; I < minN; I++) {
+      for (let J = 0; J < minN; J++) {
+        const mi = Math.min(oldM[I], newM[I]);
+        const mj = Math.min(oldM[J], newM[J]);
+        for (let a = 0; a < mi; a++) {
+          for (let b = 0; b < mj; b++) {
+            newA[newStarts[I] + a][newStarts[J] + b] =
+              { ...oldA[oldStarts[I] + a][oldStarts[J] + b] };
+          }
+        }
+      }
+    }
+    // 新 block 对角 entry 默认非零防 trivial
+    for (let I = oldN; I < newN; I++) {
+      newA[newStarts[I]][newStarts[I]] = { re: 0.1, im: 0 };
+    }
+
+    state.punctureOverrides = newU;
+    state.mOverrides = newM;
+    state.AOverrides = newA;
+    state.selectedEntry = null;
+    state.paths.clear();
+    state.stokesStale = true;
+
+    n = newN;
+    nInput.value = String(n);
+
+    buildEntryGrid();
+    buildUTable();
+    buildATable();
+    buildStokesMatrix();
+    updateDimInfo();
+    updateStaleBanner();
+    canvas.setState(state);
+    refreshStokesMatrix();
+    updateStokesPanel();
+    updatePathInfo();
+  }
+
   // ---------- left panel: U / A 表格, reset ----------
   buildUTable();
   buildATable();
   buildStokesMatrix();
   updateDimInfo();
+  // Recompute 按钮 (后端可用 + state stale 时启用)
+  const recomputeBtn = document.getElementById('state-recompute') as HTMLButtonElement;
+  const recomputeStatus = document.getElementById('recompute-status')!;
+  let backendAvailable = false;
+  backendOnline().then(ok => {
+    backendAvailable = ok;
+    if (ok) {
+      recomputeStatus.textContent = 'backend online :8000';
+    } else {
+      recomputeStatus.innerHTML =
+        'backend offline (启动: <span class="mono">sage -python server/push_server.py</span>)';
+    }
+    refreshRecomputeBtn();
+  });
+  function refreshRecomputeBtn() {
+    if (recomputeBtn.classList.contains('computing')) return;
+    recomputeBtn.disabled = !(backendAvailable && state.stokesStale);
+  }
+  recomputeBtn.addEventListener('click', async () => {
+    if (recomputeBtn.disabled) return;
+    recomputeBtn.disabled = true;
+    recomputeBtn.classList.add('computing');
+    recomputeBtn.textContent = 'Computing... (~5 min)';
+    recomputeStatus.textContent = 'sage running, n×n×chamber = ' +
+      `${n*(n-1)} × ${dataset.chambers.length} entries`;
+    const t0 = performance.now();
+    try {
+      const newDs = await recompute({
+        punctures: state.punctureOverrides!,
+        A: state.AOverrides!,
+        m_sizes: state.mOverrides!,
+      });
+      // 替换 dataset 内容 (in-place, 保留 const 引用)
+      Object.keys(dataset).forEach(k => delete (dataset as any)[k]);
+      Object.assign(dataset, newDs);
+      chamberDs.length = 0;
+      chamberDs.push(...newDs.chambers.map(c => c.d));
+      buildMarkerStrip(markStrip);
+      state.selectedChamber = chamberOfDirection(currentD, chamberDs);
+      state.stokesStale = false;
+      refreshAllPaths();
+      canvas.setState(state);
+      refreshStokesMatrix();
+      updateDReadout();
+      updateStokesPanel();
+      updatePathInfo();
+      updateStaleBanner();
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+      recomputeStatus.textContent = `done in ${elapsed}s`;
+    } catch (e) {
+      recomputeStatus.textContent = `failed: ${(e as Error).message}`;
+      recomputeStatus.style.color = 'var(--bad)';
+    } finally {
+      recomputeBtn.classList.remove('computing');
+      recomputeBtn.textContent = 'Recompute Stokes';
+      recomputeBtn.disabled = !state.stokesStale;
+    }
+  });
+
   document.getElementById('state-reset')!.addEventListener('click', () => {
     state.punctureOverrides = dataset.punctures.map(p => ({ ...p }));
     state.AOverrides = initialA.map(row => row.map(c => ({ ...c })));
     state.mOverrides = [...dataset.m_sizes];
+    state.selectedEntry = null;
+    state.paths.clear();
     state.stokesStale = false;
-    refreshUTable();
-    refreshATable();
-    updateStaleBanner();
+    n = dataset.punctures.length;
+    nInput.value = String(n);
+    buildEntryGrid();
+    buildUTable();
+    buildATable();
+    buildStokesMatrix();
     updateDimInfo();
+    updateStaleBanner();
     canvas.setState(state);
+    updateStokesPanel();
+    updatePathInfo();
   });
 
   // 初始化默认值
@@ -284,6 +432,7 @@ async function main() {
   function updateStaleBanner() {
     const b = document.getElementById('state-stale-banner')!;
     b.hidden = !state.stokesStale;
+    refreshRecomputeBtn();
   }
 
   function buildStokesMatrix() {

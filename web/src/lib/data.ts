@@ -12,14 +12,27 @@ export async function loadDataset(): Promise<SimpleDataset> {
  * 调后端 push: u_k 拖到 u_k_new, 沿 isoeq 流演化 A, 返回新 (U', A', S_d_all).
  * 占位: 第一阶段先用静态 dataset, 不调.
  */
-export async function pushPuncture(
-  k: number, newPos: { re: number; im: number },
-): Promise<SimpleDataset> {
-  const r = await fetch('/api/push', {
+export interface RecomputeRequest {
+  punctures: { re: number; im: number }[];
+  A: { re: number; im: number }[][];
+  m_sizes: number[];
+}
+
+/**
+ * 全量重算: 给定 (U, A, m), 后端跑 sage 算所有 chamber × entry, 返回新 SimpleDataset.
+ * 当前同步阻塞 (5 分钟 simple n=4); 调用方必须 spinner UI.
+ */
+export async function recompute(req: RecomputeRequest): Promise<SimpleDataset> {
+  const r = await fetch('/api/recompute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ k, re: newPos.re, im: newPos.im }),
+    body: JSON.stringify(req),
   });
-  if (!r.ok) throw new Error(`Push failed: ${r.status}`);
+  if (!r.ok) throw new Error(`recompute ${r.status}: ${await r.text()}`);
   return r.json();
+}
+
+export function backendOnline(): Promise<boolean> {
+  return fetch('/api/dataset', { method: 'GET' })
+    .then(r => r.ok).catch(() => false);
 }

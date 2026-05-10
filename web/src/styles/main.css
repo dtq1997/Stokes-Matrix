@@ -107,12 +107,24 @@ h3 {
 #entry-grid .cell.diag { background: transparent; cursor: default; color: var(--fg-muted); opacity: 0.4; }
 #entry-grid .cell.selected { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 
-#d-input-wrap {
+#d-input-wrap, .n-input-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
 }
+#n-input {
+  width: 50px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 4px 6px;
+  outline: none;
+}
+#n-input:focus { border-color: var(--accent); }
 #d-input {
   flex: 1;
   background: var(--bg-elev);
@@ -263,6 +275,30 @@ h3 {
   transition: all 100ms ease;
 }
 .btn-secondary:hover { background: var(--border); }
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  padding: 8px 12px;
+  border-radius: 3px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 100ms ease;
+}
+.btn-primary:hover:not(:disabled) { background: #82d6ff; }
+.btn-primary:disabled {
+  background: var(--bg-elev);
+  color: var(--fg-muted);
+  cursor: not-allowed;
+}
+.btn-primary.computing {
+  background: var(--accent-2);
+  color: var(--bg);
+}
+#recompute-status { font-size: 10px; min-height: 14px; }
 .stale-banner {
   font-size: 10px;
   color: var(--warn);
@@ -316,6 +352,9 @@ h3 {
 }
 
 /* SVG element styling */
+.axis-line { stroke: var(--fg-muted); stroke-width: 1; opacity: 0.18; }
+.axis-tick { fill: var(--fg-muted); opacity: 0.6; }
+.axis-label { fill: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; opacity: 0.55; pointer-events: none; }
 .cut-line { stroke: var(--fg-muted); stroke-width: 1; opacity: 0.4; stroke-dasharray: 4 3; }
 .puncture { fill: var(--accent); stroke: #fff; stroke-width: 1.5; cursor: grab; }
 .puncture:hover { fill: var(--accent-2); }

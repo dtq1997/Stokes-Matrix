@@ -11,16 +11,22 @@
     <div id="app">
       <aside id="left-panel">
         <h2>Input</h2>
-        <div class="dim mono" id="dim-info"></div>
+        <div class="n-input-wrap mono">
+          <span data-tex="n ="></span>
+          <input id="n-input" type="number" min="1" max="20" />
+          <span class="dim" id="dim-info"></span>
+        </div>
         <h3>Leading term <span data-tex="U = \mathrm{diag}(u_1 I_{m_1}, \ldots, u_n I_{m_n})"></span></h3>
         <table id="u-table" class="state-table"></table>
         <h3>Spectral matrix <span data-tex="A \in \mathrm{Mat}_n(\mathbb{C})"></span></h3>
         <table id="a-table" class="state-table"></table>
         <div class="state-actions">
           <div id="state-stale-banner" class="stale-banner" hidden>
-            <span data-tex="(U, A)"></span> 已改, Stokes 数值是旧 dataset (Phase 1.5 接后端实时重算)
+            <span data-tex="(U, A, m)"></span> 已改, Stokes 数值是旧 dataset
           </div>
+          <button id="state-recompute" class="btn-primary" disabled>Recompute Stokes</button>
           <button id="state-reset" class="btn-secondary">Reset</button>
+          <div id="recompute-status" class="mono dim"></div>
         </div>
         <h3>Direction <span data-tex="d"></span></h3>
         <div id="d-input-wrap" class="mono">
