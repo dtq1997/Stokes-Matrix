@@ -28,8 +28,8 @@ load(os.path.join(_WS, "50-computation/compute_Sd_entry.sage"))
 
 
 def anti_stokes_rays(U):
-    """Paper convention: aS(u) = {-arg(u_p - u_q) mod 2π} for ordered pairs.
-    几何: cut 从 u_q 出发沿 -d 撞 u_p 时 d = -arg(u_p - u_q).
+    """Paper aS(u) = {-arg(u_p - u_q) mod 2π} for ordered pairs.
+    严格不含 πℤ: 0/π 不是 anti-Stokes (除非某对 puncture 让 arg 落在那).
     跨这条 ray 时 Im((u_p - u_q) e^{id}) 跨零 → σ_d 邻位 transposition."""
     rays = set()
     twopi = 2 * math.pi
@@ -39,8 +39,6 @@ def anti_stokes_rays(U):
             diff = U[i] - U[j]
             ang = (-math.atan2(diff.imag, diff.real)) % twopi
             rays.add(round(ang, 10))
-    rays.add(0.0)
-    rays.add(round(math.pi, 10))
     return sorted(rays)
 
 
