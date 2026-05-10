@@ -27,6 +27,7 @@ def recompute(inp):
     punctures = inp['punctures']
     A_in = inp['A']
     m_sizes = list(inp['m_sizes'])
+    precision = inp.get('precision', 'medium')  # 'low' | 'medium' | 'high'
     n = len(punctures)
     N = sum(m_sizes)
     if N != len(A_in):
@@ -72,7 +73,7 @@ def recompute(inp):
     t0 = time.time()
     chambers_out, stats = build_chambers(
         U_list, A_global, m_sizes, chambers,
-        p_base=400, p_factor=3, verbose=False, use_cache=True,
+        precision=precision, verbose=False, use_cache=True,
         progress=_progress,
     )
     total = stats['hits'] + stats['miss']

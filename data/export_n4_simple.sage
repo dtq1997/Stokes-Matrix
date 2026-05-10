@@ -74,9 +74,12 @@ def _on_entry(ch_idx, i, j, entry):
 
 
 t0 = time.time()
+PRECISION = os.environ.get('SD_PRECISION', 'medium')  # low / medium / high
+print(f"precision = {PRECISION}")
+
 chambers_out, _stats = build_chambers(
     U_list, A_global, m_sizes, chambers,
-    p_base=400, p_factor=3, verbose=False, use_cache=False,
+    precision=PRECISION, verbose=False, use_cache=False,
     progress=_progress, on_entry=_on_entry,
 )
 results['chambers'] = chambers_out

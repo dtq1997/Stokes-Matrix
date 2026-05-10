@@ -46,9 +46,10 @@ def _homotopy_signature(path_pts, U_all, i, j, lift_s, lift_t):
 
 
 def build_chamber_entry(U_list, A_global, m_sizes, i, j, d,
-                         p_base=400, p_factor=3, verbose=False, cache=None):
+                         precision='medium', verbose=False, cache=None):
     """算一个 (i, j) entry, 返回 entry dict + cache 状态. caller 负责 try/except.
 
+    precision: 'low' | 'medium' | 'high'. 见 compute_Sd_entry PRECISION_PRESETS.
     cache: 可选 dict {sig → entry_template}, 命中跳过重算只重画 path. None = 不 cache.
     """
     u_i_f = complex(U_list[i])
@@ -56,7 +57,7 @@ def build_chamber_entry(U_list, A_global, m_sizes, i, j, d,
     val, info = compute_Sd_entry(
         U_list, A_global, m_sizes,
         i, j, d, waypoints=None,
-        p_base=p_base, p_factor=p_factor, verbose=verbose,
+        precision=precision, verbose=verbose,
     )
     algo_full = [u_i_f] + list(info['algo_wp'])
     display_path = list(algo_full) + [u_j_f]
@@ -84,12 +85,12 @@ def build_chamber_entry(U_list, A_global, m_sizes, i, j, d,
 
 
 def build_chambers(U_list, A_global, m_sizes, chamber_ds,
-                    p_base=400, p_factor=3, verbose=False, use_cache=False,
+                    precision='medium', verbose=False, use_cache=False,
                     progress=None, on_entry=None):
     """遍历所有 chamber × (i,j) 算 entry, 返回 chambers list.
 
-    progress(ch_idx, n_chambers, d, chambers_so_far): 每 chamber 跑完调一次,
-        chambers_so_far 是已装好的 chamber dict list (含当前 ch_idx) — 可用作增量 dump.
+    precision: 'low' | 'medium' | 'high'. 透传给 compute_Sd_entry.
+    progress(ch_idx, n_chambers, d, chambers_so_far): 每 chamber 跑完调一次.
     on_entry(ch_idx, i, j, entry): 每 entry 跑完调一次.
     """
     n = len(U_list)
@@ -105,7 +106,7 @@ def build_chambers(U_list, A_global, m_sizes, chamber_ds,
                 try:
                     entry, status = build_chamber_entry(
                         U_list, A_global, m_sizes, i, j, d,
-                        p_base=p_base, p_factor=p_factor, verbose=verbose, cache=cache,
+                        precision=precision, verbose=verbose, cache=cache,
                     )
                     if status == 'hit': hits += 1
                     else: miss += 1
