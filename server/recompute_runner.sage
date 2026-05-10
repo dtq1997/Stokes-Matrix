@@ -130,7 +130,7 @@ def recompute(inp):
                             're': float(v['re']), 'im': float(v['im']),
                         })
 
-    CC = ComplexField(80)
+    CC = ComplexField(200)
     A_global = matrix(CC, N, N)
     for i_ in range(N):
         for j_ in range(N):
@@ -154,6 +154,7 @@ def recompute(inp):
     cache_hits = py_int(0)
     cache_miss = py_int(0)
     for ch_idx, d in enumerate(chambers):
+        d = float(d)  # sage preparser 把 (a+b)/2.0 转 sage RealField(53), 强制 python float 否则 mpmath 转换抛精度错
         chamber_data = {'d': float(d), 'entries': {}}
         for i in range(n):
             for j in range(n):
@@ -162,8 +163,8 @@ def recompute(inp):
                     u_i_f = complex(U_list[i])
                     u_j_f = complex(U_list[j])
                     other_dists = [abs(complex(U_list[l]) - u_j_f)
-                                   for l in range(n) if l != j]
-                    target_dist = 0.5 * min(other_dists) if other_dists else 0.5
+                                   for l in range(n) if l not in (i, j)]
+                    target_dist = 0.5 * min(other_dists) if other_dists else 0.5 * abs(u_i_f - u_j_f)
                     u_target = u_j_f + target_dist * complex(math.cos(d), math.sin(d))
                     U_others = [complex(U_list[k]) for k in range(n)
                                 if k != i and k != j]
@@ -182,7 +183,8 @@ def recompute(inp):
                     sig = homotopy_signature(full_path, U_list, i, j, theta_s, theta_t)
                     if sig in cache:
                         cached = cache[sig]
-                        display_path_hit = list(full_path[:-1]) + [complex(U_list[j])]
+                        # 显示算法实际走的几何 (含 u_target ε-偏移点) + 最后画一段 → u_j 表示极限.
+                        display_path_hit = list(full_path) + [complex(U_list[j])]
                         chamber_data['entries'][f'{i},{j}'] = {
                             'value_re': cached['value_re'],
                             'value_im': cached['value_im'],
@@ -196,11 +198,11 @@ def recompute(inp):
                     val, info = compute_Sd_entry(
                         U_list, A_global, m_sizes,
                         i, j, d, waypoints=wp,
-                        p_base=400, p_factor=3, verbose=False,
+                        p_base=400, p_factor=3, verbose=(i==3 and j==0 and ch_idx==0),
                     )
-                    # Visualization: path 端点应该是 puncture u_j, 不是 ε-偏移的 u_target
-                    # (内部 evaluation 用 u_target 因为 u_j 是奇异点 ODE 进不去)
-                    display_path = list(full_path[:-1]) + [complex(U_list[j])]
+                    # Visualization: 如实显示算法走的 PL (含 u_target = u_j+ε·e^{id}),
+                    # 末段补 → u_j 表示极限到 puncture (ODE 实际进不去 u_j 因为奇异).
+                    display_path = list(full_path) + [complex(U_list[j])]
                     entry = {
                         'value_re': float(val.real),
                         'value_im': float(val.imag),
@@ -213,7 +215,10 @@ def recompute(inp):
                     chamber_data['entries'][f'{i},{j}'] = entry
                     continue
                 except Exception as e:
-                    chamber_data['entries'][f'{i},{j}'] = {'error': str(e)}
+                    import traceback
+                    chamber_data['entries'][f'{i},{j}'] = {'error': f'{type(e).__name__}: {e}', 'tb': traceback.format_exc()}
+                    if i==3 and j==0 and ch_idx==0:
+                        print("FULL TRACEBACK:", traceback.format_exc(), flush=True)
         out['chambers'].append(chamber_data)
         # progress 行 (push_server 接 stdout 转 SSE 用)
         print(f"PROGRESS chamber {ch_idx+1}/{len(chambers)} d={d:.4f}", flush=True)
