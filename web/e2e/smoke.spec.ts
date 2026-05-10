@@ -149,4 +149,22 @@ test.describe('Sd-viz smoke tests', () => {
     await dInput.press('Enter');
     expect(await dInput.inputValue()).toBe('2.3');
   });
+
+  // 防回归: 块版 (m_k > 1) dataset 的 A_kk 块内 off-diag (A_off entry I==J 且 a≠b)
+  // 必须实际渲染到 A 表对应位置, 不能被 rebuildInitialA 当对角覆盖.
+  // 历史 bug: A_off 没 a/b 字段时 e.a??0 fallback 让 A[sI][sJ] 重复写, 块内 off-diag 丢失.
+  test('A 表块内 off-diag 渲染 (块版 dataset 防 SSOT 漂移)', async ({ page }) => {
+    await page.goto('/');  // 默认是 n4_block (m=(2,2,2,2))
+    await page.waitForSelector('.puncture');
+    // 等 A 表渲染. flat (row=0, col=1) 是块 1 的 (a=0, b=1) sub-entry,
+    // 默认 dataset 应有 (0.05, 0.02) 之类非零值 (不是 0).
+    const reInput = page.locator('#a-table input[data-i="0"][data-j="1"][data-axis="re"]');
+    await reInput.waitFor();
+    const reVal = await reInput.inputValue();
+    expect(reVal).not.toBe('0');
+    expect(Number(reVal)).not.toBeCloseTo(0, 3);
+    // 同样 (a=1, b=0)
+    const reInput10 = page.locator('#a-table input[data-i="1"][data-j="0"][data-axis="re"]');
+    expect(await reInput10.inputValue()).not.toBe('0');
+  });
 });

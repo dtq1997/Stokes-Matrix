@@ -2,6 +2,7 @@
 
 Used by:
 - 60-outputs/sd-viz/data/export_n4_simple.sage
+- 60-outputs/sd-viz/data/export_n4_block.sage
 - 60-outputs/sd-viz/server/recompute_runner.sage
 
 调用方负责: U_list, A_global (sage matrix), m_sizes, chambers (sample d list).
@@ -17,6 +18,62 @@ _py_int = builtins.int  # sage preparser 把 int() 换 Integer, 用 builtins 绕
 
 def pack_path(waypoints):
     return [{'re': float(p.real), 'im': float(p.imag)} for p in waypoints]
+
+
+def pack_A_metadata(A_global, m_sizes):
+    """SSOT: 把 N×N A_global (sage matrix 或 nested complex list) 打包成
+    viz dataset schema 的 {A_diag, A_diag_block, A_off}.
+
+    - A_diag_block: list of n lists, 块 k 给 m_k 个对角谱 (块 (k,k) sub 对角 Re).
+    - A_diag: list of n scalars, 兼容老 simple-case schema, 取每块 [0,0] re.
+    - A_off: list of {i, j, a, b, re, im} entries (含 i==j 但 a!=b 的块内 off-diag).
+      A_off 永远带 a/b 字段, viz rebuildInitialA 要 (e.a ?? 0).
+
+    避免 SSOT 漂移: 任何重新生成 dataset 的脚本 (export/recompute_runner) 都该
+    调这一个函数, 不要自己手写打包.
+    """
+    n = len(m_sizes)
+    starts = []
+    s = 0
+    for m in m_sizes:
+        starts.append(s)
+        s += m
+
+    def _get(i, j):
+        """统一取 (i,j) entry 的 (re, im), 兼容 sage matrix / nested list."""
+        v = A_global[i, j] if hasattr(A_global, 'nrows') else A_global[i][j]
+        if isinstance(v, dict):
+            return float(v['re']), float(v['im'])
+        c = complex(v)
+        return float(c.real), float(c.imag)
+
+    A_diag_block = []
+    for k in range(n):
+        sk = starts[k]; mk = m_sizes[k]
+        A_diag_block.append([_get(sk + a, sk + a)[0] for a in range(mk)])
+    A_diag = [A_diag_block[k][0] for k in range(n)]
+
+    A_off = []
+    for I in range(n):
+        for J in range(n):
+            sI = starts[I]; sJ = starts[J]
+            mi = m_sizes[I]; mj = m_sizes[J]
+            for a in range(mi):
+                for b in range(mj):
+                    # 跳过块对角 (I=J, a=b) — 谱已在 A_diag_block.
+                    if I == J and a == b: continue
+                    re, im = _get(sI + a, sJ + b)
+                    if abs(re) < 1e-12 and abs(im) < 1e-12: continue
+                    A_off.append({
+                        'i': _py_int(I), 'j': _py_int(J),
+                        'a': _py_int(a), 'b': _py_int(b),
+                        're': re, 'im': im,
+                    })
+    return {
+        'A_diag': A_diag,
+        'A_diag_block': A_diag_block,
+        'A_off': A_off,
+    }
 
 
 def _winding_around(path_pts, u_k, eps=1e-9):

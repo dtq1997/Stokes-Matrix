@@ -45,11 +45,14 @@ rays = anti_stokes_rays(U_list)
 chambers = chamber_midpoints(rays)
 print(f"rays: {len(rays)}, chambers: {len(chambers)}")
 
+# A 元数据走 SSOT pack_A_metadata, 跟 recompute_runner / export_n4_block 同一打包逻辑.
+# simple case m_k=1, A_off entry 也带 a=0/b=0 字段 (viz e.a??0 兼容).
+A_meta = pack_A_metadata(A_global, m_sizes)
 results = {
     'punctures': [{'re': float(u.real), 'im': float(u.imag)} for u in U_list],
-    'A_diag': [float(x) for x in A_diag],
-    'A_off': [{'i': int(i), 'j': int(j), 're': float(re), 'im': float(im)}
-              for (i, j, re, im) in A_off],
+    'A_diag': A_meta['A_diag'],
+    'A_diag_block': A_meta['A_diag_block'],
+    'A_off': A_meta['A_off'],
     'm_sizes': [int(x) for x in m_sizes],
     'rays': [float(x) for x in rays],
     'chambers': [],

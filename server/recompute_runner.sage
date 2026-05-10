@@ -7,7 +7,8 @@ Input schema:
 
 Output schema: SimpleDataset (跟 web/src/lib/types.ts 对齐).
 调用: sage server/recompute_runner.sage input.json output.json
-注意: 当前 simple-spectrum (m_k=1) 才稳; 块版 TODO.
+块版 (m_k>1): A_diag_block + A_off (带 a/b 字段) 通过 dataset_builder.pack_A_metadata
+打包, 跟 export_n4_block.sage 走同一 SSOT.
 """
 import os, sys, json, time, builtins
 py_int = builtins.int     # sage preparser 把 int() 替换成 Integer
@@ -35,33 +36,16 @@ def recompute(inp):
 
     U_list = [complex(p['re'], p['im']) for p in punctures]
 
-    # A_diag / A_off (跟 dataset schema 兼容): A_diag 取每块 (k,k) entry,
-    # A_off 列出非对角块的非零 entry. 简单谱 m_k=1 时一对一; 块版当前 schema 不支持.
-    starts = []
-    s = 0
-    for m in m_sizes:
-        starts.append(s)
-        s += m
-    A_diag = [float(A_in[starts[I]][starts[I]]['re']) for I in range(n)]
-    A_off = []
-    for I in range(n):
-        for J in range(n):
-            if I == J: continue
-            si, sj = starts[I], starts[J]
-            mi, mj = m_sizes[I], m_sizes[J]
-            for a in range(mi):
-                for b in range(mj):
-                    v = A_in[si+a][sj+b]
-                    if v['re'] != 0 or v['im'] != 0:
-                        A_off.append({'i': int(I), 'j': int(J),
-                                      're': float(v['re']), 'im': float(v['im'])})
-
     CC = ComplexField(200)
     A_global = matrix(CC, N, N)
     for i_ in range(N):
         for j_ in range(N):
             v = A_in[i_][j_]
             A_global[i_, j_] = CC(float(v['re']), float(v['im']))
+
+    # SSOT: A_diag / A_diag_block / A_off (含块内 off-diag + a/b 字段) 全部走
+    # dataset_builder.pack_A_metadata, 跟 export_n4_block 同一逻辑. 不要在这重复.
+    A_meta = pack_A_metadata(A_global, m_sizes)
 
     rays = anti_stokes_rays(U_list)
     chambers = chamber_midpoints(rays)
@@ -82,8 +66,9 @@ def recompute(inp):
 
     return {
         'punctures': [{'re': float(u.real), 'im': float(u.imag)} for u in U_list],
-        'A_diag': A_diag,
-        'A_off': A_off,
+        'A_diag': A_meta['A_diag'],
+        'A_diag_block': A_meta['A_diag_block'],
+        'A_off': A_meta['A_off'],
         'm_sizes': m_sizes,
         'rays': [float(x) for x in rays],
         'chambers': chambers_out,

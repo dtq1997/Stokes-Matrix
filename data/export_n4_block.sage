@@ -80,36 +80,15 @@ rays = anti_stokes_rays(U_list)
 chambers = chamber_midpoints(rays)
 print(f"n=4 m=(2,2,2,2) → N={N}, rays={len(rays)}, chambers={len(chambers)}")
 
-# dataset header
-def _pack_A_off():
-    """展开 N×N 矩阵的所有非对角 entry: 含跨块 (I≠J) + 块内 off-diag (I=J, a≠b).
-    块对角 (I=J, a=b) 谱已在 A_diag_block, 不重复 dump.
-    viz monodromyTransforms 需要完整 A_II 块矩阵做 expm, 之前漏块内 off-diag
-    让 paper 共轭因子算错."""
-    out = []
-    for I in range(4):
-        for J in range(4):
-            sI, sJ = starts[I], starts[J]
-            for a in range(2):
-                for b in range(2):
-                    if I == J and a == b: continue  # 谱在 A_diag_block
-                    v = complex(A_global[sI+a, sJ+b])
-                    if abs(v) > 1e-12:
-                        out.append({
-                            'i': _py_int(I), 'j': _py_int(J),
-                            'a': _py_int(a), 'b': _py_int(b),
-                            're': float(v.real), 'im': float(v.imag),
-                        })
-    return out
-
-
+# A 元数据 (A_diag / A_diag_block / A_off 含 a/b) 走 SSOT pack_A_metadata,
+# 跟 recompute_runner.sage 同一逻辑. 不要在这里手写打包.
+A_meta = pack_A_metadata(A_global, m_sizes)
 results = {
     'punctures': [{'re': float(u.real), 'im': float(u.imag)} for u in U_list],
     'm_sizes': [_py_int(m) for m in m_sizes],
-    # A_diag: simple case 1 个标量 / 块. 块版给 m_k 个 (block 对角谱).
-    'A_diag_block': [[float(x) for x in row] for row in A_diag_block],
-    'A_diag': [float(A_diag_block[k][0]) for k in range(4)],  # 兼容: 取每块 [0,0]
-    'A_off': _pack_A_off(),
+    'A_diag': A_meta['A_diag'],
+    'A_diag_block': A_meta['A_diag_block'],
+    'A_off': A_meta['A_off'],
     'rays': [float(x) for x in rays],
     'chambers': [],
 }

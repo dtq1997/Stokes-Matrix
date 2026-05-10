@@ -49,3 +49,44 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  verify:
+    # 部署后 sanity check: fetch live HTML/JS/JSON, 验 SSOT marker 跟当前 source 一致.
+    # 防类似 "deploy 成功但 bundle 旧版" / "viz schema 跟 dataset schema 漂移" 的悄无声息回归.
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for GH Pages propagation
+        run: sleep 30
+      - name: Verify live deploy SSOT markers
+        run: |
+          set -euo pipefail
+          URL="https://dtq1997.github.io/Stokes-Matrix/"
+          echo "Fetching $URL"
+          HTML=$(curl -sf "$URL")
+          # index.html 必须含 cache-control no-cache (防 bundle 锁旧)
+          echo "$HTML" | grep -q 'Cache-Control.*no-cache' || {
+            echo "::error::live index.html 缺 Cache-Control no-cache meta"; exit 1; }
+          # 取 referenced JS bundle path
+          JS_PATH=$(echo "$HTML" | grep -oE 'assets/index-[a-zA-Z0-9_-]+\.js' | head -1)
+          [ -n "$JS_PATH" ] || { echo "::error::index.html 没引用 assets/index-*.js"; exit 1; }
+          echo "JS bundle: $JS_PATH"
+          JS=$(curl -sf "${URL}${JS_PATH}")
+          # SSOT markers (property names that survive minification)
+          for marker in A_diag_block A_off value_block m_sizes; do
+            echo "$JS" | grep -q "$marker" || {
+              echo "::error::live JS missing SSOT marker: $marker"; exit 1; }
+          done
+          echo "✓ live JS has SSOT markers"
+          # Dataset schema check — 块版 (m_k>1) dataset 的 (i==j) 块内 off-diag 必须有 a/b 字段
+          DS=$(curl -sf "${URL}data/n4_block.json")
+          INTRA_COUNT=$(echo "$DS" | jq '[.A_off[] | select(.i == .j)] | length')
+          [ "$INTRA_COUNT" -gt 0 ] || {
+            echo "::error::live dataset 块版 n4_block.json 没有 (i==j) 块内 off-diag entry";
+            exit 1; }
+          MISSING=$(echo "$DS" | jq '[.A_off[] | select(.i == .j) | select(has("a") and has("b") | not)] | length')
+          [ "$MISSING" = "0" ] || {
+            echo "::error::live dataset 有 $MISSING 个 (i==j) entry 缺 a/b 字段";
+            exit 1; }
+          echo "✓ live dataset: $INTRA_COUNT 块内 off-diag entries 都带 a/b"
