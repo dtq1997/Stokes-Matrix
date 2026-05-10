@@ -54,18 +54,30 @@ def build_chamber_entry(U_list, A_global, m_sizes, i, j, d,
     """
     u_i_f = complex(U_list[i])
     u_j_f = complex(U_list[j])
-    val, info = compute_Sd_entry(
+    block, info = compute_Sd_entry(
         U_list, A_global, m_sizes,
         i, j, d, waypoints=None,
         precision=precision, verbose=verbose,
     )
+    # block: numpy m_i × m_j complex matrix (simple-spectrum 退化 1×1).
+    m_i, m_j = info['m_i'], info['m_j']
+    value_block = [
+        [{'re': float(block[a, b].real), 'im': float(block[a, b].imag)}
+         for b in range(m_j)]
+        for a in range(m_i)
+    ]
+    # value_re/value_im 默认显示 [0,0] entry (simple-spectrum 即 scalar 值, 兼容老 schema).
+    v00 = block[0, 0]
     algo_full = [u_i_f] + list(info['algo_wp'])
     display_path = list(algo_full) + [u_j_f]
     theta_t = info['theta_t_lift']
     theta_s = -d
     entry = {
-        'value_re': float(val.real),
-        'value_im': float(val.imag),
+        'value_re': float(v00.real),
+        'value_im': float(v00.imag),
+        'value_block': value_block,
+        'm_i': _py_int(m_i),
+        'm_j': _py_int(m_j),
         'path': pack_path(display_path),
         'tau_code': float(info['tau_code']),
         'theta_t_lift': float(theta_t),
@@ -77,10 +89,15 @@ def build_chamber_entry(U_list, A_global, m_sizes, i, j, d,
             cached = cache[sig]
             entry['value_re'] = cached['value_re']
             entry['value_im'] = cached['value_im']
+            entry['value_block'] = cached['value_block']
             entry['_cache'] = 'hit'
             cache_status = 'hit'
         else:
-            cache[sig] = {'value_re': entry['value_re'], 'value_im': entry['value_im']}
+            cache[sig] = {
+                'value_re': entry['value_re'],
+                'value_im': entry['value_im'],
+                'value_block': entry['value_block'],
+            }
     return entry, cache_status
 
 
