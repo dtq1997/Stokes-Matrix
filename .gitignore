@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+.env*
+.vscode/
+.idea/
+
+# playwright
+test-results/
+playwright-report/
+.playwright/
+
+# python
+__pycache__/
+*.pyc
+*.sage.py
+.ipynb_checkpoints/
+
+# sage exporter incremental output 已 commit, 但临时文件不进
+data/export.log

@@ -1,0 +1,298 @@
+// 主画布: SVG + D3, 渲染 punctures, cuts, paths, 交点.
+// 核心交互: puncture 拖动, path vertex 拖动 (同伦类内).
+
+import * as d3 from 'd3';
+import type { VizState, ComplexNum, PathRep } from '../lib/types.js';
+import { C, pathPathIntersections, homotopyPreserved } from '../lib/geometry.js';
+
+interface ViewBox { xMin: number; xMax: number; yMin: number; yMax: number; }
+
+interface VertexData { pathId: string; idx: number; v: ComplexNum; }
+
+export class Canvas {
+  private svg: d3.Selection<SVGSVGElement, unknown, null, undefined>;
+  private root: d3.Selection<SVGGElement, unknown, null, undefined>;
+  private layers: {
+    chambers: d3.Selection<SVGGElement, unknown, null, undefined>;
+    cuts: d3.Selection<SVGGElement, unknown, null, undefined>;
+    paths: d3.Selection<SVGGElement, unknown, null, undefined>;
+    pathVerts: d3.Selection<SVGGElement, unknown, null, undefined>;
+    intersections: d3.Selection<SVGGElement, unknown, null, undefined>;
+    punctures: d3.Selection<SVGGElement, unknown, null, undefined>;
+    overlay: d3.Selection<SVGGElement, unknown, null, undefined>;
+  };
+  private width = 800;
+  private height = 600;
+  private viewBox: ViewBox = { xMin: -2, xMax: 4, yMin: -1, yMax: 3.5 };
+  private state: VizState;
+  private onStateChange: (s: VizState) => void;
+  // 当前显示的 d (连续, 不限 chamber 中心)
+  private dCurrent: number = 0;
+
+  constructor(svgEl: SVGSVGElement, state: VizState, onStateChange: (s: VizState) => void) {
+    this.svg = d3.select(svgEl);
+    this.state = state;
+    this.onStateChange = onStateChange;
+    this.dCurrent = state.dataset.chambers[state.selectedChamber]?.d ?? 0;
+    this.root = this.svg.append('g').attr('class', 'root');
+    this.layers = {
+      chambers: this.root.append('g').attr('class', 'layer-chambers'),
+      cuts: this.root.append('g').attr('class', 'layer-cuts'),
+      paths: this.root.append('g').attr('class', 'layer-paths'),
+      pathVerts: this.root.append('g').attr('class', 'layer-path-verts'),
+      intersections: this.root.append('g').attr('class', 'layer-intersections'),
+      punctures: this.root.append('g').attr('class', 'layer-punctures'),
+      overlay: this.root.append('g').attr('class', 'layer-overlay'),
+    };
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+  }
+
+  setDirection(d: number) {
+    this.dCurrent = d;
+    this.renderCuts();
+  }
+
+  getDirection(): number { return this.dCurrent; }
+
+  private resize() {
+    const node = this.svg.node()!;
+    const rect = node.parentElement!.getBoundingClientRect();
+    this.width = rect.width;
+    this.height = rect.height;
+    this.svg.attr('viewBox', `0 0 ${this.width} ${this.height}`);
+    this.fitViewBox();
+    this.render();
+  }
+
+  private fitViewBox() {
+    const ps = this.state.punctureOverrides ?? this.state.dataset.punctures;
+    const pts: ComplexNum[] = [...ps];
+    // 所有 chamber 内所有 path waypoints 一起进 bbox, 不论当前选哪个
+    for (const ch of this.state.dataset.chambers) {
+      for (const k of Object.keys(ch.entries)) {
+        const e = ch.entries[k];
+        if (e.path) for (const p of e.path) pts.push(p);
+      }
+    }
+    const xs = pts.map(p => p.re), ys = pts.map(p => p.im);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMin = Math.min(...ys), yMax = Math.max(...ys);
+    const xPad = Math.max(1, (xMax - xMin) * 0.1);
+    const yPad = Math.max(1, (yMax - yMin) * 0.1);
+    this.viewBox = {
+      xMin: xMin - xPad, xMax: xMax + xPad,
+      yMin: yMin - yPad, yMax: yMax + yPad,
+    };
+    const svgAspect = this.width / this.height;
+    const vbW = this.viewBox.xMax - this.viewBox.xMin;
+    const vbH = this.viewBox.yMax - this.viewBox.yMin;
+    const vbAspect = vbW / vbH;
+    if (vbAspect > svgAspect) {
+      const newH = vbW / svgAspect;
+      const cy = (this.viewBox.yMin + this.viewBox.yMax) / 2;
+      this.viewBox.yMin = cy - newH / 2;
+      this.viewBox.yMax = cy + newH / 2;
+    } else {
+      const newW = vbH * svgAspect;
+      const cx = (this.viewBox.xMin + this.viewBox.xMax) / 2;
+      this.viewBox.xMin = cx - newW / 2;
+      this.viewBox.xMax = cx + newW / 2;
+    }
+  }
+
+  private toPx(c: ComplexNum): [number, number] {
+    const x = (c.re - this.viewBox.xMin) / (this.viewBox.xMax - this.viewBox.xMin) * this.width;
+    const y = this.height - (c.im - this.viewBox.yMin) / (this.viewBox.yMax - this.viewBox.yMin) * this.height;
+    return [x, y];
+  }
+  private toPlane(px: number, py: number): ComplexNum {
+    return {
+      re: this.viewBox.xMin + (px / this.width) * (this.viewBox.xMax - this.viewBox.xMin),
+      im: this.viewBox.yMin + ((this.height - py) / this.height) * (this.viewBox.yMax - this.viewBox.yMin),
+    };
+  }
+
+  setState(s: VizState) {
+    this.state = s;
+    this.render();
+  }
+
+  render() {
+    this.renderCuts();
+    this.renderPaths();
+    this.renderVertices();
+    this.renderIntersections();
+    this.renderPunctures();
+  }
+
+  private renderCuts() {
+    const ps = this.state.punctureOverrides ?? this.state.dataset.punctures;
+    const d = this.dCurrent;
+    const diag = Math.hypot(this.viewBox.xMax - this.viewBox.xMin, this.viewBox.yMax - this.viewBox.yMin) * 1.5;
+    const dirVec = C.expI(-d);
+    const lines = ps.map((u, k) => ({
+      k,
+      from: u,
+      to: { re: u.re + dirVec.re * diag, im: u.im + dirVec.im * diag },
+    }));
+    this.layers.cuts.selectAll<SVGLineElement, typeof lines[0]>('line.cut-line')
+      .data(lines, (d: any) => d.k)
+      .join(
+        enter => enter.append('line').attr('class', 'cut-line'),
+        update => update,
+        exit => exit.remove(),
+      )
+      .attr('x1', l => this.toPx(l.from)[0])
+      .attr('y1', l => this.toPx(l.from)[1])
+      .attr('x2', l => this.toPx(l.to)[0])
+      .attr('y2', l => this.toPx(l.to)[1]);
+  }
+
+  private renderPaths() {
+    const arr = Array.from(this.state.paths.values());
+    this.layers.paths.selectAll<SVGPathElement, PathRep>('path.path-line')
+      .data(arr, (d: any) => d.homotopyId)
+      .join(
+        enter => enter.append('path').attr('class', 'path-line'),
+        update => update,
+        exit => exit.remove(),
+      )
+      .attr('d', p => d3.line()(p.vertices.map(v => this.toPx(v)) as any));
+  }
+
+  private renderVertices() {
+    const arr = Array.from(this.state.paths.values());
+    const verts: VertexData[] = [];
+    arr.forEach(p => {
+      for (let i = 1; i < p.vertices.length - 1; i++) {
+        verts.push({ pathId: p.homotopyId, idx: i, v: p.vertices[i] });
+      }
+    });
+
+    const dragBehavior = d3.drag<SVGCircleElement, VertexData>()
+      .on('start', function () { d3.select(this).classed('dragging', true); })
+      .on('drag', (event, d) => this.onVertexDrag(d, event))
+      .on('end', function () { d3.select(this).classed('dragging', false); });
+
+    const all = this.layers.pathVerts.selectAll<SVGCircleElement, VertexData>('circle.path-vertex')
+      .data(verts, (d: any) => `${d.pathId}-${d.idx}`)
+      .join(
+        enter => enter.append('circle').attr('class', 'path-vertex').attr('r', 6),
+        update => update,
+        exit => exit.remove(),
+      )
+      .attr('cx', d => this.toPx(d.v)[0])
+      .attr('cy', d => this.toPx(d.v)[1]);
+    // 显式给所有 vertex (含 update) 重绑 drag — D3 idempotent
+    all.call(dragBehavior);
+  }
+
+  private onVertexDrag(d: VertexData, event: d3.D3DragEvent<SVGCircleElement, VertexData, VertexData>) {
+    const path = this.state.paths.get(d.pathId);
+    if (!path) return;
+    const [px, py] = d3.pointer(event.sourceEvent, this.svg.node());
+    const newPos = this.toPlane(px, py);
+    // Phase 1: drag 期间放任 vertex 跟手, 不做 homotopy 检测
+    // (扫掠三角形对高瘦 path 退化, false positive 太多;
+    //  应该用 winding number 在 drag end 整体检测, Phase 1.5 加)
+    path.vertices[d.idx] = newPos;
+    d.v = newPos;
+    // 只 update path 线和这个顶点, 不全 render
+    this.renderPaths();
+    this.renderVertices();
+    this.renderIntersections();
+    this.onStateChange(this.state);
+  }
+
+  private flashOffending(k: number) {
+    const ps = this.state.punctureOverrides ?? this.state.dataset.punctures;
+    const u = ps[k];
+    const [px, py] = this.toPx(u);
+    const flash = this.layers.overlay.append('circle')
+      .attr('cx', px).attr('cy', py).attr('r', 12)
+      .attr('fill', 'none').attr('stroke', '#ff5555').attr('stroke-width', 2)
+      .attr('opacity', 1);
+    flash.transition().duration(400).attr('r', 26).attr('opacity', 0).remove();
+  }
+
+  private renderIntersections() {
+    const arr = Array.from(this.state.paths.values());
+    const dots: ComplexNum[] = [];
+    for (let a = 0; a < arr.length; a++) {
+      for (let b = a + 1; b < arr.length; b++) {
+        const xs = pathPathIntersections(arr[a].vertices, arr[b].vertices);
+        for (const x of xs) dots.push(x.P);
+      }
+    }
+    this.layers.intersections.selectAll<SVGCircleElement, ComplexNum>('circle.intersection-dot')
+      .data(dots)
+      .join(
+        enter => enter.append('circle').attr('class', 'intersection-dot').attr('r', 4),
+        update => update,
+        exit => exit.remove(),
+      )
+      .attr('cx', d => this.toPx(d)[0])
+      .attr('cy', d => this.toPx(d)[1]);
+  }
+
+  private renderPunctures() {
+    const ps = this.state.punctureOverrides ?? this.state.dataset.punctures;
+    const data = ps.map((p, k) => ({ k, p }));
+
+    const dragBehavior = d3.drag<SVGCircleElement, typeof data[0]>()
+      .on('start', function () { d3.select(this).classed('dragging', true); })
+      .on('drag', (event, d) => this.onPunctureDrag(d.k, event))
+      .on('end', function () { d3.select(this).classed('dragging', false); });
+
+    const groups = this.layers.punctures.selectAll<SVGGElement, typeof data[0]>('g.puncture-group')
+      .data(data, (d: any) => String(d.k))
+      .join(
+        enter => {
+          const g = enter.append('g').attr('class', 'puncture-group');
+          g.append('circle').attr('class', 'puncture').attr('r', 7).call(dragBehavior);
+          g.append('text').attr('class', 'puncture-label').attr('dx', 11).attr('dy', -9);
+          return g;
+        },
+        update => update,
+        exit => exit.remove(),
+      );
+
+    groups.attr('transform', d => {
+      const [x, y] = this.toPx(d.p);
+      return `translate(${x}, ${y})`;
+    });
+    groups.select('text.puncture-label').text(d => `u${d.k + 1}`);
+  }
+
+  private onPunctureDrag(k: number, event: d3.D3DragEvent<SVGCircleElement, any, any>) {
+    const [px, py] = d3.pointer(event.sourceEvent, this.svg.node());
+    const newPos = this.toPlane(px, py);
+    const ps = (this.state.punctureOverrides ?? this.state.dataset.punctures).map((p, i) =>
+      i === k ? newPos : p);
+    this.state.punctureOverrides = ps;
+    // path 起点/终点没变 (起点 = u_i, 终点 = u_target ≈ u_j, 但 u_i/u_j 跟着 puncture 移动)
+    // 第一阶段简化: 让 path 起点/终点跟着 puncture 移, 中间 vertex 保留用户拖动后的位置
+    this.state.paths.forEach(path => {
+      // path.i 是 block index of starting puncture
+      if (path.vertices.length >= 1) {
+        path.vertices[0] = ps[path.i];
+      }
+      // 终点也跟着 u_j 走 (保持 path 起终点连贯)
+      if (path.vertices.length >= 2) {
+        const last = path.vertices.length - 1;
+        // target_dist 跟 d 方向不变, 跟 u_j 一起平移即可 (Phase 1 简化: 直接挪到 u_j)
+        const ujOld = (this.state.punctureOverrides ?? this.state.dataset.punctures)[path.j];
+        // 注意: 此时 punctureOverrides 已经更新, 不能再读
+        // 直接把终点挪到 ps[path.j] 附近 (用 d 方向的小偏移占位, 后端 push 后会修正)
+        path.vertices[last] = { ...ps[path.j] };
+      }
+    });
+    this.renderCuts();
+    this.renderPaths();
+    this.renderVertices();
+    this.renderIntersections();
+    this.renderPunctures();
+    this.onStateChange(this.state);
+  }
+}

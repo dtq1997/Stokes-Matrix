@@ -1,0 +1,186 @@
+:root {
+  --bg: #0d0f12;
+  --bg-panel: #14171c;
+  --bg-elev: #1a1e25;
+  --fg: #e6e8eb;
+  --fg-dim: #9099a6;
+  --fg-muted: #5c6573;
+  --accent: #5cc8ff;
+  --accent-2: #ffb86c;
+  --accent-3: #ff79c6;
+  --good: #50fa7b;
+  --warn: #ffb86c;
+  --bad: #ff5555;
+  --border: #2a2f38;
+  --grid: #1f242c;
+  --chamber-a: rgba(92, 200, 255, 0.06);
+  --chamber-b: rgba(255, 184, 108, 0.05);
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+#app {
+  display: grid;
+  grid-template-columns: 240px 1fr 280px;
+  height: 100vh;
+  gap: 1px;
+  background: var(--border);
+}
+
+#left-panel, #right-panel {
+  background: var(--bg-panel);
+  padding: 16px 14px;
+  overflow-y: auto;
+}
+
+#canvas-wrap {
+  background: var(--bg);
+  position: relative;
+  overflow: hidden;
+}
+
+#canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}
+
+h3 {
+  margin: 18px 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+}
+
+.dim { color: var(--fg-muted); font-weight: 400; }
+.mono { font-family: var(--font-mono); font-size: 11px; color: var(--fg-dim); }
+
+#entry-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+#entry-grid .cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elev);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+#entry-grid .cell:hover { background: #232932; color: var(--fg); }
+#entry-grid .cell.diag { background: transparent; cursor: default; color: var(--fg-muted); opacity: 0.4; }
+#entry-grid .cell.selected { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+#d-slider-wrap input[type=range] {
+  width: 100%;
+  accent-color: var(--accent);
+  margin: 0 0 4px;
+}
+
+#d-marker-strip {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  margin-bottom: 8px;
+}
+
+#d-marker-strip .d-mark {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 100%;
+}
+#d-marker-strip .d-mark.ray {
+  background: var(--accent-3);
+  width: 1px;
+  opacity: 0.7;
+}
+#d-marker-strip .d-mark.chamber {
+  background: var(--good);
+  opacity: 0.4;
+  width: 2px;
+  top: 4px;
+  height: 6px;
+}
+
+#d-readout { margin-top: 6px; line-height: 1.5; }
+
+#stokes-display {
+  background: var(--bg-elev);
+  padding: 14px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  min-height: 60px;
+}
+#stokes-display .label { color: var(--fg-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+#stokes-display .value { color: var(--fg); font-size: 14px; margin-top: 4px; }
+#stokes-display .complex-re { color: var(--accent); }
+#stokes-display .complex-im { color: var(--accent-2); }
+
+#hud {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(20, 23, 28, 0.85);
+  backdrop-filter: blur(6px);
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  pointer-events: none;
+}
+
+#path-info {
+  background: var(--bg-elev);
+  padding: 10px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+}
+
+/* SVG element styling */
+.cut-line { stroke: var(--fg-muted); stroke-width: 1; opacity: 0.4; stroke-dasharray: 4 3; }
+.puncture { fill: var(--accent); stroke: #fff; stroke-width: 1.5; cursor: grab; }
+.puncture:hover { fill: var(--accent-2); }
+.puncture.dragging { cursor: grabbing; }
+.puncture-label { fill: var(--fg); font-family: var(--font-mono); font-size: 11px; pointer-events: none; }
+.path-line { fill: none; stroke: var(--accent-3); stroke-width: 2; stroke-linejoin: round; }
+.path-vertex { fill: var(--accent-3); stroke: var(--bg); stroke-width: 1.5; cursor: grab; }
+.path-vertex.dragging { cursor: grabbing; }
+.intersection-dot { fill: var(--good); stroke: var(--bg); stroke-width: 1; }
+.axis { stroke: var(--grid); stroke-width: 1; }
+.tick-label { fill: var(--fg-muted); font-family: var(--font-mono); font-size: 10px; }
