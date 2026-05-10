@@ -16,7 +16,9 @@ export interface SdEntryData {
 }
 
 export interface ChamberData {
-  d: number;                     // 代表方向 (rad, [0, 2π))
+  d: number;                     // chamber sample d (rad). SSOT: 在 ℝ 上单调递增, 落在
+                                 // (rays[0], rays[0]+2π) 内. 不 mod 2π. viz 显示用
+                                 // m=round((d_user-d_sample)/2π) 乘 monodromy phase 修正.
   entries: { [key: string]: SdEntryData };  // key = "i,j"
 }
 
@@ -25,7 +27,7 @@ export interface SimpleDataset {
   A_diag: number[];
   A_off: AOff[];
   m_sizes: number[];
-  rays: number[];                // anti-Stokes rays + πℤ, sorted [0, 2π)
+  rays: number[];                // paper anti-Stokes: -arg(u_p-u_q) mod 2π, sorted ∈ [0, 2π)
   chambers: ChamberData[];
 }
 

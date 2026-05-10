@@ -130,6 +130,31 @@ export function modTwoPi(x: number): number {
 }
 
 /**
+ * Paper monodromy phase 修正 (S_d)_{ij} 跨周期值.
+ *
+ * dataset 存的 entry 是在 d_sample 处用 paper inf product 公式算的 (S_{d_sample}).
+ * user 滑块上的真实 d 跟 d_sample 同 chamber 但可能差 2π·m 周期 (因 sample d 单调
+ * 递增不 mod 2π, viz 滑块 d ∈ ℝ). 真 (S_{d_user}) 跟 (S_{d_sample}) 差 paper
+ * monodromy phase: m = round((d_user - d_sample) / 2π).
+ *
+ * 推导: paper 公式 (S_{[\tau]})_{st} 含 (u_t-u_s)^{A_ss} · (u_t-u_s)^{-A_tt}, lift
+ * 用 -τ. τ → τ+2π 时 lift -2π, (u_t-u_s)^{A_ss} 多 exp(-2πi·A_ss),
+ * (u_t-u_s)^{-A_tt} 多 exp(+2πi·A_tt), 整体 (S_{d+2π}) = (S_d)·exp(2πi·(A_tt-A_ss)).
+ * 所以修正 (S_{d_user}) = (S_{d_sample}) · exp(2πi·m·(A_jj-A_ii)).
+ *
+ * Simple-spectrum 假设: A_ii / A_jj 是 scalar (block size 1).
+ */
+export function monodromyPhase(
+  d_user: number, d_sample: number, A_ii: number, A_jj: number,
+): { re: number; im: number } {
+  const tp = 2 * Math.PI;
+  const m = Math.round((d_user - d_sample) / tp);
+  if (m === 0) return { re: 1, im: 0 };
+  const theta = tp * m * (A_jj - A_ii);
+  return { re: Math.cos(theta), im: Math.sin(theta) };
+}
+
+/**
  * 给定 d, 找包含它的 chamber 索引.
  * Anti-Stokes rays 划分 [0, 2π) 成 chamber 数 = rays 数; 第 k 个 chamber 是
  * (sortedRays[k], sortedRays[k+1]) (k=last 时绕回到 sortedRays[0]+2π).

@@ -21,40 +21,12 @@ py_int = builtins.int     # sage preparser 把 int() 替换成 Integer(), 用 bu
 
 _WS = "/Users/dtq1997/ai/workspace/academic-formula-workbench"
 sys.path.insert(0, os.path.join(_WS, "50-computation"))
+sys.path.insert(0, os.path.join(_WS, "60-outputs/sd-viz/server"))
 
 from sage.all import matrix, ComplexField
+from sd_chamber_geom import anti_stokes_rays, chamber_midpoints  # SSOT
 
 load(os.path.join(_WS, "50-computation/compute_Sd_entry.sage"))
-
-
-def anti_stokes_rays(U):
-    """Paper aS(u) = {-arg(u_p - u_q) mod 2π} for ordered pairs.
-    严格不含 πℤ: 0/π 不是 anti-Stokes (除非某对 puncture 让 arg 落在那).
-    跨这条 ray 时 Im((u_p - u_q) e^{id}) 跨零 → σ_d 邻位 transposition."""
-    rays = set()
-    twopi = 2 * math.pi
-    for i in range(len(U)):
-        for j in range(len(U)):
-            if i == j: continue
-            diff = U[i] - U[j]
-            ang = (-math.atan2(diff.imag, diff.real)) % twopi
-            rays.add(round(ang, 10))
-    return sorted(rays)
-
-
-def chamber_midpoints(rays):
-    twopi = 2 * math.pi
-    out = []
-    for k in range(len(rays)):
-        a = rays[k]
-        b = rays[(k+1) % len(rays)]
-        if k == len(rays) - 1:
-            b = b + twopi
-        mid = (a + b) / 2.0
-        if mid >= twopi:
-            mid -= twopi
-        out.append(mid)
-    return out
 
 
 def pack_path(waypoints):

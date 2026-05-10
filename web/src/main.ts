@@ -3,7 +3,7 @@ import { loadDataset, recomputeAsync, cancelJob, backendOnline } from './lib/dat
 import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
-import { chamberOfDirection } from './lib/geometry.js';
+import { chamberOfDirection, monodromyPhase } from './lib/geometry.js';
 import { parsePiInput, formatPi } from './lib/pi-input.js';
 import { buildPathForViz } from './lib/pl-path.js';
 
@@ -106,12 +106,13 @@ async function main() {
     if (source !== 'input') dInput.value = formatPi(d / Math.PI);
     canvas.setDirection(d);
     const newCh = chamberOfDirection(d, dataset.rays, chamberDs);
-    const chamberChanged = newCh !== state.selectedChamber;
     state.selectedChamber = newCh;
     // d 每变, path PL 代表元跟着重 build (cut 转, path 也跟着转)
     refreshAllPaths();
     canvas.setState(state);
-    if (chamberChanged) refreshStokesMatrix();
+    // 每次 d 变都刷 entry 显示: phase 修正 = exp(2πi·m·(A_ii-A_jj)) 跟 d 数值挂钩,
+    // 同 chamber 内跨周期也得重算 (m 不同 phase 不同).
+    refreshStokesMatrix();
     updateDReadout();
     updateStokesPanel();
     updatePathInfo();
@@ -465,6 +466,19 @@ async function main() {
     }
     refreshStokesMatrix();
   }
+  /** 取 entry value 并乘 paper monodromy phase 把 cached d_sample 值修到 d_user 处. */
+  function entryDisplayValue(e: { value_re?: number; value_im?: number },
+                              d_sample: number, i: number, j: number): { re: number; im: number } {
+    const re0 = e.value_re ?? 0, im0 = e.value_im ?? 0;
+    const A_diag = dataset.A_diag;
+    const ph = monodromyPhase(currentD, d_sample, A_diag[i], A_diag[j]);
+    // (re0+im0i)·(ph.re+ph.im i)
+    return {
+      re: re0 * ph.re - im0 * ph.im,
+      im: re0 * ph.im + im0 * ph.re,
+    };
+  }
+
   function refreshStokesMatrix() {
     const sm = document.getElementById('stokes-matrix')!;
     const ch = dataset.chambers[state.selectedChamber];
@@ -482,9 +496,9 @@ async function main() {
         if (!e || e.error) {
           cell.innerHTML = `<span style="color: var(--bad)">!</span>`;
         } else {
-          const re = e.value_re ?? 0, im = e.value_im ?? 0;
-          const mag = Math.hypot(re, im);
-          const argDeg = Math.atan2(im, re) * 180 / Math.PI;
+          const v = entryDisplayValue(e, ch.d, i, j);
+          const mag = Math.hypot(v.re, v.im);
+          const argDeg = Math.atan2(v.im, v.re) * 180 / Math.PI;
           cell.innerHTML =
             `<div><div class="sm-mag">${tex(mag.toFixed(2))}</div>` +
             `<div class="sm-arg">${tex(`${argDeg >= 0 ? '+' : ''}${argDeg.toFixed(0)}^\\circ`)}</div></div>`;
@@ -538,10 +552,10 @@ async function main() {
         <div class="value" style="color: var(--bad)">FAIL: ${e.error}</div>`;
       return;
     }
-    const re = e.value_re ?? 0, im = e.value_im ?? 0;
-    const reS = re.toFixed(5);
-    const imS = (im >= 0 ? '+' : '') + im.toFixed(5);
-    const mag = Math.hypot(re, im).toFixed(5);
+    const v = entryDisplayValue(e, ch.d, i, j);
+    const reS = v.re.toFixed(5);
+    const imS = (v.im >= 0 ? '+' : '') + v.im.toFixed(5);
+    const mag = Math.hypot(v.re, v.im).toFixed(5);
     el.innerHTML =
       `<div class="label">${tex(labelTex)}</div>` +
       `<div class="value">${tex(`${reS} ${imS} \\mathrm{i}`)}</div>` +
