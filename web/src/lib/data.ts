@@ -17,6 +17,7 @@ export interface RecomputeRequest {
   punctures: { re: number; im: number }[];
   A: { re: number; im: number }[][];
   m_sizes: number[];
+  precision?: 'low' | 'medium' | 'high';
 }
 
 export interface JobStatus {

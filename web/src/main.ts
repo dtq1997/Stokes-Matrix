@@ -271,11 +271,14 @@ async function main() {
     recomputeBtn.textContent = 'Cancel';
     recomputeStatus.style.color = '';
     try {
+      const precisionSel = document.getElementById('precision-select') as HTMLSelectElement;
+      const precision = (precisionSel?.value ?? 'medium') as 'low' | 'medium' | 'high';
       const { result: newDs } = await recomputeAsync(
         {
           punctures: state.punctureOverrides!,
           A: state.AOverrides!,
           m_sizes: state.mOverrides!,
+          precision,
         },
         (s: JobStatus) => {
           if (s.chambers_total > 0) {
@@ -397,9 +400,9 @@ async function main() {
   }
   function updateDimInfo() {
     const ms = state.mOverrides!;
-    const N = ms.reduce((a, b) => a + b, 0);
+    const m_total = ms.reduce((a, b) => a + b, 0);
     const el = document.getElementById('dim-info')!;
-    el.innerHTML = tex(`n = ${n},\\quad N = \\sum_k m_k = ${N}`);
+    el.innerHTML = tex(`m = \\sum_k m_k = ${m_total}`);
   }
 
   function buildATable() {

@@ -107,12 +107,23 @@ h3 {
 #entry-grid .cell.diag { background: transparent; cursor: default; color: var(--fg-muted); opacity: 0.4; }
 #entry-grid .cell.selected { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 
-#d-input-wrap, .n-input-wrap {
+#d-input-wrap, .n-input-wrap, .precision-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
 }
+.precision-wrap label { color: var(--fg-muted); font-size: 12px; }
+#precision-select {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 6px;
+}
+#precision-select:focus { border-color: var(--accent); outline: none; }
 #n-input {
   width: 50px;
   background: var(--bg-elev);
