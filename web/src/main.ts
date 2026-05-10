@@ -484,31 +484,28 @@ async function main() {
     };
   }
 
-  /** 复数 entry 格式化 (竖排两行, 单次 LaTeX 渲染保证 sign 跟数字对齐).
-   *
-   * 用 `array{rl}` 两列: 第一列右对齐 (sign+整数部分共同尾部), 第二列左对齐 (小数+i).
-   * 整数部分宽度统一让小数点对齐 (split 法).
-   *
+  /** 复数 entry 渲染为 HTML grid (4 列: sign | 整数 | 小数 | i).
+   * 两行 (re / im·i) 用同一 grid 让符号竖直对齐 + 小数点对齐 (整数右对齐 + 小数左对齐).
+   * KaTeX 不支持 `array{r@{}l}` 的 `@{}` 列间距控制, 用 LaTeX 渲染会失败回退到源码.
+   * 改用 HTML 完全可控. 字体用 KaTeX_Main 保持数学风格.
    * 模长 ≈ 0 → 单行 '0'.
    */
-  function fmtComplex(v: { re: number; im: number }, precision = 2): string {
+  function renderComplex(v: { re: number; im: number }, precision = 2): string {
     const mag = Math.hypot(v.re, v.im);
-    if (mag < 5 * 10 ** -(precision + 1)) return '0';
-    const reSign = v.re >= 0 ? '+' : '-';
-    const imSign = v.im >= 0 ? '+' : '-';
-    // 拆 整数 . 小数 让小数点对齐: 第一列 'sign 整数', 第二列 '小数 i?'
+    if (mag < 5 * 10 ** -(precision + 1)) return '<span class="cs-zero">0</span>';
     const split = (x: number) => {
       const s = Math.abs(x).toFixed(precision);
       const dot = s.indexOf('.');
       return dot < 0 ? [s, ''] : [s.slice(0, dot), s.slice(dot)];
     };
+    const reSign = v.re >= 0 ? '+' : '−';  // U+2212 minus sign, 比 '-' 视觉宽
+    const imSign = v.im >= 0 ? '+' : '−';
     const [reInt, reFrac] = split(v.re);
     const [imInt, imFrac] = split(v.im);
-    // aligned 让 sign 在 & 右侧同列, 数字按 . 对齐 (整数部分右对齐).
-    return `\\begin{array}{r@{}l}` +
-           `${reSign}\\,${reInt} & ${reFrac} \\\\[-1pt] ` +
-           `${imSign}\\,${imInt} & ${imFrac}\\,\\mathrm{i}` +
-           `\\end{array}`;
+    return `<div class="cs-grid">
+      <span class="cs-sign">${reSign}</span><span class="cs-int">${reInt}</span><span class="cs-frac">${reFrac}</span><span class="cs-i"></span>
+      <span class="cs-sign">${imSign}</span><span class="cs-int">${imInt}</span><span class="cs-frac">${imFrac}</span><span class="cs-i">i</span>
+    </div>`;
   }
 
   function refreshStokesMatrix() {
@@ -529,7 +526,7 @@ async function main() {
           cell.innerHTML = `<span style="color: var(--bad)">!</span>`;
         } else {
           const v = entryDisplayValue(e, ch.d, i, j);
-          cell.innerHTML = tex(fmtComplex(v));
+          cell.innerHTML = renderComplex(v);
         }
       }
     }
@@ -581,7 +578,7 @@ async function main() {
     const v = entryDisplayValue(e, ch.d, i, j);
     el.innerHTML =
       `<div class="label">${tex(labelTex)}</div>` +
-      `<div class="value">${tex(fmtComplex(v, 5))}</div>`;
+      `<div class="value">${renderComplex(v, 5)}</div>`;
   }
 
   function updatePathInfo() {
