@@ -354,15 +354,11 @@ h3 {
   line-height: 1.1;
   min-height: 38px;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  align-items: center;
   justify-content: center;
-  gap: 1px;
 }
-#stokes-matrix .sm-re, #stokes-matrix .sm-im {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
+/* KaTeX array 内数字小数点对齐: tabular-nums 让数字宽度均匀 */
+#stokes-matrix .sm-cell .katex { font-variant-numeric: tabular-nums; }
 #stokes-matrix .sm-cell:hover { background: #232932; }
 #stokes-matrix .sm-cell.diag {
   background: transparent;

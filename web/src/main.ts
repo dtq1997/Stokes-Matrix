@@ -484,25 +484,31 @@ async function main() {
     };
   }
 
-  /** 复数 entry 格式化: 返回 [reLine, imLine] LaTeX, 用于竖排两行显示.
-   * reLine: `± |re|`, imLine: `± |im|\,\mathrm{i}`. 模长 ≈ 0 → ['0', '']. */
-  function fmtComplexLines(v: { re: number; im: number }, precision = 2): [string, string] {
+  /** 复数 entry 格式化 (竖排两行, 单次 LaTeX 渲染保证 sign 跟数字对齐).
+   *
+   * 用 `array{rl}` 两列: 第一列右对齐 (sign+整数部分共同尾部), 第二列左对齐 (小数+i).
+   * 整数部分宽度统一让小数点对齐 (split 法).
+   *
+   * 模长 ≈ 0 → 单行 '0'.
+   */
+  function fmtComplex(v: { re: number; im: number }, precision = 2): string {
     const mag = Math.hypot(v.re, v.im);
-    if (mag < 5 * 10 ** -(precision + 1)) return ['0', ''];
+    if (mag < 5 * 10 ** -(precision + 1)) return '0';
     const reSign = v.re >= 0 ? '+' : '-';
     const imSign = v.im >= 0 ? '+' : '-';
-    const reStr = Math.abs(v.re).toFixed(precision);
-    const imStr = Math.abs(v.im).toFixed(precision);
-    return [
-      `${reSign}\\,${reStr}`,
-      `${imSign}\\,${imStr}\\,\\mathrm{i}`,
-    ];
-  }
-
-  /** 单行 fallback (e.g. detailed panel). */
-  function fmtComplex(v: { re: number; im: number }, precision = 2): string {
-    const [r, i] = fmtComplexLines(v, precision);
-    return i ? `${r} ${i}` : r;
+    // 拆 整数 . 小数 让小数点对齐: 第一列 'sign 整数', 第二列 '小数 i?'
+    const split = (x: number) => {
+      const s = Math.abs(x).toFixed(precision);
+      const dot = s.indexOf('.');
+      return dot < 0 ? [s, ''] : [s.slice(0, dot), s.slice(dot)];
+    };
+    const [reInt, reFrac] = split(v.re);
+    const [imInt, imFrac] = split(v.im);
+    // aligned 让 sign 在 & 右侧同列, 数字按 . 对齐 (整数部分右对齐).
+    return `\\begin{array}{r@{}l}` +
+           `${reSign}\\,${reInt} & ${reFrac} \\\\[-1pt] ` +
+           `${imSign}\\,${imInt} & ${imFrac}\\,\\mathrm{i}` +
+           `\\end{array}`;
   }
 
   function refreshStokesMatrix() {
@@ -523,10 +529,7 @@ async function main() {
           cell.innerHTML = `<span style="color: var(--bad)">!</span>`;
         } else {
           const v = entryDisplayValue(e, ch.d, i, j);
-          const [reLine, imLine] = fmtComplexLines(v);
-          cell.innerHTML = imLine
-            ? `<div class="sm-re">${tex(reLine)}</div><div class="sm-im">${tex(imLine)}</div>`
-            : `<div class="sm-re">${tex(reLine)}</div>`;
+          cell.innerHTML = tex(fmtComplex(v));
         }
       }
     }
