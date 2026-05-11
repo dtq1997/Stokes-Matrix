@@ -58,7 +58,10 @@ results = {
     'chambers': [],
 }
 
-OUT = os.path.join(_WS, "60-outputs/sd-viz/data/n4_simple.json")
+OUT = os.environ.get(
+    'SD_OUT',
+    os.path.join(_WS, "60-outputs/sd-viz/data/n4_simple.json"),
+)
 
 
 def _progress(ch_idx, n_ch, d, chambers_so_far):
@@ -78,14 +81,21 @@ def _on_entry(ch_idx, i, j, entry):
 
 t0 = time.time()
 PRECISION = os.environ.get('SD_PRECISION', 'medium')  # low / medium / high
+ALGORITHM = os.environ.get('SD_ALGORITHM', 'v5_full')
 print(f"precision = {PRECISION}")
+print(f"algorithm = {ALGORITHM}")
 
 chambers_out, _stats = build_chambers(
     U_list, A_global, m_sizes, chambers,
     precision=PRECISION, verbose=False, use_cache=False,
+    algorithm=ALGORITHM,
     progress=_progress, on_entry=_on_entry,
 )
 results['chambers'] = chambers_out
+results['_algorithm'] = _stats.get('algorithm', ALGORITHM)
+results['_cache_stats'] = _stats
+if 'v5' in _stats:
+    results['_v5'] = _stats['v5']
 # 最终保存
 with open(OUT, 'w') as f:
     json.dump(results, f, indent=2)

@@ -255,6 +255,17 @@ h3 {
   white-space: pre-wrap;
 }
 
+#path-info .provenance-chip {
+  display: inline-block;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-dim);
+  background: rgba(255, 255, 255, 0.04);
+  overflow-wrap: anywhere;
+}
+
 /* ---------- State (U, A) tables ---------- */
 .state-table {
   width: auto;             /* 不强制填满 panel, 让 cell 保持自然宽度 (panel 横向滚) */

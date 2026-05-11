@@ -29,6 +29,7 @@ def recompute(inp):
     A_in = inp['A']
     m_sizes = list(inp['m_sizes'])
     precision = inp.get('precision', 'medium')  # 'low' | 'medium' | 'high'
+    algorithm = inp.get('algorithm', os.environ.get('SD_ALGORITHM', 'v5_full'))
     n = len(punctures)
     N = sum(m_sizes)
     if N != len(A_in):
@@ -58,13 +59,14 @@ def recompute(inp):
     chambers_out, stats = build_chambers(
         U_list, A_global, m_sizes, chambers,
         precision=precision, verbose=False, use_cache=True,
+        algorithm=algorithm,
         progress=_progress,
     )
     total = stats['hits'] + stats['miss']
     rate = (100.0 * stats['hits'] / total) if total else 0
     print(f"DONE elapsed={time.time()-t0:.1f}s cache_hit={stats['hits']}/{total} ({rate:.0f}%)", flush=True)
 
-    return {
+    out = {
         'punctures': [{'re': float(u.real), 'im': float(u.imag)} for u in U_list],
         'A_diag': A_meta['A_diag'],
         'A_diag_block': A_meta['A_diag_block'],
@@ -72,8 +74,12 @@ def recompute(inp):
         'm_sizes': m_sizes,
         'rays': [float(x) for x in rays],
         'chambers': chambers_out,
+        '_algorithm': stats.get('algorithm', algorithm),
         '_cache_stats': stats,
     }
+    if 'v5' in stats:
+        out['_v5'] = stats['v5']
+    return out
 
 
 if __name__ == '__main__':

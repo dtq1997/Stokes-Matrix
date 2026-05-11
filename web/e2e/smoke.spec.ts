@@ -1,4 +1,30 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+async function useNullPathV5Dataset(page: Page) {
+  await page.route('**/data/*.json*', async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data._algorithm = 'v5_full';
+    data._v5 = { residual_max: 1e-15, test_fixture: 'null-path' };
+    for (const chamber of data.chambers ?? []) {
+      for (const entry of Object.values(chamber.entries ?? {}) as any[]) {
+        if (!entry || entry.error) continue;
+        entry.path = null;
+        entry.provenance = entry.provenance ?? 'v5_full_wall_crossing';
+      }
+    }
+    await route.fulfill({ response, json: data });
+  });
+}
+
+async function expectPathOrProvenance(page: Page) {
+  await expect(page.locator('#stokes-display .value')).toBeVisible();
+  const pathCount = await page.locator('.path-line').count();
+  expect(pathCount).toBeLessThanOrEqual(1);
+  if (pathCount === 0) {
+    await expect(page.locator('#path-info .provenance-chip')).toContainText('provenance:');
+  }
+}
 
 test.describe('Sd-viz smoke tests', () => {
   test('页面加载无 console error', async ({ page }) => {
@@ -17,12 +43,22 @@ test.describe('Sd-viz smoke tests', () => {
     expect(errors).toEqual([]);
   });
 
-  test('点 entry 出现 path + Stokes 数值', async ({ page }) => {
+  test('点 entry 出现 path/provenance + Stokes 数值', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
     // (0,1) cell 在 grid 第 2 个 (idx=1, 0-indexed; n=4 grid: (0,0)(0,1)(0,2)(0,3) ...)
     await page.locator('#entry-grid .cell').nth(1).click();
-    await expect(page.locator('.path-line')).toHaveCount(1);
+    await expectPathOrProvenance(page);
+  });
+
+  test('v5_full null-path schema 显示 provenance + Stokes 数值', async ({ page }) => {
+    await useNullPathV5Dataset(page);
+    await page.goto('/?algorithm=v5_full');
+    await page.waitForSelector('.puncture');
+    await page.locator('#entry-grid .cell').nth(1).click();
+    await expect(page.locator('.path-line')).toHaveCount(0);
+    await expect(page.locator('.path-vertex')).toHaveCount(0);
+    await expect(page.locator('#path-info .provenance-chip')).toContainText('v5_full_wall_crossing');
     await expect(page.locator('#stokes-display .value')).toBeVisible();
   });
 
@@ -34,7 +70,12 @@ test.describe('Sd-viz smoke tests', () => {
     await dInput.fill('0.025');
     await dInput.press('Enter');
     await page.locator('#entry-grid .cell').nth(2).click();
-    await page.waitForSelector('.path-vertex');
+    await page.locator('.path-vertex').first().waitFor({ timeout: 1000 }).catch(() => undefined);
+    if (await page.locator('.path-vertex').count() === 0) {
+      await expect(page.locator('#path-info .provenance-chip')).toContainText('provenance:');
+      await expect(page.locator('#stokes-display .value')).toBeVisible();
+      return;
+    }
 
     const vert = page.locator('.path-vertex').first();
     const before = await vert.boundingBox();

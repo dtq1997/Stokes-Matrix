@@ -44,6 +44,7 @@ class RecomputeRequest(BaseModel):
     A: List[List[Complex]] = Field(..., description="N×N matrix, N=sum(m_sizes)")
     m_sizes: List[int]
     precision: str = 'medium'  # 'low' | 'medium' | 'high', 透传给 recompute_runner
+    algorithm: str = 'v5_full'  # 唯一 default; 'legacy_entry' 仅作 fallback / oracle
 
 
 _state: Dict[str, Any] = {'dataset': None, 'initial': None}
@@ -86,6 +87,7 @@ def _run_job(job_id: str, req: RecomputeRequest):
         'A': [[c.dict() for c in row] for row in req.A],
         'm_sizes': req.m_sizes,
         'precision': req.precision,
+        'algorithm': req.algorithm,
     }
     in_fd, in_path = tempfile.mkstemp(suffix='.json')
     out_path = in_path + '.out'

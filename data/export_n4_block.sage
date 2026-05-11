@@ -93,9 +93,14 @@ results = {
     'chambers': [],
 }
 
-OUT = os.path.join(_WS, "60-outputs/sd-viz/data/n4_block.json")
+OUT = os.environ.get(
+    'SD_OUT',
+    os.path.join(_WS, "60-outputs/sd-viz/data/n4_block.json"),
+)
 PRECISION = os.environ.get('SD_PRECISION', 'medium')
+ALGORITHM = os.environ.get('SD_ALGORITHM', 'v5_full')
 print(f"precision = {PRECISION}")
+print(f"algorithm = {ALGORITHM}")
 
 
 def _progress(ch_idx, n_ch, d, chambers_so_far):
@@ -117,9 +122,14 @@ t0 = time.time()
 chambers_out, _stats = build_chambers(
     U_list, A_global, m_sizes, chambers,
     precision=PRECISION, verbose=False, use_cache=False,
+    algorithm=ALGORITHM,
     progress=_progress, on_entry=_on_entry,
 )
 results['chambers'] = chambers_out
+results['_algorithm'] = _stats.get('algorithm', ALGORITHM)
+results['_cache_stats'] = _stats
+if 'v5' in _stats:
+    results['_v5'] = _stats['v5']
 with open(OUT, 'w') as f:
     json.dump(results, f, indent=2)
 print(f"总耗时 {time.time()-t0:.1f}s, 输出: {OUT}")

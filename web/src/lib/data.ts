@@ -20,6 +20,7 @@ export interface RecomputeRequest {
   A: { re: number; im: number }[][];
   m_sizes: number[];
   precision?: 'low' | 'medium' | 'high';
+  algorithm?: 'legacy_entry' | 'v5_full';
 }
 
 export interface JobStatus {

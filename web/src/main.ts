@@ -10,6 +10,15 @@ import { parsePiInput, formatPi } from './lib/pi-input.js';
 function tex(s: string, displayMode = false): string {
   return katex.renderToString(s, { displayMode, throwOnError: false, strict: false });
 }
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]!));
+}
 function renderAllTex(root: ParentNode = document) {
   root.querySelectorAll<HTMLElement>('[data-tex]').forEach(el => {
     const src = el.dataset.tex!;
@@ -303,12 +312,15 @@ async function main() {
     try {
       const precisionSel = document.getElementById('precision-select') as HTMLSelectElement;
       const precision = (precisionSel?.value ?? 'medium') as 'low' | 'medium' | 'high';
+      const algParam = new URLSearchParams(window.location.search).get('algorithm');
+      const algorithm = algParam === 'legacy_entry' ? 'legacy_entry' : 'v5_full';
       const { result: newDs } = await recomputeAsync(
         {
           punctures: state.punctureOverrides!,
           A: state.AOverrides!,
           m_sizes: state.mOverrides!,
           precision,
+          algorithm,
         },
         (s: JobStatus) => {
           if (s.chambers_total > 0) {
@@ -699,7 +711,13 @@ async function main() {
     const [i, j] = state.selectedEntry;
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];
-    if (!e || !e.path) { el.textContent = '—'; return; }
+    if (!e) { el.textContent = '—'; return; }
+    if (!e.path) {
+      el.innerHTML = e.provenance
+        ? `<div class="provenance-chip">provenance: ${escapeHtml(e.provenance)}</div>`
+        : '—';
+      return;
+    }
     const tau = e.tau_code?.toFixed(4) ?? '—';
     const lift = e.theta_t_lift?.toFixed(4) ?? '—';
     el.innerHTML =

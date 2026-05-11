@@ -11,9 +11,17 @@ Used by:
 display_path = algo_full + [u_j]: algo_full = [u_i] + algo_wp (含 u_target ≈ u_j),
 末段补 u_j 表 ε→0 极限. viz 显示用. 数值不依赖这个末段 (算法 push 走 u_target).
 """
+import os
+import sys
+import time
 import math
 import builtins
 _py_int = builtins.int  # sage preparser 把 int() 换 Integer, 用 builtins 绕开
+
+_WS = "/Users/dtq1997/ai/workspace/academic-formula-workbench"
+sys.path.insert(0, os.path.join(_WS, "50-computation"))
+
+load(os.path.join(_WS, "50-computation/compute_sd_v5_full.sage"))
 
 
 def pack_path(waypoints):
@@ -158,15 +166,137 @@ def build_chamber_entry(U_list, A_global, m_sizes, i, j, d,
     return entry, cache_status
 
 
+def _pack_value_block(block, m_i, m_j):
+    return [
+        [{'re': float(block[a, b].real), 'im': float(block[a, b].imag)}
+         for b in range(m_j)]
+        for a in range(m_i)
+    ]
+
+
+def _entry_from_block(block, m_i, m_j, provenance, extra=None):
+    value_block = _pack_value_block(block, m_i, m_j)
+    v00 = block[0, 0]
+    entry = {
+        'value_re': float(v00.real),
+        'value_im': float(v00.imag),
+        'value_block': value_block,
+        'm_i': _py_int(m_i),
+        'm_j': _py_int(m_j),
+        'path': None,
+        'provenance': provenance,
+    }
+    if extra:
+        entry.update(extra)
+    return entry
+
+
+def _v5_metadata_for_dataset(info_v5, kwargs, precompute_seconds):
+    return {
+        'd_reg': float(info_v5['d_reg_info']['d_reg']),
+        'base_chamber_index': _py_int(info_v5['base_chamber_index']),
+        'p1': _py_int(kwargs.get('p1')),
+        'p2': _py_int(kwargs.get('p2')) if kwargs.get('p2') is not None else None,
+        'backend': kwargs.get('backend'),
+        'safety_factor': float(info_v5['d_reg_info'].get('safety_factor')),
+        'detour_factor': float(info_v5['d_reg_info'].get('detour_factor')),
+        'residual_max': float(info_v5['d_reg_info']['residual_max']),
+        'precompute_seconds': float(precompute_seconds),
+        'rays_mod': [float(x) for x in info_v5['rays_mod']],
+        'wall_steps': [
+            {
+                'from_index': _py_int(s['from_index']),
+                'to_index': _py_int(s['to_index']),
+                'wall_lift': float(s['wall_lift']),
+                'n_swaps': _py_int(s.get('n_swaps', 1)),
+                'degenerate_wall': bool(s.get('degenerate_wall', False)),
+                'wall_group_size': _py_int(s.get('wall_group_size', 1)),
+            }
+            for s in info_v5.get('wall_steps', [])
+        ],
+    }
+
+
+def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
+                            precision='medium', verbose=False,
+                            progress=None, on_entry=None, v5_kwargs=None):
+    if precision not in V5_PRECISION_PRESETS:
+        raise ValueError("precision=%r not in %r" %
+                         (precision, sorted(V5_PRECISION_PRESETS)))
+    kwargs = dict(V5_PRECISION_PRESETS[precision])
+    if v5_kwargs:
+        kwargs.update(v5_kwargs)
+
+    t0 = time.time()
+    chambers_v5, info_v5 = compute_Sd_chambers_v5(
+        U_list, A_global, m_sizes, **kwargs
+    )
+    precompute_seconds = time.time() - t0
+
+    n = len(U_list)
+    out_chambers = []
+    for ch_idx, d in enumerate(chamber_ds):
+        d = float(d)
+        Sd, sel = select_Sd_from_chambers(chambers_v5, info_v5, d)
+        chamber_data = {'d': d, 'entries': {}}
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+                entry = _entry_from_block(
+                    Sd[(i, j)], int(m_sizes[i]), int(m_sizes[j]),
+                    'v5_full_wall_crossing',
+                    {
+                        'v5_chamber_index': _py_int(sel['chamber_index']),
+                        'v5_lift_m': _py_int(sel['lift_m']),
+                    },
+                )
+                chamber_data['entries'][f'{i},{j}'] = entry
+                if on_entry is not None:
+                    on_entry(ch_idx, i, j, entry)
+        out_chambers.append(chamber_data)
+        if progress is not None:
+            progress(ch_idx, len(chamber_ds), d, out_chambers)
+
+    return out_chambers, {
+        'hits': _py_int(0),
+        'miss': _py_int(n * (n - 1) * len(chamber_ds)),
+        'algorithm': 'v5_full',
+        'v5': _v5_metadata_for_dataset(info_v5, kwargs, precompute_seconds),
+    }
+
+
 def build_chambers(U_list, A_global, m_sizes, chamber_ds,
                     precision='medium', verbose=False, use_cache=False,
-                    progress=None, on_entry=None):
+                    progress=None, on_entry=None,
+                    algorithm='v5_full', v5_fallback=True,
+                    v5_kwargs=None):
     """遍历所有 chamber × (i,j) 算 entry, 返回 chambers list.
 
-    precision: 'low' | 'medium' | 'high'. 透传给 compute_Sd_entry.
+    precision: 'low' | 'medium' | 'high'. legacy_entry 透传给 compute_Sd_entry;
+      v5_full 用 V5_PRECISION_PRESETS 映射到 (p1, p2).
+    algorithm: 'legacy_entry' | 'v5_full'. v5_full 不伪造 PL path:
+      entry.path = null, entry.provenance='v5_full_wall_crossing'.
     progress(ch_idx, n_chambers, d, chambers_so_far): 每 chamber 跑完调一次.
     on_entry(ch_idx, i, j, entry): 每 entry 跑完调一次.
     """
+    if algorithm == 'v5_full':
+        try:
+            return _build_chambers_v5_full(
+                U_list, A_global, m_sizes, chamber_ds,
+                precision=precision, verbose=verbose,
+                progress=progress, on_entry=on_entry, v5_kwargs=v5_kwargs,
+            )
+        except NotImplementedError:
+            if not v5_fallback:
+                raise
+            if verbose:
+                print("[dataset_builder] v5_full unsupported; falling back to legacy_entry")
+            algorithm = 'legacy_entry'
+
+    if algorithm not in ('legacy_entry', 'legacy'):
+        raise ValueError("unknown build_chambers algorithm %r" % algorithm)
+
     n = len(U_list)
     cache = {} if use_cache else None
     hits = 0; miss = 0
@@ -196,4 +326,8 @@ def build_chambers(U_list, A_global, m_sizes, chamber_ds,
         out_chambers.append(chamber_data)
         if progress is not None:
             progress(ch_idx, len(chamber_ds), d, out_chambers)
-    return out_chambers, {'hits': _py_int(hits), 'miss': _py_int(miss)}
+    return out_chambers, {
+        'hits': _py_int(hits),
+        'miss': _py_int(miss),
+        'algorithm': 'legacy_entry',
+    }

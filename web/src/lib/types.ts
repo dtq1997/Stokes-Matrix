@@ -18,9 +18,12 @@ export interface SdEntryData {
   value_block?: ComplexNum[][]; // 完整 m_i × m_j block (block case 必有, simple 也存 1×1).
   m_i?: number;
   m_j?: number;
-  path?: ComplexNum[];
+  path?: ComplexNum[] | null;
   tau_code?: number;
   theta_t_lift?: number;
+  provenance?: string;
+  v5_chamber_index?: number;
+  v5_lift_m?: number;
   error?: string;
 }
 
@@ -39,6 +42,9 @@ export interface SimpleDataset {
   m_sizes: number[];
   rays: number[];
   chambers: ChamberData[];
+  _algorithm?: string;
+  _v5?: unknown;
+  _cache_stats?: unknown;
 }
 
 // ---------- 前端运行时状态 ----------
