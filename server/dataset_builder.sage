@@ -119,10 +119,14 @@ def build_chamber_entry(U_list, A_global, m_sizes, i, j, d,
     """
     u_i_f = complex(U_list[i])
     u_j_f = complex(U_list[j])
+    # legacy_entry path: 强制走 compute_Sd_entry 的 PL push + tq Richardson 实现
+    # (compute_Sd_entry 主入口现在默认 use_v5_pipeline=True, 但这里 legacy_entry
+    # 需要真正的单 entry isoeq path + algo_wp / theta_t_lift / push_info 字段).
     block, info = compute_Sd_entry(
         U_list, A_global, m_sizes,
         i, j, d, waypoints=None,
         precision=precision, verbose=verbose,
+        use_v5_pipeline=False,
     )
     # block: numpy m_i × m_j complex matrix (simple-spectrum 退化 1×1).
     m_i, m_j = info['m_i'], info['m_j']
