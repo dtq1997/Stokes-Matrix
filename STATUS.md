@@ -50,7 +50,8 @@ Last updated: 2026-05-12 [Claude] — Codex + Claude 双家合作维护协议见
 ```
 v5 word path                       直线段几何 word, 端点幅角 lift
   ↓
-isoeq pusher + tq Richardson       ρ([i] Σ_geom [j]), 每对 (i, j) 一次
+isoeq pusher + tq tail             ρ([i] Σ_geom [j]), 每对 (i, j) 一次
+  (asymptotic_tail + auto χ_s/ψ_s, Jordan-safe matrix argument)
   ↓
 sign-hypercube BFS                 (S_{d_reg})_kt = ρ([i] 全 - [j])
   ↓
@@ -106,7 +107,7 @@ chamber cache, NotImplementedError 透明 fallback legacy.
 
 ### 短期 (codex 接手时可做)
 
-- [ ] **tq 矩阵无穷连乘升级**: 用 h-差分典范解的幂级数展开 (formula-notes-cn.tex h-差分 section + `~/research/notes/Analytic theory of difference equations.tm`) 改 `50-computation/stokes_skeleton.sage` truncation loop. 目标: medium n=4 block recompute 35s → 3s.
+- [x] **tq 矩阵无穷连乘升级**: 用 h-差分典范解的幂级数展开改 `50-computation/stokes_skeleton.sage` truncation loop. 当前 live 后端默认 `asymptotic_tail + tail_order='auto'`, 三后端 numpy/mpmath/CBF 均可用；`A_{ss},A_{tt}` 的近 Jordan/Jordan 代入走 Cauchy functional-calculus fallback.
 - [ ] **A-only push 实时拖拽**: 拖 puncture 时只跑 isoeq push (~2ms/帧, 不重算 Stokes), 拖完才触发 v5 重算. 让用户感觉到"A 跟着 u 实时演化". 后端要加 `/api/push_a_only` endpoint, 前端 onPunctureDrag 改 throttled 调用.
 
 ### 中期

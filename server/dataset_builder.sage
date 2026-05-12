@@ -202,6 +202,8 @@ def _v5_metadata_for_dataset(info_v5, kwargs, precompute_seconds):
         'p1': _py_int(kwargs.get('p1')),
         'p2': _py_int(kwargs.get('p2')) if kwargs.get('p2') is not None else None,
         'backend': kwargs.get('backend'),
+        'truncation_method': info_v5['d_reg_info'].get('truncation_method'),
+        'tail_order': info_v5['d_reg_info'].get('tail_order'),
         'safety_factor': float(info_v5['d_reg_info'].get('safety_factor')),
         'detour_factor': float(info_v5['d_reg_info'].get('detour_factor')),
         'residual_max': float(info_v5['d_reg_info']['residual_max']),
