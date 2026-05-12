@@ -94,21 +94,8 @@ async function main() {
   const canvas = new Canvas(svg, state, onStateChange);
 
   // ---------- left panel: entry grid ----------
-  buildEntryGrid();
-  function buildEntryGrid() {
-    const grid = document.getElementById('entry-grid')!;
-    grid.innerHTML = '';
-    grid.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        const cell = document.createElement('div');
-        cell.className = 'cell' + (i === j ? ' diag' : '');
-        cell.innerHTML = i === j ? '·' : tex(`{}_{${i+1}${j+1}}`);
-        if (i !== j) cell.addEventListener('click', () => selectEntry(i, j));
-        grid.appendChild(cell);
-      }
-    }
-  }
+  // entry 选择: 右栏 Stokes matrix 每个 cell 已经支持点击 (selectEntry),
+  // 左栏不再放冗余的 N×N 小方格选择器. (用户 2026-05-12 反馈)
 
   // ---------- d slider (连续, 区间 [2kπ, (2k+2)π], 输入框 π 单位) ----------
   const sliderWrap = document.getElementById('d-slider-wrap')!;
@@ -308,7 +295,6 @@ async function main() {
     n = newN;
     nInput.value = String(n);
 
-    buildEntryGrid();
     buildUTable();
     buildATable();
     buildStokesMatrix();
@@ -521,7 +507,6 @@ async function main() {
     state.stokesStale = false;
     n = dataset.punctures.length;
     nInput.value = String(n);
-    buildEntryGrid();
     buildUTable();
     buildATable();
     buildStokesMatrix();

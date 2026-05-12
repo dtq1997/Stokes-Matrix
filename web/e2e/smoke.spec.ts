@@ -49,8 +49,8 @@ test.describe('Sd-viz smoke tests', () => {
   test('点 entry 出现 path/provenance + Stokes 数值', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
-    // (0,1) cell 在 grid 第 2 个 (idx=1, 0-indexed; n=4 grid: (0,0)(0,1)(0,2)(0,3) ...)
-    await page.locator('#entry-grid .cell').nth(1).click();
+    // 选 (0, 1) entry: 点 stokes-matrix 里 block (0,1) 的 sub-cell
+    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
     await expectPathOrProvenance(page);
   });
 
@@ -58,7 +58,7 @@ test.describe('Sd-viz smoke tests', () => {
     await useNullPathV5Dataset(page);
     await page.goto('/?algorithm=v5_full');
     await page.waitForSelector('.puncture');
-    await page.locator('#entry-grid .cell').nth(1).click();
+    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
     await expect(page.locator('.path-line')).toHaveCount(0);
     await expect(page.locator('.path-vertex')).toHaveCount(0);
     // v5 entry: 检查 hidden provenance carrier 含 v5_full marker
@@ -73,7 +73,7 @@ test.describe('Sd-viz smoke tests', () => {
     const dInput = page.locator('#d-input');
     await dInput.fill('0.025');
     await dInput.press('Enter');
-    await page.locator('#entry-grid .cell').nth(2).click();
+    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="2"]').first().click();
     await page.locator('.path-vertex').first().waitFor({ timeout: 1000 }).catch(() => undefined);
     if (await page.locator('.path-vertex').count() === 0) {
       // v5 entry path 不可见, 友好 label 应该在
@@ -159,7 +159,7 @@ test.describe('Sd-viz smoke tests', () => {
     // d = 0.1 π = 18°
     await dInput.fill('0.1');
     await dInput.press('Enter');
-    await page.click('#entry-grid .cell:nth-child(2)'); // (0,1)
+    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click(); // (0,1)
     const stokes18 = await page.locator('#stokes-display .value').textContent();
     // d = 0.12 π ≈ 21.6°, 同一 chamber, entry 应该一样
     await dInput.fill('0.12');
