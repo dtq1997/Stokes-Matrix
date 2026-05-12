@@ -17,7 +17,7 @@ API:
   GET  /api/dataset      → 当前 cache 数据集 (初始 = 磁盘 JSON)
   POST /api/reset        → 恢复初始 dataset
 """
-import os, sys, json, time, copy, subprocess, tempfile, threading, uuid, re, signal
+import os, sys, json, time, copy, subprocess, tempfile, threading, uuid, re, signal, select
 from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException
@@ -43,7 +43,7 @@ class RecomputeRequest(BaseModel):
     punctures: List[Complex]
     A: List[List[Complex]] = Field(..., description="N×N matrix, N=sum(m_sizes)")
     m_sizes: List[int]
-    precision: str = 'medium'  # 'low' | 'medium' | 'high', 透传给 recompute_runner
+    precision: str = 'medium'  # 'fast' | 'low' | 'medium' | 'high'
     algorithm: str = 'v5_full'  # 唯一 default; 'legacy_entry' 仅作 fallback / oracle
 
 
@@ -102,19 +102,45 @@ def _run_job(job_id: str, req: RecomputeRequest):
             job['t_start'] = time.time()
         proc = subprocess.Popen(
             ['sage', RUNNER, in_path, out_path],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             preexec_fn=os.setsid,
         )
+        deadline = time.time() + _JOB_TIMEOUT
         with _jobs_lock:
             job['pid'] = proc.pid
 
         # 流式读 stdout, 提取 PROGRESS / STAGE 行
         prog_re = re.compile(r'PROGRESS chamber (\d+)/(\d+)')
         stage_re = re.compile(r'STAGE\s+([^|]+?)(?:\|(.+))?$')
-        for line in proc.stdout:
+        output_tail = []
+        while True:
             with _jobs_lock:
                 if job.get('cancelled'):
                     break
+            if time.time() > deadline:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                with _jobs_lock:
+                    job['status'] = 'error'
+                    job['error'] = f'timeout after {_JOB_TIMEOUT}s'
+                    job['t_end'] = time.time()
+                return
+            if proc.poll() is not None:
+                remaining = proc.stdout.read() if proc.stdout else ''
+                if remaining:
+                    output_tail.extend(remaining.splitlines())
+                break
+            ready, _, _ = select.select([proc.stdout], [], [], 0.5)
+            if not ready:
+                continue
+            line = proc.stdout.readline()
+            if not line:
+                continue
+            output_tail.append(line.rstrip())
+            if len(output_tail) > 80:
+                output_tail = output_tail[-80:]
             m = prog_re.search(line)
             if m:
                 done, total = int(m.group(1)), int(m.group(2))
@@ -139,12 +165,14 @@ def _run_job(job_id: str, req: RecomputeRequest):
             if job.get('cancelled'):
                 job['status'] = 'cancelled'
                 job['error'] = 'cancelled by user'
+                job['t_end'] = time.time()
                 return
         if proc.returncode != 0:
-            err = proc.stderr.read()[-2000:] if proc.stderr else ''
+            err = "\n".join(output_tail)[-2000:]
             with _jobs_lock:
                 job['status'] = 'error'
                 job['error'] = f'sage exit {proc.returncode}: {err}'
+                job['t_end'] = time.time()
             return
         with open(out_path) as f:
             ds = json.load(f)
@@ -154,26 +182,61 @@ def _run_job(job_id: str, req: RecomputeRequest):
             job['result'] = ds
             job['status'] = 'done'
             job['progress'] = 1.0
+            job['t_end'] = time.time()
     except Exception as e:
         with _jobs_lock:
             job['status'] = 'error'
             job['error'] = str(e)
+            job['t_end'] = time.time()
     finally:
         for p in (in_path, out_path):
             try: os.unlink(p)
             except FileNotFoundError: pass
 
 
+_MAX_N = 20       # upper bound on number of punctures
+_MAX_M_SUM = 40   # upper bound on total matrix dimension sum(m_sizes)
+_JOB_TIMEOUT = 600  # 10 minutes max per sage computation
+_ALLOWED_PRECISIONS = {'fast', 'low', 'medium', 'high'}
+_ALLOWED_ALGORITHMS = {'v5_full', 'legacy_entry'}
+
+def _cleanup_old_jobs(max_age=3600):
+    """Remove completed/error/cancelled jobs older than max_age seconds."""
+    now = time.time()
+    stale = [jid for jid, j in _jobs.items()
+             if j['status'] in ('done', 'error', 'cancelled')
+             and now - j['t_created'] > max_age]
+    for jid in stale:
+        del _jobs[jid]
+
+
 @app.post("/api/recompute")
 def recompute_start(req: RecomputeRequest):
     n = len(req.punctures)
     N = sum(req.m_sizes)
+    if req.precision not in _ALLOWED_PRECISIONS:
+        raise HTTPException(400, f"precision={req.precision!r} not in {sorted(_ALLOWED_PRECISIONS)}")
+    if req.algorithm not in _ALLOWED_ALGORITHMS:
+        raise HTTPException(400, f"algorithm={req.algorithm!r} not in {sorted(_ALLOWED_ALGORITHMS)}")
+    if any(m <= 0 for m in req.m_sizes):
+        raise HTTPException(400, "all m_sizes must be positive")
     if N != len(req.A):
         raise HTTPException(400, f"A is {len(req.A)}×… but N=sum(m)={N}")
+    if any(len(row) != N for row in req.A):
+        raise HTTPException(400, f"A must be square with {N} columns in every row")
     if n != len(req.m_sizes):
         raise HTTPException(400, f"len(punctures)={n} != len(m_sizes)={len(req.m_sizes)}")
-    job_id = str(uuid.uuid4())
+    if n > _MAX_N:
+        raise HTTPException(400, f"n={n} exceeds maximum {_MAX_N}")
+    if N > _MAX_M_SUM:
+        raise HTTPException(400, f"N=sum(m)={N} exceeds maximum {_MAX_M_SUM}")
+    # reject if a job is already running
     with _jobs_lock:
+        _cleanup_old_jobs()
+        running = [jid for jid, j in _jobs.items() if j['status'] in ('queued', 'running')]
+        if running:
+            raise HTTPException(429, "A computation is already running. Cancel it first or wait.")
+        job_id = str(uuid.uuid4())
         _jobs[job_id] = {
             'status': 'queued',
             'progress': 0.0,
@@ -203,7 +266,9 @@ def job_status(job_id: str):
             'chambers_total': j['chambers_total'],
             'phase': j.get('phase', ''),
             'phase_detail': j.get('phase_detail', ''),
-            'elapsed_s': time.time() - j.get('t_start', j['t_created']),
+            'elapsed_s': (j['t_end'] - j.get('t_start', j['t_created'])
+                          if 't_end' in j
+                          else time.time() - j.get('t_start', j['t_created'])),
             'result': j['result'] if j['status'] == 'done' else None,
             'error': j['error'],
         }

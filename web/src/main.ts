@@ -407,7 +407,7 @@ async function main() {
     setComputingLock(true);
     try {
       const precisionSel = document.getElementById('precision-select') as HTMLSelectElement;
-      const precision = (precisionSel?.value ?? 'medium') as 'low' | 'medium' | 'high';
+      const precision = (precisionSel?.value ?? 'medium') as 'fast' | 'low' | 'medium' | 'high';
       const algParam = new URLSearchParams(window.location.search).get('algorithm');
       const algorithm = algParam === 'legacy_entry' ? 'legacy_entry' : 'v5_full';
       const { result: newDs } = await recomputeAsync(

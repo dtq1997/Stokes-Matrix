@@ -114,7 +114,7 @@ def build_chamber_entry(U_list, A_global, m_sizes, i, j, d,
                          precision='medium', verbose=False, cache=None):
     """算一个 (i, j) entry, 返回 entry dict + cache 状态. caller 负责 try/except.
 
-    precision: 'low' | 'medium' | 'high'. 见 compute_Sd_entry PRECISION_PRESETS.
+    precision: 'fast' | 'low' | 'medium' | 'high'. 见 compute_Sd_entry PRECISION_PRESETS.
     cache: 可选 dict {sig → entry_template}, 命中跳过重算只重画 path. None = 不 cache.
     """
     u_i_f = complex(U_list[i])
@@ -327,7 +327,7 @@ def build_chambers(U_list, A_global, m_sizes, chamber_ds,
                     v5_kwargs=None):
     """遍历所有 chamber × (i,j) 算 entry, 返回 chambers list.
 
-    precision: 'low' | 'medium' | 'high'. legacy_entry 透传给 compute_Sd_entry;
+    precision: 'fast' | 'low' | 'medium' | 'high'. legacy_entry 透传给 compute_Sd_entry;
       v5_full 用 V5_PRECISION_PRESETS 映射到 (p1, p2).
     algorithm: 'legacy_entry' | 'v5_full'. v5_full 不伪造 PL path:
       entry.path = null, entry.provenance='v5_full_wall_crossing'.

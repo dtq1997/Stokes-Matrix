@@ -28,7 +28,7 @@ def recompute(inp):
     punctures = inp['punctures']
     A_in = inp['A']
     m_sizes = list(inp['m_sizes'])
-    precision = inp.get('precision', 'medium')  # 'low' | 'medium' | 'high'
+    precision = inp.get('precision', 'medium')  # 'fast' | 'low' | 'medium' | 'high'
     algorithm = inp.get('algorithm', os.environ.get('SD_ALGORITHM', 'v5_full'))
     n = len(punctures)
     N = sum(m_sizes)

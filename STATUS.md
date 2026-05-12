@@ -76,7 +76,7 @@ chamber cache, NotImplementedError 透明 fallback legacy.
 ```
 [左栏: Configuration (U, A, d)]              [右栏: Stokes matrix S_d]
 ├ n input + m_k inputs (m = Σ m_k = N)       ├ N×N grid (点击 cell 选 entry)
-├ precision select (low/medium/high)         ├ Selected entry display
+├ precision select (fast/low/medium/high)    ├ Selected entry display
 ├ Leading term U = diag(...)                 └ Path info γ_ij^(d)
 │  └ table: Re/Im/m_k per puncture
 ├ Residue matrix A
@@ -94,6 +94,9 @@ chamber cache, NotImplementedError 透明 fallback legacy.
 - 改 m_k 触发 `applyBlockResize`: A 维度跟 N=sum(m) 同步, 变小取左上子矩阵, 变大补 0
 - Computing 进行中所有 input 锁定 (`setComputingLock(true)`), puncture drag + path-vertex drag 不响应
 - UI 全英文, 不出现 sage / backend / tunnel / tq Richardson / PL push 等技术 jargon. 数学家词汇 (chamber, wall-crossing, anti-Stokes ray, entry, residue matrix, Stokes matrix, direction) 保留.
+- Recompute backend rejects invalid precision/algorithm, non-positive `m_k`,
+  non-square A, `n > 20`, `sum(m_k) > 40`, and concurrent jobs; a Sage
+  computation has a 10-minute watchdog timeout.
 
 ## 4. 已验证, 不要重启的
 

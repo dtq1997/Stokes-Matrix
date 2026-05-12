@@ -80,7 +80,7 @@ export interface RecomputeRequest {
   punctures: { re: number; im: number }[];
   A: { re: number; im: number }[][];
   m_sizes: number[];
-  precision?: 'low' | 'medium' | 'high';
+  precision?: 'fast' | 'low' | 'medium' | 'high';
   algorithm?: 'legacy_entry' | 'v5_full';
 }
 
