@@ -504,3 +504,21 @@ h3 {
 .intersection-dot { fill: var(--good); stroke: var(--bg); stroke-width: 1; }
 .axis { stroke: var(--grid); stroke-width: 1; }
 .tick-label { fill: var(--fg-muted); font-family: var(--font-mono); font-size: 10px; }
+
+/* ---------- computing lock (recompute 运行时禁用 input) ---------- */
+.interaction-locked .puncture,
+.interaction-locked .path-vertex {
+  cursor: wait;
+  opacity: 0.65;
+  pointer-events: none;  /* 双重保险, 跟 d3.drag.filter 一起 */
+}
+body.computing-lock #left-panel,
+body.computing-lock #right-panel {
+  /* 整体淡化但不挡视线, 让用户清楚知道正在算 */
+}
+body.computing-lock input:disabled,
+body.computing-lock select:disabled,
+body.computing-lock button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

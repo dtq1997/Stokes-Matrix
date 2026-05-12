@@ -29,6 +29,9 @@ export class Canvas {
   private onStateChange: (s: VizState) => void;
   // 当前显示的 d (连续, 不限 chamber 中心)
   private dCurrent: number = 0;
+  // 计算进行中锁: true 时 puncture / path-vertex drag 都被拒.
+  // 防止跟正在跑的 job 的 (U, A, m) 输入打架.
+  private interactionLocked: boolean = false;
 
   constructor(svgEl: SVGSVGElement, state: VizState, onStateChange: (s: VizState) => void) {
     this.svg = d3.select(svgEl);
@@ -74,6 +77,15 @@ export class Canvas {
   }
 
   getDirection(): number { return this.dCurrent; }
+
+  setInteractionLocked(locked: boolean) {
+    if (this.interactionLocked === locked) return;
+    this.interactionLocked = locked;
+    // 视觉提示: 整个 svg 加 class, CSS 改 cursor + 半透明.
+    this.svg.classed('interaction-locked', locked);
+  }
+
+  isInteractionLocked(): boolean { return this.interactionLocked; }
 
   private resize() {
     const node = this.svg.node()!;
@@ -255,6 +267,7 @@ export class Canvas {
     });
 
     const dragBehavior = d3.drag<SVGCircleElement, VertexData>()
+      .filter(() => !this.interactionLocked)
       .on('start', function () { d3.select(this).classed('dragging', true); })
       .on('drag', (event, d) => this.onVertexDrag(d, event))
       .on('end', function () { d3.select(this).classed('dragging', false); });
@@ -325,6 +338,7 @@ export class Canvas {
     const data = ps.map((p, k) => ({ k, p }));
 
     const dragBehavior = d3.drag<SVGCircleElement, typeof data[0]>()
+      .filter(() => !this.interactionLocked)
       .on('start', function () { d3.select(this).classed('dragging', true); })
       .on('drag', (event, d) => this.onPunctureDrag(d.k, event))
       .on('end', function () { d3.select(this).classed('dragging', false); });

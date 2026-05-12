@@ -372,6 +372,26 @@ async function main() {
     if (recomputeBtn.classList.contains('computing')) return;
     recomputeBtn.disabled = !(backendAvailable && state.stokesStale);
   }
+  /**
+   * 计算进行中锁定 / 解锁所有用户输入. 防止重算正跑时用户改了 (U, A, m, d)
+   * 让 frontend state 跟 backend 收到的 snapshot 不一致.
+   *
+   * 锁住的 surface:
+   *   - svg 上 puncture / path-vertex drag (canvas.setInteractionLocked)
+   *   - n 输入, U/A 表所有 input, Reset button
+   *   - d 输入框 + slider
+   *   - precision select
+   */
+  function setComputingLock(locked: boolean) {
+    canvas.setInteractionLocked(locked);
+    const inputs = document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
+      '#n-input, #precision-select, #d-input, #d-slider-wrap input, '
+      + '#u-table input, #a-table input, #state-reset'
+    );
+    inputs.forEach(el => { el.disabled = locked; });
+    document.body.classList.toggle('computing-lock', locked);
+  }
+
   let currentJobId: string | null = null;
   recomputeBtn.addEventListener('click', async () => {
     // Cancel 模式: 如果正在 computing, 点击发送 cancel
@@ -384,6 +404,7 @@ async function main() {
     recomputeBtn.classList.add('computing');
     recomputeBtn.textContent = 'Cancel';
     recomputeStatus.style.color = '';
+    setComputingLock(true);
     try {
       const precisionSel = document.getElementById('precision-select') as HTMLSelectElement;
       const precision = (precisionSel?.value ?? 'medium') as 'low' | 'medium' | 'high';
@@ -494,6 +515,7 @@ async function main() {
       currentJobId = null;
       recomputeBtn.classList.remove('computing');
       recomputeBtn.textContent = 'Recompute Stokes';
+      setComputingLock(false);
       refreshRecomputeBtn();
     }
   });
