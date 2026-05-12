@@ -310,7 +310,7 @@ h3 {
 /* cx-pair: Re 一行 / Im+i 一行 (跟 output Stokes entry 两行布局一致) */
 .state-table .cx-pair {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(64px, 1fr) 1.25ch;
   gap: 1px 2px;
   align-items: center;
 }
@@ -318,15 +318,14 @@ h3 {
   min-width: 64px;        /* 数字 4 位 + 小数点 + sign 大致需要 */
   text-align: right;
   font-variant-numeric: tabular-nums;
-  grid-column: 1 / -1;
-}
-.state-table .cx-pair input.cx[data-axis="im"] {
-  grid-column: 1 / 2;     /* Im 留出 i 标记位置 */
+  grid-column: 1 / 2;
 }
 .state-table .cx-pair .im-unit-suffix {
   grid-column: 2 / 3;
+  grid-row: 2;
   font-size: 11px;
   color: var(--fg-dim);
+  justify-self: center;
 }
 /* Re/Im 视觉区分: Re 默认色, Im 略 muted */
 .state-table .cx-pair input.cx[data-axis="im"] { color: var(--fg-dim); }
@@ -338,6 +337,11 @@ h3 {
 }
 .state-table.a-table { font-size: 10px; }
 .state-table.a-table input.cx { font-size: 9px; padding: 2px 3px; }
+.state-table.u-table input.cx { font-size: 10px; }
+.state-table.u-table .mk-input {
+  text-align: center;
+  min-width: 44px;
+}
 
 .state-actions {
   margin-top: 12px;

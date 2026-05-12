@@ -546,15 +546,25 @@ async function main() {
     if (x === 0) return '0';
     return x.toFixed(4).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
   }
+  function fmtInputNum(x: number): string {
+    return Number.isFinite(x) ? x.toFixed(4) : String(x);
+  }
+  function complexInputHtml(attrs: string, rePlaceholder = 'Re', imPlaceholder = 'Im'): string {
+    return `<div class="cx-pair">` +
+      `<input class="cx" ${attrs} data-axis="re" placeholder="${rePlaceholder}" />` +
+      `<input class="cx" ${attrs} data-axis="im" placeholder="${imPlaceholder}" />` +
+      `<span class="im-unit-suffix">${IM_UNIT}</span>` +
+      `</div>`;
+  }
 
   function buildUTable() {
     const t = document.getElementById('u-table')!;
-    let html = `<thead><tr><th>${tex('k')}</th><th>${tex('\\mathrm{Re}\\,u_k')}</th>` +
-      `<th>${tex('\\mathrm{Im}\\,u_k')}</th><th>${tex('m_k')}</th></tr></thead><tbody>`;
+    t.classList.add('u-table');
+    let html = `<thead><tr><th>${tex('k')}</th><th>${tex('u_k')}</th>` +
+      `<th>${tex('m_k')}</th></tr></thead><tbody>`;
     for (let k = 0; k < n; k++) {
       html += `<tr><td class="row-label">${tex(`${k+1}`)}</td>` +
-        `<td><input class="cx" data-k="${k}" data-axis="re" /></td>` +
-        `<td><input class="cx" data-k="${k}" data-axis="im" /></td>` +
+        `<td>${complexInputHtml(`data-k="${k}"`)}</td>` +
         `<td><input class="cx mk-input" data-k="${k}" /></td></tr>`;
     }
     html += '</tbody>';
@@ -571,7 +581,7 @@ async function main() {
         input.value = String(ms[k]);
       } else {
         const axis = input.dataset.axis as 're' | 'im';
-        input.value = fmtNum(ps[k][axis]);
+        input.value = fmtInputNum(ps[k][axis]);
       }
     });
   }
@@ -637,11 +647,9 @@ async function main() {
       for (let fj = 0; fj < N; fj++) {
         const [J, b] = blockOf(fj);
         const cls = (fj > 0 && b === 0) ? 'block-left' : '';
-        html += `<td class="${cls}"><div class="cx-pair">` +
-          `<input class="cx" data-i="${fi}" data-j="${fj}" data-axis="re" placeholder="Re" />` +
-          `<input class="cx" data-i="${fi}" data-j="${fj}" data-axis="im" placeholder="Im" />` +
-          `<span class="im-unit-suffix">${IM_UNIT}</span>` +
-          `</div></td>`;
+        html += `<td class="${cls}">` +
+          complexInputHtml(`data-i="${fi}" data-j="${fj}"`) +
+          `</td>`;
       }
       html += '</tr>';
     }
@@ -656,7 +664,7 @@ async function main() {
       const i = Number(input.dataset.i!);
       const j = Number(input.dataset.j!);
       const axis = input.dataset.axis as 're' | 'im';
-      input.value = fmtNum(A[i][j][axis]);
+      input.value = fmtInputNum(A[i][j][axis]);
     });
   }
   function onAEdit(e: Event) {

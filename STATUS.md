@@ -78,9 +78,9 @@ chamber cache, NotImplementedError 透明 fallback legacy.
 ├ n input + m_k inputs (m = Σ m_k = N)       ├ N×N grid (点击 cell 选 entry)
 ├ precision select (fast/low/medium/high)    ├ Selected entry display
 ├ Leading term U = diag(...)                 └ Path info γ_ij^(d)
-│  └ table: Re/Im/m_k per puncture
+│  └ table: two-line complex u_k + m_k
 ├ Residue matrix A
-│  └ N×N table: Re input | Im input + i suffix
+│  └ N×N table: two-line complex entries, Im row has separate i cell
 ├ [Recompute Stokes] [Reset]
 │  └ progress: 4 阶段 checkbox + ETA
 └ Direction d ∈ [(2k-1)π, (2k+1)π) (k 跟用户输入)
