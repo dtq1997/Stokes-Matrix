@@ -33,7 +33,7 @@
         <table id="a-table" class="state-table"></table>
         <div class="state-actions">
           <div id="state-stale-banner" class="stale-banner" hidden>
-            <span data-tex="(U, A, m)"></span> 已改, Stokes 数值是旧 dataset
+            <span data-tex="(U, A, m)"></span> changed — Stokes values shown are out of date
           </div>
           <button id="state-recompute" class="btn-primary" disabled>Recompute Stokes</button>
           <button id="state-reset" class="btn-secondary">Reset</button>
@@ -50,12 +50,12 @@
         <h3>Entry <span data-tex="(i, j)"></span></h3>
         <div id="entry-grid"></div>
       </aside>
-      <div class="resize-handle" id="resize-left" data-side="left" title="拖动调整 input 宽度"></div>
+      <div class="resize-handle" id="resize-left" data-side="left" title="Drag to resize input panel"></div>
       <main id="canvas-wrap">
         <svg id="canvas"></svg>
         <div id="hud" class="mono"></div>
       </main>
-      <div class="resize-handle" id="resize-right" data-side="right" title="拖动调整 output 宽度"></div>
+      <div class="resize-handle" id="resize-right" data-side="right" title="Drag to resize output panel"></div>
       <aside id="right-panel" data-panel="right">
         <h2>Stokes matrix <span data-tex="S_d"></span></h2>
         <div id="stokes-matrix"></div>

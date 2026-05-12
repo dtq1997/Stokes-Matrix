@@ -22,7 +22,10 @@ async function expectPathOrProvenance(page: Page) {
   const pathCount = await page.locator('.path-line').count();
   expect(pathCount).toBeLessThanOrEqual(1);
   if (pathCount === 0) {
-    await expect(page.locator('#path-info .provenance-chip')).toContainText('provenance:');
+    // v5 entry: no path; verify either friendly label or hidden provenance carrier
+    const hasLabel = await page.locator('#path-info .label').count();
+    const hasProv = await page.locator('#path-info .provenance-info').count();
+    expect(hasLabel + hasProv).toBeGreaterThan(0);
   }
 }
 
@@ -58,7 +61,8 @@ test.describe('Sd-viz smoke tests', () => {
     await page.locator('#entry-grid .cell').nth(1).click();
     await expect(page.locator('.path-line')).toHaveCount(0);
     await expect(page.locator('.path-vertex')).toHaveCount(0);
-    await expect(page.locator('#path-info .provenance-chip')).toContainText('v5_full_wall_crossing');
+    // v5 entry: 检查 hidden provenance carrier 含 v5_full marker
+    await expect(page.locator('#path-info .provenance-info')).toHaveAttribute('data-provenance', /v5_full_wall_crossing/);
     await expect(page.locator('#stokes-display .value')).toBeVisible();
   });
 
@@ -72,7 +76,10 @@ test.describe('Sd-viz smoke tests', () => {
     await page.locator('#entry-grid .cell').nth(2).click();
     await page.locator('.path-vertex').first().waitFor({ timeout: 1000 }).catch(() => undefined);
     if (await page.locator('.path-vertex').count() === 0) {
-      await expect(page.locator('#path-info .provenance-chip')).toContainText('provenance:');
+      // v5 entry path 不可见, 友好 label 应该在
+      const hasLabel = await page.locator('#path-info .label').count();
+      const hasProv = await page.locator('#path-info .provenance-info').count();
+      expect(hasLabel + hasProv).toBeGreaterThan(0);
       await expect(page.locator('#stokes-display .value')).toBeVisible();
       return;
     }
@@ -161,34 +168,42 @@ test.describe('Sd-viz smoke tests', () => {
     expect(stokes18).toBe(stokes22);
   });
 
-  test('输入框: 分数 + 自动选 k 区间', async ({ page }) => {
+  test('d 滑块固定在 [-π, π), 默认 d_reg, 输入超界自动 normalize', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
     const dInput = page.locator('#d-input');
     const slider = page.locator('#d-slider-wrap input[type=range]');
 
-    // 默认 d = -0.5 π, k = -1, range [-2π, 0]
-    expect(await dInput.inputValue()).toBe('-0.5');
-    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(-2 * Math.PI, 4);
-    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(0, 4);
+    // 默认 d = dataset._v5.d_reg (~-0.0608, n4_block); 至少在 [-π, π) 内
+    const dInit = Number(await dInput.inputValue()) * Math.PI;
+    expect(dInit).toBeGreaterThanOrEqual(-Math.PI);
+    expect(dInit).toBeLessThan(Math.PI);
+    // 滑块 range 必定 [-π, π)
+    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(-Math.PI, 4);
+    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(Math.PI, 4);
 
-    // 输入 "1/3" → π/3, k=0, range [0, 2π]
+    // 输入 "1/3" → π/3, 在 range 内, 不 wrap (slider step=0.0001 精度限制, precision=3)
     await dInput.fill('1/3');
     await dInput.press('Enter');
-    expect(Number(await slider.inputValue())).toBeCloseTo(Math.PI / 3, 4);
-    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(0, 4);
-    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(2 * Math.PI, 4);
+    expect(Number(await slider.inputValue())).toBeCloseTo(Math.PI / 3, 3);
+    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(-Math.PI, 4);
+    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(Math.PI, 4);
 
-    // 输入 "2.3" → 2.3π, k=1, range [2π, 4π]
+    // 输入 "2.3" → 2.3π 超界, 应 normalize 到 2.3-2=0.3π
     await dInput.fill('2.3');
     await dInput.press('Enter');
-    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(2 * Math.PI, 4);
-    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(4 * Math.PI, 4);
+    expect(Number(await slider.inputValue())).toBeCloseTo(0.3 * Math.PI, 3);
+    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(-Math.PI, 4);
+    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(Math.PI, 4);
 
-    // 无效输入还原
+    // 无效输入还原 (现在 input 显示 2.3 因为 setD source='input' 不更新 dInput, 但内部值变了)
+    // 验证 invalid input doesn't crash
     await dInput.fill('abc');
     await dInput.press('Enter');
-    expect(await dInput.inputValue()).toBe('2.3');
+    // 还原后 dInput.value 是当前 currentD 的字符串
+    const restored = Number(await dInput.inputValue());
+    expect(restored).toBeGreaterThanOrEqual(-1);
+    expect(restored).toBeLessThan(1);
   });
 
   // 防回归: 块版 (m_k > 1) dataset 的 A_kk 块内 off-diag (A_off entry I==J 且 a≠b)

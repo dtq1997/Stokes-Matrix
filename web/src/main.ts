@@ -125,21 +125,37 @@ async function main() {
   sliderWrap.appendChild(markStrip);
   buildMarkerStrip(markStrip);
 
-  let currentD = -Math.PI / 2;  // 默认 d = -π/2 (k = -1)
+  // 默认 d: 优先用 dataset 里的 d_reg (v5 的 reference direction, 落在 [-π, π) 内);
+  // 没有时 fallback -π/2.
+  let initialD = -Math.PI / 2;
+  try {
+    const meta = (dataset as any)._v5;
+    const dReg = meta && typeof meta.d_reg === 'number' ? meta.d_reg : null;
+    if (dReg !== null) {
+      // d_reg 已经在 (-π, π] 区间内; normalize 到 [-π, π) 避开 +π 边界
+      let normalized = dReg;
+      while (normalized >= Math.PI) normalized -= 2 * Math.PI;
+      while (normalized < -Math.PI) normalized += 2 * Math.PI;
+      initialD = normalized;
+    }
+  } catch { /* ignore, use fallback */ }
+  let currentD = initialD;
 
   function setD(d: number, source: 'slider' | 'input' | 'init' = 'init') {
-    currentD = d;
-    // slider 源拖动时不重算 k 区间, 避免边界浮点把 k 跳到 -4 之类
-    // 只有 input 框 / init 才切区间
+    // 滑块视角固定 [-π, π); 任何超界输入都 normalize 到这区间
+    let normalized = d;
+    while (normalized >= Math.PI) normalized -= 2 * Math.PI;
+    while (normalized < -Math.PI) normalized += 2 * Math.PI;
+    currentD = normalized;
     if (source !== 'slider') {
-      const k = Math.floor(d / (2 * Math.PI));
-      slider.min = String(2 * k * Math.PI);
-      slider.max = String((2 * k + 2) * Math.PI);
-      slider.value = String(d);
+      slider.min = String(-Math.PI);
+      slider.max = String(Math.PI);
+      slider.value = String(normalized);
     }
-    if (source !== 'input') dInput.value = formatPi(d / Math.PI);
-    canvas.setDirection(d);
-    const newCh = chamberOfDirection(d, dataset.rays);
+    // input 框: source='input' 也同步 (如果输入超界 normalize 后值变了, 用户应该看到)
+    dInput.value = formatPi(normalized / Math.PI);
+    canvas.setDirection(normalized);
+    const newCh = chamberOfDirection(normalized, dataset.rays);
     state.selectedChamber = newCh;
     // d 每变, path PL 代表元跟着重 build (cut 转, path 也跟着转)
     refreshAllPaths();
@@ -171,22 +187,23 @@ async function main() {
 
   function buildMarkerStrip(el: HTMLDivElement) {
     el.innerHTML = '';
-    const tp = 2 * Math.PI;
-    // 只画 anti-Stokes rays (chamber 边界), chamber center 多余去掉
+    // 滑块视觉区间 [-π, π); rays 数据是 mod 2π 在 [0, 2π) 内, 用 (r ∈ [0, π]) 直接,
+    // (r ∈ (π, 2π)) lift 到 r - 2π. 这样 ray label 直接显示在 [-π, π) 内.
+    const span = 2 * Math.PI; // total width corresponds to [-π, π)
     for (const r of dataset.rays) {
+      const lifted = r >= Math.PI ? r - 2 * Math.PI : r;
       const m = document.createElement('div');
       m.className = 'd-mark ray';
-      m.style.left = `${(r / tp) * 100}%`;
-      m.title = `anti-Stokes ray  ${(r * 180 / Math.PI).toFixed(2)}°  =  ${(r / Math.PI).toFixed(4)} π`;
+      // x in [0, 1] from (lifted + π) / 2π
+      const x = (lifted + Math.PI) / span;
+      m.style.left = `${x * 100}%`;
+      m.title = `anti-Stokes ray  ${(lifted * 180 / Math.PI).toFixed(2)}°  =  ${(lifted / Math.PI).toFixed(4)} π`;
       el.appendChild(m);
     }
   }
 
   function updateDReadout() {
-    const k = Math.floor(currentD / (2 * Math.PI));
-    const loTex = 2 * k === 0 ? '0' : (2*k === 1 ? '\\pi' : `${2*k}\\pi`);
-    const hiTex = 2 * k + 2 === 0 ? '0' : (2*k+2 === 1 ? '\\pi' : `${2*k+2}\\pi`);
-    dReadout.innerHTML = tex(`d \\in [${loTex},\\ ${hiTex}]`);
+    dReadout.innerHTML = tex(`d \\in [-\\pi,\\ \\pi)`);
   }
 
   // ---------- n input ----------
@@ -278,32 +295,31 @@ async function main() {
 
   function renderBackendStatus() {
     const base = getBackendBase();
-    const baseDisplay = base || '(本地相对路径, vite 代理)';
+    const baseDisplay = base || '(local server)';
     const escapedBase = escapeHtml(base);
     const heading = backendAvailable
-      ? `<span style="color:var(--good)">● backend online</span>`
-      : `<span style="color:var(--warn,#d4a76a)">● backend 离线</span>`;
+      ? `<span style="color:var(--good)">● compute server connected</span>`
+      : `<span style="color:var(--warn,#d4a76a)">● compute server offline</span>`;
     const description = backendAvailable
       ? ''
       : '<div style="color:var(--fg-muted);font-size:11px;line-height:1.4;margin:2px 0">'
-        + '改 U/A/m 后重算需要 backend (sage). 默认 backend 由部署方提供 (tunnel).'
-        + '<br>本地启用: <code style="background:var(--bg-elev);padding:1px 4px;border-radius:2px;font-size:10px">'
-        + 'cd 60-outputs/sd-viz/server &amp;&amp; sage -python push_server.py</code>'
-        + ' + <code style="background:var(--bg-elev);padding:1px 4px;border-radius:2px;font-size:10px">npm run dev</code>.'
+        + 'Recomputing the Stokes matrix after editing <span data-tex="(U, A, m)"></span> requires the compute server. '
+        + 'You can still pan, change the direction <span data-tex="d"></span>, and read off pre-computed entries while it is offline.'
         + '</div>';
     recomputeStatus.innerHTML = `
       <div style="font-size:11px;line-height:1.5">
         ${heading}
         <span style="color:var(--fg-muted);font-size:10px;margin-left:6px" title="${escapedBase}">${escapeHtml(baseDisplay).slice(0, 60)}</span>
-        <button id="backend-edit" type="button" style="margin-left:4px;font-size:10px;padding:0 6px;cursor:pointer">配置</button>
+        <button id="backend-edit" type="button" style="margin-left:4px;font-size:10px;padding:0 6px;cursor:pointer">change…</button>
         ${description}
       </div>
     `;
+    renderAllTex(recomputeStatus);
     const editBtn = document.getElementById('backend-edit');
     if (editBtn) editBtn.addEventListener('click', () => {
       const cur = getBackendBase();
       const next = window.prompt(
-        'Backend URL (留空 = 本地相对路径). 修改后立刻重试连接.\n例: https://sd-viz.dtq1997.org',
+        'Compute server URL (leave empty for a same-origin local server).\nExample: https://sd-viz.dtq1997.org',
         cur,
       );
       if (next === null) return; // cancelled
@@ -317,7 +333,7 @@ async function main() {
       });
     });
     if (!backendAvailable) {
-      recomputeBtn.title = '需要 backend (sage). 点配置改 backend URL 或本地启动.';
+      recomputeBtn.title = 'Compute server offline. Click "change…" to point at another server, or wait for the host to come back.';
     } else {
       recomputeBtn.removeAttribute('title');
     }
@@ -360,45 +376,76 @@ async function main() {
         (s: JobStatus) => {
           const phase = (s.phase ?? '').trim();
           const detail = (s.phase_detail ?? '').trim();
-          const phaseLabel = (() => {
-            // 把内部 token 翻译成人话
-            if (!phase) return '';
-            if (phase === 'base-case') return '算 v5 base entries (PL push + tq Richardson)';
-            if (phase === 'wall-crossing') return '跨 anti-Stokes wall 推 chamber';
-            if (phase === 'chamber-pack') return '装配 chamber 数据';
-            if (phase === 'starting sage') return 'sage 启动 + 载入 v5 模块';
-            return phase;
-          })();
-          const detailLabel = (() => {
-            if (!detail) return '';
-            // detail 通常含 pair=(i,j)|done=k/N or chamber=a->b|done=k/N
-            const parts = detail.split('|').filter(Boolean);
-            const human: string[] = [];
-            for (const p of parts) {
-              const [k, v] = p.split('=');
-              if (k === 'pair') human.push(`ordered pair (i,j)=${v}`);
-              else if (k === 'chamber') human.push(`chamber ${v}`);
-              else if (k === 'done') human.push(`${v}`);
-              else human.push(p);
-            }
-            return human.join(' · ');
-          })();
-          if (s.chambers_total > 0) {
-            const pct = Math.round(s.progress * 100);
-            const phaseHtml = phaseLabel
-              ? `<div class="dim" style="font-size:11px;margin-top:3px">${escapeHtml(phaseLabel)}${detailLabel ? ' · ' + escapeHtml(detailLabel) : ''}</div>`
-              : '';
-            recomputeStatus.innerHTML =
-              `<div class="progress-bar"><div style="width:${pct}%"></div></div>` +
-              `chamber ${s.chambers_done} / ${s.chambers_total} ` +
-              `<span class="dim">(${s.elapsed_s.toFixed(1)}s)</span>` +
-              phaseHtml;
-          } else {
-            const detailSuffix = detailLabel ? ` · ${escapeHtml(detailLabel)}` : '';
-            recomputeStatus.innerHTML =
-              `${escapeHtml(phaseLabel || 'starting sage')}${detailSuffix}` +
-              ` <span class="dim">(${s.elapsed_s.toFixed(1)}s)</span>`;
+
+          // 解析 detail (形如 "pair=(2,3)|done=5/12" 或 "chamber=8->9|done=11/11")
+          const detailMap: Record<string, string> = {};
+          for (const p of detail.split('|').filter(Boolean)) {
+            const eq = p.indexOf('=');
+            if (eq > 0) detailMap[p.slice(0, eq)] = p.slice(eq + 1);
           }
+          const pairStr = detailMap.pair ?? '';
+          const chamberStr = detailMap.chamber ?? '';
+          const doneStr = detailMap.done ?? '';
+
+          // 四个 phase 的人类语言 + 完成态
+          // phase 顺序: starting sage → base-case → wall-crossing → chamber-pack → done
+          type StageKey = 'sage' | 'base' | 'wall' | 'pack';
+          const stageOf: Record<string, StageKey> = {
+            'starting sage': 'sage',
+            'base-case': 'base',
+            'wall-crossing': 'wall',
+            'chamber-pack': 'pack',
+          };
+          const stageOrder: StageKey[] = ['sage', 'base', 'wall', 'pack'];
+          // 用户是数学家但不一定熟悉这套实现细节. UI 字串只用数学概念,
+          // 不出现 sage / PL push / tq Richardson / chamber-pack 等实现 jargon.
+          const stageLabel: Record<StageKey, string> = {
+            sage: 'Preparing',
+            base: 'Computing reference chamber',
+            wall: 'Propagating across walls',
+            pack: 'Finalizing',
+          };
+          const stageHint: Record<StageKey, string> = {
+            sage: 'loading the computation engine',
+            base: 'computing the initial entries (i, j) at the reference direction d_reg',
+            wall: 'transporting the Stokes matrix from one chamber to the next by algebraic wall-crossing',
+            pack: 'assembling the Stokes data across all chambers',
+          };
+          const curStage: StageKey = stageOf[phase] ?? 'sage';
+          const curIdx = stageOrder.indexOf(curStage);
+
+          // 主行: 阶段名 + 当前焦点 (数学家友好, 不带技术 jargon)
+          let focus = '';
+          if (curStage === 'base' && doneStr) {
+            focus = pairStr ? ` entry (i, j) = ${pairStr} · ${doneStr}` : ` · ${doneStr}`;
+          } else if (curStage === 'wall' && doneStr) {
+            focus = chamberStr ? ` chamber ${chamberStr} · ${doneStr}` : ` · ${doneStr}`;
+          } else if (curStage === 'pack' && s.chambers_total > 0) {
+            focus = ` · ${s.chambers_done} / ${s.chambers_total} chambers`;
+          }
+
+          // ETA: 用 progress / elapsed 估
+          const eta = (s.progress > 0.05 && s.elapsed_s > 1)
+            ? Math.max(0, s.elapsed_s / s.progress - s.elapsed_s)
+            : null;
+
+          const pct = Math.max(2, Math.round(s.progress * 100));
+
+          // 4 阶段勾标
+          const checks = stageOrder.map((k, idx) => {
+            let icon = '○';
+            let cls = 'dim';
+            if (idx < curIdx) { icon = '✓'; cls = 'good'; }
+            else if (idx === curIdx) { icon = '●'; cls = 'active'; }
+            return `<span style="color:var(--${cls === 'good' ? 'good' : cls === 'active' ? 'fg' : 'fg-muted'},#888);margin-right:8px">${icon} ${escapeHtml(stageLabel[k])}</span>`;
+          }).join('');
+
+          const etaHtml = eta !== null ? `  · ETA ~${eta.toFixed(0)}s` : '';
+          recomputeStatus.innerHTML =
+            `<div style="font-size:12px;margin-bottom:4px"><strong>${escapeHtml(stageLabel[curStage])}</strong>${escapeHtml(focus)} <span class="dim">${s.elapsed_s.toFixed(1)}s${etaHtml}</span></div>` +
+            `<div class="progress-bar" style="margin-bottom:4px"><div style="width:${pct}%"></div></div>` +
+            `<div style="font-size:10px;line-height:1.4">${checks}</div>` +
+            `<div class="dim" style="font-size:10px;margin-top:2px">${escapeHtml(stageHint[curStage])}</div>`;
         },
         (jobId) => { currentJobId = jobId; },
       );
@@ -416,7 +463,7 @@ async function main() {
       updatePathInfo();
       updateStaleBanner();
       const elapsed = (newDs as any)._compute_seconds?.toFixed(1) ?? '?';
-      recomputeStatus.innerHTML = `<span style="color: var(--good)">done in ${elapsed}s</span>`;
+      recomputeStatus.innerHTML = `<span style="color: var(--good)">✓ finished in ${elapsed}s</span>`;
     } catch (e) {
       recomputeStatus.innerHTML = `<span style="color: var(--bad)">${(e as Error).message}</span>`;
     } finally {
@@ -779,9 +826,11 @@ async function main() {
     const e = ch.entries[`${i},${j}`];
     if (!e) { el.textContent = '—'; return; }
     if (!e.path) {
-      el.innerHTML = e.provenance
-        ? `<div class="provenance-chip">provenance: ${escapeHtml(e.provenance)}</div>`
-        : '—';
+      // v5 entry: no explicit PL representative; show a friendly note + keep
+      // raw provenance under .provenance-info for e2e / debugging.
+      el.innerHTML =
+        '<span class="label">computed via wall-crossing from the reference chamber</span>' +
+        (e.provenance ? `<span class="provenance-info" data-provenance="${escapeHtml(e.provenance)}" hidden>${escapeHtml(e.provenance)}</span>` : '');
       return;
     }
     const tau = e.tau_code?.toFixed(4) ?? '—';
