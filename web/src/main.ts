@@ -116,14 +116,14 @@ async function main() {
   slider.type = 'range';
   slider.step = '0.0001';
   sliderWrap.appendChild(slider);
-  const dReadout = document.getElementById('d-readout')!;
+  const dHeading = document.getElementById('d-heading')!;
   const dInput = document.getElementById('d-input') as HTMLInputElement;
 
 
   const markStrip = document.createElement('div');
   markStrip.id = 'd-marker-strip';
   sliderWrap.appendChild(markStrip);
-  buildMarkerStrip(markStrip);
+  // buildMarkerStrip 推迟到 setD('init') 第一次调用时 (那时 currentK 才确定)
 
   // 默认 d: 优先用 dataset 里的 d_reg (v5 的 reference direction, 落在 [-π, π) 内);
   // 没有时 fallback -π/2.
@@ -141,29 +141,35 @@ async function main() {
   } catch { /* ignore, use fallback */ }
   let currentD = initialD;
 
+  // 当前 d-window 的 k: d-window = [(2k-1)π, (2k+1)π).
+  // 0-branch (k=0) 是 [-π, π); 输入 d=2.3π 时 k 切到 1, window = [π, 3π).
+  let currentK = 0;
+
+  function windowOf(d: number): number {
+    // round(d / 2π); 即把 d 划分到最近的 [2kπ-π, 2kπ+π) window.
+    return Math.round(d / (2 * Math.PI));
+  }
+
   function setD(d: number, source: 'slider' | 'input' | 'init' = 'init') {
-    // 滑块视角固定 [-π, π); 任何超界输入都 normalize 到这区间
-    let normalized = d;
-    while (normalized >= Math.PI) normalized -= 2 * Math.PI;
-    while (normalized < -Math.PI) normalized += 2 * Math.PI;
-    currentD = normalized;
+    currentD = d;
     if (source !== 'slider') {
-      slider.min = String(-Math.PI);
-      slider.max = String(Math.PI);
-      slider.value = String(normalized);
+      currentK = windowOf(d);
+      const lo = (2 * currentK - 1) * Math.PI;
+      const hi = (2 * currentK + 1) * Math.PI;
+      slider.min = String(lo);
+      slider.max = String(hi);
+      slider.value = String(d);
+      buildMarkerStrip(markStrip);
     }
-    // input 框: source='input' 也同步 (如果输入超界 normalize 后值变了, 用户应该看到)
-    dInput.value = formatPi(normalized / Math.PI);
-    canvas.setDirection(normalized);
-    const newCh = chamberOfDirection(normalized, dataset.rays);
+    // input 框: 永远显示当前 d (in units of π)
+    dInput.value = formatPi(d / Math.PI);
+    canvas.setDirection(d);
+    const newCh = chamberOfDirection(d, dataset.rays);
     state.selectedChamber = newCh;
-    // d 每变, path PL 代表元跟着重 build (cut 转, path 也跟着转)
     refreshAllPaths();
     canvas.setState(state);
-    // 每次 d 变都刷 entry 显示: phase 修正 = exp(2πi·m·(A_ii-A_jj)) 跟 d 数值挂钩,
-    // 同 chamber 内跨周期也得重算 (m 不同 phase 不同).
     refreshStokesMatrix();
-    updateDReadout();
+    updateDHeading();
     updateStokesPanel();
     updatePathInfo();
   }
@@ -187,23 +193,36 @@ async function main() {
 
   function buildMarkerStrip(el: HTMLDivElement) {
     el.innerHTML = '';
-    // 滑块视觉区间 [-π, π); rays 数据是 mod 2π 在 [0, 2π) 内, 用 (r ∈ [0, π]) 直接,
-    // (r ∈ (π, 2π)) lift 到 r - 2π. 这样 ray label 直接显示在 [-π, π) 内.
-    const span = 2 * Math.PI; // total width corresponds to [-π, π)
+    // 当前 window: [(2k-1)π, (2k+1)π). rays 数据是 mod 2π 在 [0, 2π) 内.
+    // 把每个 ray lift 到 window: lifted = r + 2πm for some m, 使得 lifted ∈ window.
+    const lo = (2 * currentK - 1) * Math.PI;
+    const hi = (2 * currentK + 1) * Math.PI;
+    const span = hi - lo;
     for (const r of dataset.rays) {
-      const lifted = r >= Math.PI ? r - 2 * Math.PI : r;
+      // 找 m 让 lifted ∈ [lo, hi)
+      let lifted = r;
+      while (lifted >= hi) lifted -= 2 * Math.PI;
+      while (lifted < lo) lifted += 2 * Math.PI;
       const m = document.createElement('div');
       m.className = 'd-mark ray';
-      // x in [0, 1] from (lifted + π) / 2π
-      const x = (lifted + Math.PI) / span;
+      const x = (lifted - lo) / span;
       m.style.left = `${x * 100}%`;
       m.title = `anti-Stokes ray  ${(lifted * 180 / Math.PI).toFixed(2)}°  =  ${(lifted / Math.PI).toFixed(4)} π`;
       el.appendChild(m);
     }
   }
 
-  function updateDReadout() {
-    dReadout.innerHTML = tex(`d \\in [-\\pi,\\ \\pi)`);
+  function piTexFromInt(n: number): string {
+    if (n === 0) return '0';
+    if (n === 1) return '\\pi';
+    if (n === -1) return '-\\pi';
+    return `${n}\\pi`;
+  }
+
+  function updateDHeading() {
+    const lo = 2 * currentK - 1;
+    const hi = 2 * currentK + 1;
+    dHeading.innerHTML = `Direction ` + tex(`d \\in [${piTexFromInt(lo)},\\ ${piTexFromInt(hi)})`);
   }
 
   // ---------- n input ----------
@@ -458,7 +477,7 @@ async function main() {
       refreshAllPaths();
       canvas.setState(state);
       refreshStokesMatrix();
-      updateDReadout();
+      updateDHeading();
       updateStokesPanel();
       updatePathInfo();
       updateStaleBanner();

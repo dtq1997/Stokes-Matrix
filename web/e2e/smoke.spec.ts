@@ -168,42 +168,44 @@ test.describe('Sd-viz smoke tests', () => {
     expect(stokes18).toBe(stokes22);
   });
 
-  test('d 滑块固定在 [-π, π), 默认 d_reg, 输入超界自动 normalize', async ({ page }) => {
+  test('d 滑块默认 0-branch [-π, π) 起步 d_reg, 输入跨 branch 自动切', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
     const dInput = page.locator('#d-input');
     const slider = page.locator('#d-slider-wrap input[type=range]');
 
-    // 默认 d = dataset._v5.d_reg (~-0.0608, n4_block); 至少在 [-π, π) 内
+    // 默认 d = dataset._v5.d_reg, 在 [-π, π) 内 (n4_block d_reg ≈ -0.061π)
     const dInit = Number(await dInput.inputValue()) * Math.PI;
     expect(dInit).toBeGreaterThanOrEqual(-Math.PI);
     expect(dInit).toBeLessThan(Math.PI);
-    // 滑块 range 必定 [-π, π)
+    // 滑块 range 起步 [-π, π) (k=0 branch)
     expect(Number(await slider.getAttribute('min'))).toBeCloseTo(-Math.PI, 4);
     expect(Number(await slider.getAttribute('max'))).toBeCloseTo(Math.PI, 4);
 
-    // 输入 "1/3" → π/3, 在 range 内, 不 wrap (slider step=0.0001 精度限制, precision=3)
+    // 输入 "1/3" → π/3, 在 0-branch 内, range 不动
     await dInput.fill('1/3');
     await dInput.press('Enter');
     expect(Number(await slider.inputValue())).toBeCloseTo(Math.PI / 3, 3);
     expect(Number(await slider.getAttribute('min'))).toBeCloseTo(-Math.PI, 4);
     expect(Number(await slider.getAttribute('max'))).toBeCloseTo(Math.PI, 4);
 
-    // 输入 "2.3" → 2.3π 超界, 应 normalize 到 2.3-2=0.3π
+    // 输入 "2.3" → 2.3π, k=1, range 切到 [π, 3π)
     await dInput.fill('2.3');
     await dInput.press('Enter');
-    expect(Number(await slider.inputValue())).toBeCloseTo(0.3 * Math.PI, 3);
-    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(-Math.PI, 4);
-    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(Math.PI, 4);
+    expect(Number(await slider.inputValue())).toBeCloseTo(2.3 * Math.PI, 3);
+    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(Math.PI, 4);
+    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(3 * Math.PI, 4);
 
-    // 无效输入还原 (现在 input 显示 2.3 因为 setD source='input' 不更新 dInput, 但内部值变了)
-    // 验证 invalid input doesn't crash
+    // 输入 "-3.5" → -3.5π, k=-2, range 切到 [-5π, -3π)
+    await dInput.fill('-3.5');
+    await dInput.press('Enter');
+    expect(Number(await slider.inputValue())).toBeCloseTo(-3.5 * Math.PI, 3);
+    expect(Number(await slider.getAttribute('min'))).toBeCloseTo(-5 * Math.PI, 4);
+    expect(Number(await slider.getAttribute('max'))).toBeCloseTo(-3 * Math.PI, 4);
+
+    // 无效输入不 crash
     await dInput.fill('abc');
     await dInput.press('Enter');
-    // 还原后 dInput.value 是当前 currentD 的字符串
-    const restored = Number(await dInput.inputValue());
-    expect(restored).toBeGreaterThanOrEqual(-1);
-    expect(restored).toBeLessThan(1);
   });
 
   // 防回归: 块版 (m_k > 1) dataset 的 A_kk 块内 off-diag (A_off entry I==J 且 a≠b)

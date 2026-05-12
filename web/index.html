@@ -29,7 +29,7 @@
         </div>
         <h3>Leading term <span data-tex="U = \mathrm{diag}(u_1 I_{m_1}, \ldots, u_n I_{m_n})"></span></h3>
         <table id="u-table" class="state-table"></table>
-        <h3>Spectral matrix <span data-tex="A \in \mathrm{Mat}_n(\mathbb{C})"></span></h3>
+        <h3>Residue matrix <span data-tex="A \in \bigoplus_{i,j=1}^{n} \mathrm{Mat}_{m_i \times m_j}(\mathbb{C})"></span></h3>
         <table id="a-table" class="state-table"></table>
         <div class="state-actions">
           <div id="state-stale-banner" class="stale-banner" hidden>
@@ -39,15 +39,13 @@
           <button id="state-reset" class="btn-secondary">Reset</button>
           <div id="recompute-status" class="mono dim"></div>
         </div>
-        <h3>Direction <span data-tex="d"></span></h3>
+        <h3 id="d-heading">Direction</h3>
         <div id="d-input-wrap" class="mono">
           <span data-tex="d ="></span>
           <input id="d-input" type="text" inputmode="decimal" autocomplete="off" />
           <span data-tex="\pi"></span>
         </div>
         <div id="d-slider-wrap"></div>
-        <div id="d-readout" class="mono"></div>
-        <h3>Entry <span data-tex="(i, j)"></span></h3>
         <div id="entry-grid"></div>
       </aside>
       <div class="resize-handle" id="resize-left" data-side="left" title="Drag to resize input panel"></div>
