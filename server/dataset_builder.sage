@@ -283,8 +283,8 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
     )
     precompute_seconds = time.time() - t0
 
-    print(f"STAGE chamber-pack|packing {len(chamber_ds)} chambers with {n*(n-1)} entries each", flush=True)
     n = len(U_list)
+    print(f"STAGE chamber-pack|packing {len(chamber_ds)} chambers with {n*(n-1)} entries each", flush=True)
     out_chambers = []
     for ch_idx, d in enumerate(chamber_ds):
         d = float(d)
