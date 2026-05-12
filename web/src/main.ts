@@ -295,12 +295,8 @@ async function main() {
     for (let I = oldN; I < newN; I++) {
       newA[newStarts[I]][newStarts[I]] = { re: 0.1, im: 0 };
     }
-    // 已存在 block 但 m_I 变大的: 新加 sub-diagonal 默认 0.1 (非 0 防 trivial)
-    for (let I = 0; I < minN; I++) {
-      for (let a = Math.min(oldM[I], newM[I]); a < newM[I]; a++) {
-        newA[newStarts[I] + a][newStarts[I] + a] = { re: 0.1, im: 0 };
-      }
-    }
+    // 已存在 block, m_I 变大时新加的行/列默认全 0 (用户预期: 扩张子矩阵补零).
+    // newA 已默认初始化为 0, 不需要任何操作.
 
     state.punctureOverrides = newU;
     state.mOverrides = newM;
