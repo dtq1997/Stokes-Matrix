@@ -231,9 +231,50 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
     if v5_kwargs:
         kwargs.update(v5_kwargs)
 
+    # Forward base-case pair + wall progress to upstream callback as the
+    # *real* progress signal during v5_full. Caller's `progress(ch_idx, n, d, ...)`
+    # gets a final-pass batch at the end. Real time is spent in
+    # compute_Sd_chambers_v5 internals (n*(n-1) PL+tq base case + N-1 walls).
+    n_v5 = len(U_list)
+    pair_total = n_v5 * (n_v5 - 1)
+    # split the chamber_ds "virtual progress" 0..1 into
+    #   [0, 0.85) for base-case pairs  (dominant cost)
+    #   [0.85, 0.95) for wall-crossings
+    #   [0.95, 1.0] for chamber-pack (effectively instant)
+    n_chambers_total = len(chamber_ds)
+    if n_chambers_total < 1:
+        n_chambers_total = 1
+
+    def _emit_progress(virtual_ch_idx, label_d):
+        if progress is not None:
+            try:
+                progress(int(virtual_ch_idx), int(n_chambers_total), float(label_d), [])
+            except Exception:
+                pass
+
+    def _on_pair(done, total, i, j):
+        # ramp 0..ceil(0.85*n_chambers_total)
+        ch_idx = _py_int(round((done / total) * 0.85 * n_chambers_total))
+        if ch_idx < 1:
+            ch_idx = 1
+        if ch_idx > n_chambers_total:
+            ch_idx = n_chambers_total
+        # use 0.0 as label d; frontend just shows progress bar
+        _emit_progress(ch_idx - 1, 0.0)
+
+    def _on_wall(done, total, from_idx, to_idx):
+        ch_idx = _py_int(round(0.85 * n_chambers_total + (done / max(total, 1)) * 0.10 * n_chambers_total))
+        if ch_idx < 1:
+            ch_idx = 1
+        if ch_idx > n_chambers_total:
+            ch_idx = n_chambers_total
+        _emit_progress(ch_idx - 1, 0.0)
+
     t0 = time.time()
     chambers_v5, info_v5 = compute_Sd_chambers_v5(
-        U_list, A_global, m_sizes, **kwargs
+        U_list, A_global, m_sizes,
+        on_pair_done=_on_pair, on_wall_done=_on_wall,
+        **kwargs,
     )
     precompute_seconds = time.time() - t0
 
@@ -259,6 +300,7 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
                 if on_entry is not None:
                     on_entry(ch_idx, i, j, entry)
         out_chambers.append(chamber_data)
+        # final-pass real chamber progress (overwrites virtual base/wall ramp)
         if progress is not None:
             progress(ch_idx, len(chamber_ds), d, out_chambers)
 
