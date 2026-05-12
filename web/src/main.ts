@@ -1,5 +1,5 @@
 import katex from 'katex';
-import { loadDataset, recomputeAsync, cancelJob, backendOnline } from './lib/data.js';
+import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase } from './lib/data.js';
 import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
@@ -275,22 +275,57 @@ async function main() {
   const recomputeBtn = document.getElementById('state-recompute') as HTMLButtonElement;
   const recomputeStatus = document.getElementById('recompute-status')!;
   let backendAvailable = false;
+
+  function renderBackendStatus() {
+    const base = getBackendBase();
+    const baseDisplay = base || '(本地相对路径, vite 代理)';
+    const escapedBase = escapeHtml(base);
+    const heading = backendAvailable
+      ? `<span style="color:var(--good)">● backend online</span>`
+      : `<span style="color:var(--warn,#d4a76a)">● backend 离线</span>`;
+    const description = backendAvailable
+      ? ''
+      : '<div style="color:var(--fg-muted);font-size:11px;line-height:1.4;margin:2px 0">'
+        + '改 U/A/m 后重算需要 backend (sage). 默认 backend 由部署方提供 (tunnel).'
+        + '<br>本地启用: <code style="background:var(--bg-elev);padding:1px 4px;border-radius:2px;font-size:10px">'
+        + 'cd 60-outputs/sd-viz/server &amp;&amp; sage -python push_server.py</code>'
+        + ' + <code style="background:var(--bg-elev);padding:1px 4px;border-radius:2px;font-size:10px">npm run dev</code>.'
+        + '</div>';
+    recomputeStatus.innerHTML = `
+      <div style="font-size:11px;line-height:1.5">
+        ${heading}
+        <span style="color:var(--fg-muted);font-size:10px;margin-left:6px" title="${escapedBase}">${escapeHtml(baseDisplay).slice(0, 60)}</span>
+        <button id="backend-edit" type="button" style="margin-left:4px;font-size:10px;padding:0 6px;cursor:pointer">配置</button>
+        ${description}
+      </div>
+    `;
+    const editBtn = document.getElementById('backend-edit');
+    if (editBtn) editBtn.addEventListener('click', () => {
+      const cur = getBackendBase();
+      const next = window.prompt(
+        'Backend URL (留空 = 本地相对路径). 修改后立刻重试连接.\n例: https://sd-viz.dtq1997.org',
+        cur,
+      );
+      if (next === null) return; // cancelled
+      setBackendBase(next);
+      // recheck
+      recomputeStatus.textContent = 'reconnecting…';
+      backendOnline().then(ok => {
+        backendAvailable = ok;
+        renderBackendStatus();
+        refreshRecomputeBtn();
+      });
+    });
+    if (!backendAvailable) {
+      recomputeBtn.title = '需要 backend (sage). 点配置改 backend URL 或本地启动.';
+    } else {
+      recomputeBtn.removeAttribute('title');
+    }
+  }
+
   backendOnline().then(ok => {
     backendAvailable = ok;
-    if (ok) {
-      recomputeStatus.innerHTML = '<span style="color:var(--good)">● backend online :8000</span>';
-    } else {
-      // GH Pages 部署没 backend, 按钮永久锁. 清楚告诉用户为啥 + 怎么本地启用.
-      recomputeStatus.innerHTML =
-        '<div style="color:var(--fg-muted);font-size:11px;line-height:1.4;margin-top:4px">' +
-        '<span style="color:var(--warn,#d4a76a)">● Demo mode</span> — backend 离线, 改 U/A/m 无法重算.<br/>' +
-        '本地启用 (改 input → 真重算):<br/>' +
-        '<code style="background:var(--bg-elev);padding:1px 4px;border-radius:2px;font-size:10px">' +
-        'cd 60-outputs/sd-viz/server && sage -python push_server.py</code><br/>' +
-        '然后 npm run dev (localhost:5174) 改输入即时重算.' +
-        '</div>';
-      recomputeBtn.title = '需本地后端: sage -python server/push_server.py';
-    }
+    renderBackendStatus();
     refreshRecomputeBtn();
   });
   function refreshRecomputeBtn() {

@@ -35,6 +35,7 @@ jobs:
       - name: Build
         env:
           VITE_BASE: /Stokes-Matrix/
+          VITE_BACKEND_URL: https://sd-viz.dtq1997.org
         run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
