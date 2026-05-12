@@ -208,4 +208,34 @@ test.describe('Sd-viz smoke tests', () => {
     const reInput10 = page.locator('#a-table input[data-i="1"][data-j="0"][data-axis="re"]');
     expect(await reInput10.inputValue()).not.toBe('0');
   });
+
+  // SSOT guard (2026-05-12, codex 建议): catch the bug where sage export
+  // rewrites data/ but web/public/data/ is forgotten, so deploy ships
+  // stale legacy_entry dataset. Default deployed dataset MUST be
+  // v5_full + path:null + provenance.
+  test('部署 SSOT: 默认 dataset 是 v5_full + path:null + provenance', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    const meta = await page.evaluate(async () => {
+      const r = await fetch('/data/n4_block.json');
+      const j = await r.json();
+      const e0 = j.chambers[0].entries['0,1'];
+      return {
+        algorithm: j._algorithm ?? null,
+        v5_residual: j._v5?.residual_max ?? null,
+        v5_p1: j._v5?.p1 ?? null,
+        v5_p2: j._v5?.p2 ?? null,
+        provenance: e0.provenance ?? null,
+        path_null: e0.path === null,
+        has_value_block: Array.isArray(e0.value_block),
+      };
+    });
+    expect(meta.algorithm).toBe('v5_full');
+    expect(meta.provenance).toBe('v5_full_wall_crossing');
+    expect(meta.path_null).toBe(true);
+    expect(meta.has_value_block).toBe(true);
+    expect(meta.v5_residual).toBeLessThan(1e-12);
+    expect(meta.v5_p1).toBe(500);
+    expect(meta.v5_p2).toBe(1500);
+  });
 });
