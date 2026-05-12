@@ -28,11 +28,11 @@ function renderAllTex(root: ParentNode = document) {
   });
 }
 
+const IM_UNIT = '<span class="im-unit">i</span>';
 const fmtComplex = (re: number, im: number, digits = 4) => {
   const r = re.toFixed(digits);
-  const i = im.toFixed(digits);
   const sign = im >= 0 ? '+' : '-';
-  return `<span class="complex-re">${r}</span> ${sign} <span class="complex-im">${Math.abs(im).toFixed(digits)}</span>i`;
+  return `<span class="complex-re">${r}</span> ${sign} <span class="complex-im">${Math.abs(im).toFixed(digits)}</span>${IM_UNIT}`;
 };
 
 async function main() {
@@ -240,7 +240,6 @@ async function main() {
   function resizeN(newN: number) {
     const oldN = n;
     const oldM = state.mOverrides!;
-    const oldA = state.AOverrides!;
     const oldU = state.punctureOverrides!;
 
     // 新 U: 保留前 min, 多出来在半径 2 等距圆上
@@ -252,16 +251,34 @@ async function main() {
     // 新 m: 保留前 min, 多出来 1
     const newM = Array.from({ length: newN }, (_, k) =>
       k < oldN ? oldM[k] : 1);
-    // 新 A: N_new × N_new, 按 block 索引保留 oldA, 新位置默认 0 (对角 0.1)
+
+    applyBlockResize(newU, newM);
+  }
+
+  /**
+   * 通用块结构重置: 把当前 (U, A, m) 重建到给定 (newU, newM).
+   * - U 保持给的 newU (不再回填)
+   * - A 按 block 索引拷贝可保留的 entries (oldM[I] / newM[I] 取 min × min)
+   * - 新增 block 对角默认 0.1, 新增 sub-entry 默认 0
+   * - 触发所有 UI 重建 + stale banner
+   * 不变量: newU.length === newM.length
+   */
+  function applyBlockResize(newU: typeof state.punctureOverrides, newM: number[]) {
+    const oldN = n;
+    const oldM = state.mOverrides!;
+    const oldA = state.AOverrides!;
+    const newN = newM.length;
+    if (!newU || newU.length !== newN) throw new Error('applyBlockResize: U/m length mismatch');
+
     const newN_total = newM.reduce((a, b) => a + b, 0);
     const newA = Array.from({ length: newN_total }, () =>
       Array.from({ length: newN_total }, () => ({ re: 0, im: 0 })));
-    // 拷贝旧 block 数据 (block index < min(oldN, newN))
+    // 拷贝旧 block 数据 (block index < min(oldN, newN), sub-index < min(oldM[I], newM[I]))
     const minN = Math.min(oldN, newN);
-    const oldStarts: number[] = []; let s = 0;
-    for (const m of oldM) { oldStarts.push(s); s += m; }
-    const newStarts: number[] = []; s = 0;
-    for (const m of newM) { newStarts.push(s); s += m; }
+    const oldStarts: number[] = []; let so = 0;
+    for (const m of oldM) { oldStarts.push(so); so += m; }
+    const newStarts: number[] = []; let sn = 0;
+    for (const m of newM) { newStarts.push(sn); sn += m; }
     for (let I = 0; I < minN; I++) {
       for (let J = 0; J < minN; J++) {
         const mi = Math.min(oldM[I], newM[I]);
@@ -274,9 +291,15 @@ async function main() {
         }
       }
     }
-    // 新 block 对角 entry 默认非零防 trivial
+    // 新增 block 对角 entry 默认 0.1
     for (let I = oldN; I < newN; I++) {
       newA[newStarts[I]][newStarts[I]] = { re: 0.1, im: 0 };
+    }
+    // 已存在 block 但 m_I 变大的: 新加 sub-diagonal 默认 0.1 (非 0 防 trivial)
+    for (let I = 0; I < minN; I++) {
+      for (let a = Math.min(oldM[I], newM[I]); a < newM[I]; a++) {
+        newA[newStarts[I] + a][newStarts[I] + a] = { re: 0.1, im: 0 };
+      }
     }
 
     state.punctureOverrides = newU;
@@ -557,10 +580,13 @@ async function main() {
       const m = Number(t.value);
       if (!Number.isInteger(m) || m < 1) { t.classList.add('invalid'); return; }
       t.classList.remove('invalid');
-      state.mOverrides![k] = m;
-      state.stokesStale = true;
-      updateStaleBanner();
-      updateDimInfo();
+      const oldMk = state.mOverrides![k];
+      if (m === oldMk) return;
+      // 触发 block 重建: m_k 变意味着 A 维度 N=sum(m) 变, 必须重建 A.
+      const newM = [...state.mOverrides!];
+      newM[k] = m;
+      const newU = state.punctureOverrides!.map(p => ({ ...p }));
+      applyBlockResize(newU, newM);
       return;
     }
     const v = Number(t.value);
@@ -611,6 +637,7 @@ async function main() {
         html += `<td class="${cls}"><div class="cx-pair">` +
           `<input class="cx" data-i="${fi}" data-j="${fj}" data-axis="re" placeholder="Re" />` +
           `<input class="cx" data-i="${fi}" data-j="${fj}" data-axis="im" placeholder="Im" />` +
+          `<span class="im-unit-suffix">${IM_UNIT}</span>` +
           `</div></td>`;
       }
       html += '</tr>';

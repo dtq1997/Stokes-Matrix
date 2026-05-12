@@ -235,6 +235,13 @@ h3 {
 #stokes-display .value { color: var(--fg); font-size: 14px; margin-top: 4px; }
 #stokes-display .complex-re { color: var(--accent); }
 #stokes-display .complex-im { color: var(--accent-2); }
+.im-unit {
+  /* 虚数单位 i 用正体 (跟 LaTeX \mathrm{i} 一致) */
+  font-family: "Latin Modern Roman", "Computer Modern Roman", "STIX Two Math", "Times New Roman", serif;
+  font-style: normal;
+  font-weight: 500;
+  margin-left: 0.05em;
+}
 
 #hud {
   position: absolute;
@@ -300,16 +307,26 @@ h3 {
 }
 .state-table input.cx:focus { border-color: var(--accent); background: var(--bg); }
 .state-table input.cx.invalid { border-color: var(--bad); }
-/* cx-pair: Re 一行 / Im 一行 (跟 output Stokes entry 两行布局一致) */
+/* cx-pair: Re 一行 / Im+i 一行 (跟 output Stokes entry 两行布局一致) */
 .state-table .cx-pair {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1px 2px;
+  align-items: center;
 }
 .state-table .cx-pair input.cx {
   min-width: 64px;        /* 数字 4 位 + 小数点 + sign 大致需要 */
   text-align: right;
   font-variant-numeric: tabular-nums;
+  grid-column: 1 / -1;
+}
+.state-table .cx-pair input.cx[data-axis="im"] {
+  grid-column: 1 / 2;     /* Im 留出 i 标记位置 */
+}
+.state-table .cx-pair .im-unit-suffix {
+  grid-column: 2 / 3;
+  font-size: 11px;
+  color: var(--fg-dim);
 }
 /* Re/Im 视觉区分: Re 默认色, Im 略 muted */
 .state-table .cx-pair input.cx[data-axis="im"] { color: var(--fg-dim); }
