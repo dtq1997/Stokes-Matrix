@@ -261,6 +261,8 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
             ch_idx = n_chambers_total
         # use 0.0 as label d; frontend just shows progress bar
         _emit_progress(ch_idx - 1, 0.0)
+        # 详细 phase 标签 (push_server 单独 parse STAGE 行)
+        print(f"STAGE base-case|pair=({_py_int(i)+1},{_py_int(j)+1})|done={_py_int(done)}/{_py_int(total)}", flush=True)
 
     def _on_wall(done, total, from_idx, to_idx):
         ch_idx = _py_int(round(0.85 * n_chambers_total + (done / max(total, 1)) * 0.10 * n_chambers_total))
@@ -269,6 +271,9 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
         if ch_idx > n_chambers_total:
             ch_idx = n_chambers_total
         _emit_progress(ch_idx - 1, 0.0)
+        print(f"STAGE wall-crossing|chamber={_py_int(from_idx)}->{_py_int(to_idx)}|done={_py_int(done)}/{_py_int(total)}", flush=True)
+
+    print("STAGE base-case|starting v5 base entries (PL push + tq Richardson per ordered pair)", flush=True)
 
     t0 = time.time()
     chambers_v5, info_v5 = compute_Sd_chambers_v5(
@@ -278,6 +283,7 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
     )
     precompute_seconds = time.time() - t0
 
+    print(f"STAGE chamber-pack|packing {len(chamber_ds)} chambers with {n*(n-1)} entries each", flush=True)
     n = len(U_list)
     out_chambers = []
     for ch_idx, d in enumerate(chamber_ds):

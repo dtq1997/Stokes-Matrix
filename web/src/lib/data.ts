@@ -89,6 +89,8 @@ export interface JobStatus {
   progress: number;
   chambers_done: number;
   chambers_total: number;
+  phase?: string;          // 'starting sage' | 'base-case' | 'wall-crossing' | 'chamber-pack' | ...
+  phase_detail?: string;   // 'pair=(2,3)|done=5/12' 等具体细节
   elapsed_s: number;
   result: SimpleDataset | null;
   error: string | null;

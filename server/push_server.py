@@ -97,6 +97,8 @@ def _run_job(job_id: str, req: RecomputeRequest):
     try:
         with _jobs_lock:
             job['status'] = 'running'
+            job['phase'] = 'starting sage'
+            job['phase_detail'] = 'cold start + load v5 module'
             job['t_start'] = time.time()
         proc = subprocess.Popen(
             ['sage', RUNNER, in_path, out_path],
@@ -106,8 +108,9 @@ def _run_job(job_id: str, req: RecomputeRequest):
         with _jobs_lock:
             job['pid'] = proc.pid
 
-        # 流式读 stdout, 提取 PROGRESS / PARTIAL 行
+        # 流式读 stdout, 提取 PROGRESS / STAGE 行
         prog_re = re.compile(r'PROGRESS chamber (\d+)/(\d+)')
+        stage_re = re.compile(r'STAGE\s+([^|]+?)(?:\|(.+))?$')
         for line in proc.stdout:
             with _jobs_lock:
                 if job.get('cancelled'):
@@ -119,6 +122,14 @@ def _run_job(job_id: str, req: RecomputeRequest):
                     job['chambers_done'] = done
                     job['chambers_total'] = total
                     job['progress'] = done / total if total else 0.0
+                continue
+            sm = stage_re.search(line)
+            if sm:
+                phase = sm.group(1).strip()
+                detail = (sm.group(2) or '').strip()
+                with _jobs_lock:
+                    job['phase'] = phase
+                    job['phase_detail'] = detail
                 continue
             # 增量 partial chamber 不在第一版加 — sage runner 当前不输出
             # (后续在 runner 加 PARTIAL_CHAMBER {json} 行 + 这里 parse + 累积到 partial)
@@ -168,6 +179,8 @@ def recompute_start(req: RecomputeRequest):
             'progress': 0.0,
             'chambers_done': 0,
             'chambers_total': 0,
+            'phase': 'queued',
+            'phase_detail': '',
             'result': None,
             'error': None,
             'cancelled': False,
@@ -188,6 +201,8 @@ def job_status(job_id: str):
             'progress': j['progress'],
             'chambers_done': j['chambers_done'],
             'chambers_total': j['chambers_total'],
+            'phase': j.get('phase', ''),
+            'phase_detail': j.get('phase_detail', ''),
             'elapsed_s': time.time() - j.get('t_start', j['t_created']),
             'result': j['result'] if j['status'] == 'done' else None,
             'error': j['error'],

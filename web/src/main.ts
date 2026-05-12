@@ -358,15 +358,46 @@ async function main() {
           algorithm,
         },
         (s: JobStatus) => {
+          const phase = (s.phase ?? '').trim();
+          const detail = (s.phase_detail ?? '').trim();
+          const phaseLabel = (() => {
+            // 把内部 token 翻译成人话
+            if (!phase) return '';
+            if (phase === 'base-case') return '算 v5 base entries (PL push + tq Richardson)';
+            if (phase === 'wall-crossing') return '跨 anti-Stokes wall 推 chamber';
+            if (phase === 'chamber-pack') return '装配 chamber 数据';
+            if (phase === 'starting sage') return 'sage 启动 + 载入 v5 模块';
+            return phase;
+          })();
+          const detailLabel = (() => {
+            if (!detail) return '';
+            // detail 通常含 pair=(i,j)|done=k/N or chamber=a->b|done=k/N
+            const parts = detail.split('|').filter(Boolean);
+            const human: string[] = [];
+            for (const p of parts) {
+              const [k, v] = p.split('=');
+              if (k === 'pair') human.push(`ordered pair (i,j)=${v}`);
+              else if (k === 'chamber') human.push(`chamber ${v}`);
+              else if (k === 'done') human.push(`${v}`);
+              else human.push(p);
+            }
+            return human.join(' · ');
+          })();
           if (s.chambers_total > 0) {
             const pct = Math.round(s.progress * 100);
+            const phaseHtml = phaseLabel
+              ? `<div class="dim" style="font-size:11px;margin-top:3px">${escapeHtml(phaseLabel)}${detailLabel ? ' · ' + escapeHtml(detailLabel) : ''}</div>`
+              : '';
             recomputeStatus.innerHTML =
               `<div class="progress-bar"><div style="width:${pct}%"></div></div>` +
               `chamber ${s.chambers_done} / ${s.chambers_total} ` +
-              `<span class="dim">(${s.elapsed_s.toFixed(1)}s)</span>`;
+              `<span class="dim">(${s.elapsed_s.toFixed(1)}s)</span>` +
+              phaseHtml;
           } else {
+            const detailSuffix = detailLabel ? ` · ${escapeHtml(detailLabel)}` : '';
             recomputeStatus.innerHTML =
-              `starting sage... <span class="dim">(${s.elapsed_s.toFixed(1)}s)</span>`;
+              `${escapeHtml(phaseLabel || 'starting sage')}${detailSuffix}` +
+              ` <span class="dim">(${s.elapsed_s.toFixed(1)}s)</span>`;
           }
         },
         (jobId) => { currentJobId = jobId; },
