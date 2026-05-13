@@ -500,6 +500,36 @@ test.describe('Sd-viz smoke tests', () => {
     expect(egAtPi2.join('|')).not.toBe(egSnap.join('|'));
   });
 
+  // 防回归 (2026-05-14): sign 跟 int 之间的视觉间距 SSOT — 不许随 view 切换变.
+  // 之前 cs-sign 独立列 + cs-int 列宽随 maxInt 变 → eg (maxInt=1) / std (maxInt=2) 间距不同.
+  test('cs-grid sign-int 间距跨 view 一致', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('#stokes-matrix .sm-cell');
+    const probe = async () => page.$eval(
+      '#stokes-matrix .sm-cell:not(.diag) .cs-grid',
+      (g: HTMLElement) => {
+        const intEl = g.querySelector('.cs-int') as HTMLElement;
+        const signEl = intEl?.querySelector('.cs-sign') as HTMLElement | null;
+        const intR = intEl.getBoundingClientRect();
+        const signR = signEl?.getBoundingClientRect();
+        // sign 必须在 cs-int 内部, 不再是独立兄弟节点.
+        return {
+          signIsChildOfInt: !!signEl,
+          // 距离: int 右边界减去 (sign 右边界), 跨 view 应保持相同结构.
+          signToIntRight: signR ? Math.round(intR.right - signR.right) : -1,
+        };
+      },
+    );
+    const std = await probe();
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]').click();
+    const eg = await probe();
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="plus"]').click();
+    const pl = await probe();
+    expect(std.signIsChildOfInt).toBe(true);
+    expect(eg.signIsChildOfInt).toBe(true);
+    expect(pl.signIsChildOfInt).toBe(true);
+  });
+
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
   test('U/A input 接受分式 a/b 输入', async ({ page }) => {
     await page.goto('/');

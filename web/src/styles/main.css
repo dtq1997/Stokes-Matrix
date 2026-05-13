@@ -592,9 +592,8 @@ h3 {
  * 单 cell (stokes-display selected entry) 没父级 CSS var 时 fallback max-content, 单 cell 内仍对齐. */
 .cs-grid {
   display: grid;
+  /* sign 不占独立列, 跟 cs-int 同列右对齐 → sign 永远紧贴数字, 间距不随 maxInt 变. */
   grid-template-columns:
-    max-content
-    0.45ch
     var(--cs-int-w, max-content)
     var(--cs-frac-w, max-content)
     max-content;
@@ -604,12 +603,18 @@ h3 {
   justify-items: center;
   font-variant-numeric: tabular-nums;
 }
+/* SSOT 间距: sign 紧贴数字 (不靠 cs-int 列的 right-align 空白制造间距).
+   之前 sign 在独立列、cs-int 列宽随 maxInt 变 → eg (maxInt=1) 跟 std (maxInt=2) 视觉间距不一致.
+   现在 sign + int 同列, 用一个 inline-flex wrapper 强制 sign 紧贴数字. */
+.cs-int {
+  justify-self: end;
+  display: inline-flex;
+  align-items: baseline;
+}
 .cs-sign {
   color: var(--fg);
-  justify-self: center;
+  margin-right: 0.05ch;
 }
-.cs-gap { width: 0.45ch; }
-.cs-int { justify-self: end; }
 .cs-frac { justify-self: start; }
 .cs-i {
   justify-self: start;

@@ -921,8 +921,8 @@ async function main() {
     const [reInt, reFrac] = splitBySigDigits(v.re, digits);
     const [imInt, imFrac] = splitBySigDigits(v.im, digits);
     return `<div class="cs-grid">
-      <span class="cs-sign">${reSign}</span><span class="cs-gap"></span><span class="cs-int">${reInt}</span><span class="cs-frac">${reFrac}</span><span class="cs-i"></span>
-      <span class="cs-sign">${imSign}</span><span class="cs-gap"></span><span class="cs-int">${imInt}</span><span class="cs-frac">${imFrac}</span><span class="cs-i">${IM_UNIT}</span>
+      <span class="cs-int"><span class="cs-sign">${reSign}</span>${reInt}</span><span class="cs-frac">${reFrac}</span><span class="cs-i"></span>
+      <span class="cs-int"><span class="cs-sign">${imSign}</span>${imInt}</span><span class="cs-frac">${imFrac}</span><span class="cs-i">${IM_UNIT}</span>
     </div>`;
   }
 
