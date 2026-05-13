@@ -512,6 +512,19 @@ test.describe('Sd-viz smoke tests', () => {
     });
     const egAtPi2 = await collect();
     expect(egAtPi2.join('|')).not.toBe(egSnap.join('|'));
+
+    // 防回归 (2026-05-14, ground-truth sandwich): d ≈ π, (0,1) tau_lift = -0.1587,
+    // tau_closest = -0.1587 + 2π (m_sandwich = 1), python 独立手算 [0,0] =
+    // -0.3444264 + 0.9668873i (raw anchor 经 expm(-2πi·A_00) · raw · expm(2πi·A_11)).
+    // 这个数字是用 raw anchor + 解析 sandwich 公式独立算出来的, 不是从 viz 抄的.
+    await slider.evaluate((el: HTMLInputElement) => {
+      el.value = String(Math.PI - 0.01);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const eg01_at_pi = await cellText('#stokes-matrix .sm-cell[data-i="0"][data-j="1"][data-a="0"][data-b="0"]');
+    expect(eg01_at_pi).toContain('0.3444264');
+    expect(eg01_at_pi).toContain('0.9668873');
+    expect(eg01_at_pi).not.toContain('0.1101');  // 不能仍是 raw anchor (那是 d=d_reg 的值)
   });
 
   // 防回归 (2026-05-14): sign 跟 int 之间的视觉间距 SSOT — 不许随 view 切换变.
