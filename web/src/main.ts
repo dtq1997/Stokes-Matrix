@@ -821,6 +821,22 @@ async function main() {
       if (!e || e.error || !e.value_block) continue;
       blockCache.set(key, modifiedBlock(e, ch.d, I, J));
     }
+    // 跨 cell 小数点对齐: 扫所有 (off-diag) entry 算全局最大 int/frac 位数,
+    // 设到 stokes-matrix 的 CSS var, cs-grid 列宽统一从这两个值取 → 所有 cell
+    // 的 cs-int 右边界 (= 小数点位置) 一致.
+    let maxInt = 1, maxFrac = 0;
+    for (const mod of blockCache.values()) {
+      for (const row of mod) for (const v of row) {
+        for (const x of [v.re, v.im]) {
+          if (x === 0 || !Number.isFinite(x)) continue;
+          const mag = Math.floor(Math.log10(Math.abs(x)));
+          maxInt = Math.max(maxInt, Math.max(1, mag + 1));
+          maxFrac = Math.max(maxFrac, Math.max(0, digits - mag - 1));
+        }
+      }
+    }
+    sm.style.setProperty('--cs-int-w', `${maxInt}ch`);
+    sm.style.setProperty('--cs-frac-w', `${maxFrac > 0 ? maxFrac + 1 : 0}ch`);
     // 只迭代真正的 data cells (跳过 .sm-header / .sm-corner)
     const cells = sm.querySelectorAll<HTMLElement>('.sm-cell');
     for (const cell of Array.from(cells)) {

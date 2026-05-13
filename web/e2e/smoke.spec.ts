@@ -275,6 +275,23 @@ test.describe('Sd-viz smoke tests', () => {
     await expect(btn).toBeEnabled();
   });
 
+  // 防回归 (2026-05-13): Stokes matrix 跨 cell 小数点对齐
+  // CSS var --cs-int-w / --cs-frac-w 在 refreshStokesMatrix 算全局 max int/frac 设到 stokes-matrix.
+  // 所有 cs-grid 共用列宽 → cs-int 右边 (= 小数点 x) 跨 cell 一致.
+  test('Stokes matrix 同列跨行小数点 x 一致 (跨 cell 对齐)', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    const decXs = await page.$$eval('#stokes-matrix .sm-cell[data-j="1"][data-b="0"]:not(.diag)', els =>
+      els.map(el => {
+        const int = el.querySelector('.cs-int') as HTMLElement | null;
+        return int ? Math.round(int.getBoundingClientRect().right * 10) / 10 : null;
+      }).filter(v => v !== null)
+    );
+    expect(decXs.length).toBeGreaterThan(2);
+    const allEqual = decXs.every(x => Math.abs((x as number) - (decXs[0] as number)) < 0.5);
+    expect(allEqual).toBe(true);
+  });
+
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
   test('U/A input 接受分式 a/b 输入', async ({ page }) => {
     await page.goto('/');
