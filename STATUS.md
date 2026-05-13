@@ -1,6 +1,6 @@
 # sd-viz — Status & 维护手册
 
-Last updated: 2026-05-12 [Claude] — Codex + Claude 双家合作维护协议见 §7.
+Last updated: 2026-05-13 [Codex] — Codex + Claude 双家合作维护协议见 §7.
 
 ---
 
@@ -127,12 +127,15 @@ chamber cache, NotImplementedError 透明 fallback legacy.
 
 ## 6. 已踩坑 (新 AI 看)
 
-详见 `CONTRIBUTING.md`. 最常见 4 个:
+详见 `CONTRIBUTING.md`. 最常见坑点:
 
 1. **`web/public/data/*.json` 跟 `data/*.json` 不自动同步**. sage export 写到 `data/`, 但 frontend serve 的是 `web/public/data/`. 改了 dataset 必须 `cp data/n4_*.json web/public/data/`.
 2. **D3 drag 在 viewBox 缩放下** `event.x/y` 不靠谱. 必须 `d3.pointer(event.sourceEvent, svg)` + `toPlane(...)`.
 3. **TypeScript typecheck 不抓 runtime TDZ / hoisting**. 必须靠 e2e (e.g. 在 d3-drag setup 引用未初始化的 `currentK` → page crash, typecheck PASS).
 4. **build 用 `VITE_BACKEND_URL` env var** 把 tunnel URL 编进 JS bundle. CI 已配, 本地 dev 也用同样 env (`env VITE_BACKEND_URL=https://sd-viz.dtq1997.org npm run dev`).
+5. **当前 dataset metadata 在 `._v5.*`, 不是 `.metadata.*`**. live/static/tunnel residual 查 `._v5.residual_max`; 旧 spec 里的 `.metadata.residual` 会返回 `null`.
+6. **本机 launchd backend label 是 `org.dtq1997.sd-viz-backend`**. plist 路径是 `~/Library/LaunchAgents/org.dtq1997.sd-viz-backend.plist`; 旧 `sd-viz.push_server.plist` 名称已过时.
+7. **本地 e2e 若 10/10 全部 `ERR_CONNECTION_REFUSED`**, 先手动 `cd web && npm run dev` 确认 `localhost:5174` ready, 再跑 `npm run test:e2e`; 这不是前端逻辑十连回归.
 
 ## 7. AI 维护协议 (2026-05-12 起)
 

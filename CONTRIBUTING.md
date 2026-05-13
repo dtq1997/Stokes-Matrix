@@ -19,12 +19,46 @@
 3. 字段进 JSON 前强制 `float()` (sage `RealLiteral` 不能直接序列化)
 4. 重跑 sage exporter, 拷新 JSON 到 `web/public/data/`
 5. 加 e2e test 验证新字段被消费
+6. **不要照旧 spec 猜 JSON 路径**: 当前 v5 metadata 在 `._v5.*`, 不是
+   `.metadata.*`. 验证 live/static residual 用
+   `jq '._v5 | {residual_max, p1, p2, truncation_method, tail_order}'`.
+7. `server/dataset_builder.sage` 对 `_v5` metadata 是白名单打包. 新增
+   `compute_sd_v5_full.sage` 的 info key 后, 若要进入 dataset, 必须同步改
+   `_v5_metadata_for_dataset`; 只改 exporter 或 compute info 不够.
 
 ### 改后端 (server/)
 
 1. 后端依赖父项目 `50-computation/isoeq_pusher.sage` 等; sys.path 写死绝对路径在 `push_server.py` 顶部
 2. 不要把后端响应 schema 改了不告诉前端 — `web/src/lib/types.ts` 同步改
 3. 改完手动 `curl http://127.0.0.1:8000/api/dataset` 验通
+4. launchd plist 的真实路径是
+   `~/Library/LaunchAgents/org.dtq1997.sd-viz-backend.plist`, label 是
+   `org.dtq1997.sd-viz-backend`. 旧文档里的 `sd-viz.push_server.plist`
+   已过时.
+5. 推荐重启:
+   ```bash
+   launchctl bootout gui/$(id -u)/org.dtq1997.sd-viz-backend
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.dtq1997.sd-viz-backend.plist
+   ```
+   若只是让 launchd 重启当前服务, 可用
+   `launchctl kickstart -k gui/$(id -u)/org.dtq1997.sd-viz-backend`.
+6. tunnel/backend 返回的 dataset 也用 `._v5.*` metadata; 旧的
+   `jq '.metadata.residual'` 会得到 `null`, 不是后端坏了.
+
+### 跑 e2e
+
+1. `web/playwright.config.ts` 声明了 `webServer`, 但本机偶尔不会自动拉起
+   Vite, 现象是 10 个测试全部 `ERR_CONNECTION_REFUSED at
+   http://localhost:5174/`.
+2. 遇到这种全挂, 先手动起:
+   ```bash
+   cd web
+   npm run dev
+   ```
+   确认 `http://localhost:5174/` ready 后另一个 shell 跑
+   `npm run test:e2e`.
+3. 如果只有个别测试挂, 再查 trace / 断言; 不要把全量
+   `ERR_CONNECTION_REFUSED` 当成前端逻辑回归.
 
 ## 关键禁忌
 
@@ -38,6 +72,9 @@
 | sage `0.5j` 字面量进 sage script | 解析成 `RealLiteral`, JSON 序列化崩 | 用元组 `(re, im)` 或 `complex(re, im)` |
 | `cd 60-outputs/...` 在 Bash tool 里持续依赖 cwd | 跨 tool call cwd 不一致 | 用绝对路径 |
 | 加 npm 依赖前不查 `package.json` | 重复装 / 版本冲突 | 先看再装 |
+| live/static JSON 查 `.metadata.*` | 当前 schema 返回 `null`, 误判部署/后端坏 | 查 `._v5.*` |
+| 用旧 `sd-viz.push_server.plist` | launchctl I/O error, 服务没按预期重启 | 用 `org.dtq1997.sd-viz-backend` |
+| e2e 10/10 都 `ERR_CONNECTION_REFUSED` | Vite 没起来, 不是 10 个前端逻辑全坏 | 手动 `npm run dev` 后重跑 |
 
 ## Git
 
