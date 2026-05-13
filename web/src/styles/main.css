@@ -308,7 +308,9 @@ h3 {
   border-spacing: 2px;
   font-family: var(--font-mono);
   font-size: 11px;
-  table-layout: fixed;
+  /* table-layout: auto 让列宽跟 cell 内容 (cx-pair input 走 field-sizing).
+     不能用 fixed — fixed 锁列宽到 thead 第一行, input 动态宽度不生效. */
+  table-layout: auto;
 }
 .state-table th {
   font-weight: 500;
@@ -321,8 +323,9 @@ h3 {
   padding: 0;
   border-radius: 2px;
 }
+/* SSOT 基础: 所有 input.cx 共享字体/边框/padding/字符对齐.
+   宽度不在这里设, 由子选择器 (cx-pair input.cx vs mk-input) 各自定. */
 .state-table input.cx {
-  width: 100%;
   background: transparent;
   border: 1px solid transparent;
   color: var(--fg);
@@ -332,20 +335,25 @@ h3 {
   outline: none;
   border-radius: 2px;
   box-sizing: border-box;
+  font-variant-numeric: tabular-nums;
 }
 .state-table input.cx:focus { border-color: var(--accent); background: var(--bg); }
 .state-table input.cx.invalid { border-color: var(--bad); }
 /* cx-pair: Re 一行 / Im+i 一行 (跟 output Stokes entry 两行布局一致) */
 .state-table .cx-pair {
   display: grid;
-  grid-template-columns: minmax(64px, 1fr) 1.25ch;
+  grid-template-columns: auto 1.25ch;     /* 列宽跟随 input 内容 (field-sizing) */
   gap: 1px 2px;
   align-items: center;
 }
+/* 复数实/虚部 input: 动态宽度 (用户反馈: 固定靠右对齐难受).
+   field-sizing: content 让 input 宽度 = 内容宽度; Chrome 123+, Safari 18.2+ 支持;
+   不支持的浏览器 fallback 走 width: auto (跟内容也基本对齐). */
 .state-table .cx-pair input.cx {
-  min-width: 64px;        /* 数字 4 位 + 小数点 + sign 大致需要 */
+  field-sizing: content;
+  width: auto;
+  min-width: 5ch;                          /* "3/4" / 空 input 也撑到 5 字符宽 */
   text-align: right;
-  font-variant-numeric: tabular-nums;
   grid-column: 1 / 2;
 }
 .state-table .cx-pair .im-unit-suffix {
@@ -379,8 +387,9 @@ h3 {
 .state-table.a-table input.cx { font-size: 9px; padding: 2px 3px; }
 .state-table.u-table input.cx { font-size: 10px; }
 .state-table.u-table .mk-input {
+  width: 44px;
   text-align: center;
-  min-width: 44px;
+  /* mk-input 不参与 field-sizing; 整数居中, 宽度固定 */
 }
 
 .state-actions {
