@@ -77,6 +77,7 @@ export interface VizState {
   AOverrides: ComplexNum[][] | null;     // 用户编辑后的 A (N×N 复矩阵, N = sum m_k)
   mOverrides: number[] | null;           // 用户编辑后的 m_k 重数
   stokesStale: boolean;                  // A/U/m 改了 Stokes 数值还没重算
+  exampleAwaitingCompute: boolean;       // example dataset 加载后未点 Compute / 未编辑前 true; banner 文案分支用
   sdView: SdView;                        // S_d 矩阵右栏当前显示模式
 }
 

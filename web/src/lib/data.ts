@@ -60,13 +60,35 @@ function defaultHeaders(extra?: Record<string, string>): Record<string, string> 
 }
 
 
+// 静态 dataset 注册表. 新增 preset 改这里 + 把 data/<file>.json copy 到
+// web/public/data/. URL ?dataset=<key> 选哪个; 缺省 'n4_block'.
+// label 用 KaTeX, 会在 dropdown 里实时渲染.
+// hideOnLoad: dataset 作为 "example" 加载, 初始 stokesStale = true,
+// Stokes 矩阵 cell 显示 "—", banner 提示点 Compute. 预计算值还在 JSON 里,
+// 但用户必须走后端重跑才能看到 (完整演示流程).
+export const DATASET_REGISTRY: { key: string; file: string; label: string; hideOnLoad?: boolean }[] = [
+  { key: 'block',  file: 'n4_block',  label: 'n=4, m=(2,2,2,2) blocks' },
+  { key: 'simple', file: 'n4_simple', label: 'n=4, m=(1,1,1,1) simple spectrum' },
+  { key: 'cp2',    file: 'cp2',       label: 'QH^*(\\mathbb{CP}^2)', hideOnLoad: true },
+  { key: 'cp3',    file: 'cp3',       label: 'QH^*(\\mathbb{CP}^3)', hideOnLoad: true },
+  { key: 'cp4',    file: 'cp4',       label: 'QH^*(\\mathbb{CP}^4)', hideOnLoad: true },
+];
+const DEFAULT_DATASET_KEY = 'block';
+
+export function getDatasetKey(): string {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('dataset');
+  if (raw === 'simple') return 'simple'; // legacy alias
+  if (raw && DATASET_REGISTRY.some(d => d.key === raw)) return raw;
+  return DEFAULT_DATASET_KEY;
+}
+
 export async function loadDataset(): Promise<SimpleDataset> {
   // BASE_URL: GH Pages = "/Stokes-Matrix/", 本地 dev = "/". cache-bust v= 强制每次拉新.
-  // 默认: (2,2,2,2) 块版. URL ?dataset=simple 切回 (1,1,1,1) simple-spectrum.
   // Dataset 是 GH Pages 上的 static JSON, 不走 backend tunnel.
-  const params = new URLSearchParams(window.location.search);
-  const which = params.get('dataset') === 'simple' ? 'n4_simple' : 'n4_block';
-  const url = `${import.meta.env.BASE_URL}data/${which}.json?v=${Date.now()}`.replace(/([^:])\/+/g, '$1/');
+  const key = getDatasetKey();
+  const entry = DATASET_REGISTRY.find(d => d.key === key) ?? DATASET_REGISTRY[0];
+  const url = `${import.meta.env.BASE_URL}data/${entry.file}.json?v=${Date.now()}`.replace(/([^:])\/+/g, '$1/');
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Failed to load dataset: ${r.status}`);
   return r.json();

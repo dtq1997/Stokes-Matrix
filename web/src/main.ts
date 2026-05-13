@@ -1,5 +1,5 @@
 import katex from 'katex';
-import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase } from './lib/data.js';
+import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey } from './lib/data.js';
 import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
@@ -57,8 +57,36 @@ function splitBySigDigits(x: number, digits: number): [string, string] {
   return dot < 0 ? [s, ''] : [s.slice(0, dot), s.slice(dot)];
 }
 
+function setupDatasetSelect() {
+  const sel = document.getElementById('dataset-select') as HTMLSelectElement | null;
+  if (!sel) return;
+  const currentKey = getDatasetKey();
+  for (const entry of DATASET_REGISTRY) {
+    const opt = document.createElement('option');
+    opt.value = entry.key;
+    // KaTeX 不便嵌 <option>, dropdown 用纯文本; CP^n 用 unicode 上标.
+    opt.textContent = entry.label
+      .replace(/\\mathbb\{CP\}/g, 'CP')
+      .replace(/QH\^\*/g, 'QH*')
+      .replace(/\^2/g, '²').replace(/\^3/g, '³').replace(/\^4/g, '⁴');
+    if (entry.key === currentKey) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  sel.addEventListener('change', () => {
+    const key = sel.value;
+    const url = new URL(window.location.href);
+    if (key === DATASET_REGISTRY[0].key) url.searchParams.delete('dataset');
+    else url.searchParams.set('dataset', key);
+    window.location.href = url.toString();
+  });
+}
+
 async function main() {
+  setupDatasetSelect();
   const dataset = await loadDataset();
+  const datasetKey = getDatasetKey();
+  const datasetEntry = DATASET_REGISTRY.find(d => d.key === datasetKey);
+  const hideOnLoad = !!datasetEntry?.hideOnLoad;
 
   let n = dataset.punctures.length;
   // 块结构: n 个块, 每块 m_k 大小, 总维度 N = sum m_k.
@@ -101,7 +129,8 @@ async function main() {
     punctureOverrides: dataset.punctures.map(p => ({ ...p })),
     AOverrides: initialA.map(row => row.map(c => ({ ...c }))),
     mOverrides: [...dataset.m_sizes],
-    stokesStale: false,
+    stokesStale: hideOnLoad,
+    exampleAwaitingCompute: hideOnLoad,
     sdView: 'std',
   };
 
@@ -110,6 +139,7 @@ async function main() {
     // path-vertex drag 不改 punctureOverrides 但 path 几何变了 — 数值还是旧 dataset 的
     // 值 (因为算法走的 algo_wp 没变, 同伦类 cache 命中). 这里宁可标 stale 用户决定.
     state.stokesStale = !!state.punctureOverrides || !!state.AOverrides;
+    if (state.stokesStale) state.exampleAwaitingCompute = false;
     refreshRecomputeBtn();
     updateStaleBanner();
     updateStokesPanel();
@@ -317,6 +347,7 @@ async function main() {
     state.selectedEntry = null;
     state.paths.clear();
     state.stokesStale = true;
+    state.exampleAwaitingCompute = false;
 
     n = newN;
     nInput.value = String(n);
@@ -534,6 +565,7 @@ async function main() {
       buildMarkerStrip(markStrip);
       state.selectedChamber = chamberOfDirection(currentD, dataset.rays);
       state.stokesStale = false;
+      state.exampleAwaitingCompute = false;
       refreshAllPaths();
       canvas.setState(state);
       refreshStokesMatrix();
@@ -630,6 +662,7 @@ async function main() {
     const axis = t.dataset.axis as 're' | 'im';
     state.punctureOverrides![k][axis] = parsed;
     state.stokesStale = true;
+    state.exampleAwaitingCompute = false;
     updateStaleBanner();
     canvas.setState(state);
   }
@@ -717,12 +750,20 @@ async function main() {
     const axis = t.dataset.axis as 're' | 'im';
     state.AOverrides![i][j][axis] = parsed;
     state.stokesStale = true;
+    state.exampleAwaitingCompute = false;
     updateStaleBanner();
   }
 
   function updateStaleBanner() {
     const b = document.getElementById('state-stale-banner')!;
     b.hidden = !state.stokesStale;
+    if (state.stokesStale) {
+      if (state.exampleAwaitingCompute) {
+        b.innerHTML = `Example dataset — click <strong>Compute Stokes Matrices</strong> to compute`;
+      } else {
+        b.innerHTML = `${tex('(U, A, m)')} changed — Stokes values shown are out of date`;
+      }
+    }
     refreshRecomputeBtn();
   }
 

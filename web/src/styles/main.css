@@ -156,13 +156,25 @@ h3 {
 #entry-grid .cell.diag { background: transparent; cursor: default; color: var(--fg-muted); opacity: 0.4; }
 #entry-grid .cell.selected { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 
-#d-input-wrap, .n-input-wrap, .precision-wrap {
+#d-input-wrap, .n-input-wrap, .precision-wrap, .dataset-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
 }
-.precision-wrap label { color: var(--fg-muted); font-size: 12px; }
+.precision-wrap label, .dataset-wrap label { color: var(--fg-muted); font-size: 12px; }
+#dataset-select {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 6px;
+  flex: 1;
+  min-width: 0;
+}
+#dataset-select:focus { border-color: var(--accent); outline: none; }
 #precision-select {
   background: var(--bg-elev);
   border: 1px solid var(--border);
