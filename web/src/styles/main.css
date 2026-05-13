@@ -46,7 +46,8 @@ html, body {
 #left-panel, #right-panel {
   background: var(--bg-panel);
   padding: 16px 14px;
-  overflow: auto;       /* 水平+垂直都滚 (X 给 N×N 大矩阵, Y 给长内容) */
+  overflow-x: hidden;   /* 横向交给内部组件 (stokes-matrix 自己滚, 让行 label sticky 生效) */
+  overflow-y: auto;
   min-width: 0;         /* 让 grid track 收紧时 panel 不溢出 */
 }
 
@@ -415,6 +416,33 @@ h3 {
   font-family: var(--font-mono);
   font-size: 10px;
   margin-bottom: 12px;
+  overflow-x: auto;       /* N×N 矩阵横向超宽自滚, sticky 行 label 在此容器内生效 */
+  max-width: 100%;
+}
+/* 行/列 label 跟 A 表 thead/row-label 同视觉 (SSOT) */
+#stokes-matrix .sm-header {
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  font-family: 'KaTeX_Main', 'Times New Roman', serif;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+}
+#stokes-matrix .sm-row-header {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  justify-content: flex-end;
+  padding-right: 8px;
+  min-width: 28px;
+}
+#stokes-matrix .sm-corner {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--bg-panel);
 }
 #stokes-matrix .sm-cell {
   background: var(--bg-elev);

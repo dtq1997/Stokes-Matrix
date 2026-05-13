@@ -691,10 +691,31 @@ async function main() {
       for (let k = ms.length - 1; k >= 0; k--) if (fi >= starts[k]) return [k, fi - starts[k]];
       return [-1, -1];
     };
-    sm.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
+    // grid 多 1 列 (左侧行 label) + 多 1 行 (顶部列 label). 第一列 sticky 让水平滚时冻结.
+    sm.style.gridTemplateColumns = `auto repeat(${N}, 1fr)`;
     sm.innerHTML = '';
+    // 第一行: corner + N 个列 label
+    const corner = document.createElement('div');
+    corner.className = 'sm-corner';
+    sm.appendChild(corner);
+    for (let fj = 0; fj < N; fj++) {
+      const [J, b] = blockOf(fj);
+      const th = document.createElement('div');
+      th.className = 'sm-header sm-col-header';
+      if (fj > 0 && b === 0) th.classList.add('block-left');
+      const lbl = ms[J] > 1 ? `{}_{${J+1},${b+1}}` : `{}_{${J+1}}`;
+      th.innerHTML = tex(lbl);
+      sm.appendChild(th);
+    }
+    // 数据 N 行: 行 label + N 个 data cell
     for (let fi = 0; fi < N; fi++) {
       const [I, a] = blockOf(fi);
+      const rowH = document.createElement('div');
+      rowH.className = 'sm-header sm-row-header';
+      if (fi > 0 && a === 0) rowH.classList.add('block-top');
+      const rLbl = ms[I] > 1 ? `{}_{${I+1},${a+1}}` : `{}_{${I+1}}`;
+      rowH.innerHTML = tex(rLbl);
+      sm.appendChild(rowH);
       for (let fj = 0; fj < N; fj++) {
         const [J, b] = blockOf(fj);
         const cell = document.createElement('div');
@@ -776,9 +797,9 @@ async function main() {
       if (!e || e.error || !e.value_block) continue;
       blockCache.set(key, modifiedBlock(e, ch.d, I, J));
     }
-    const cells = sm.children;
-    for (let k = 0; k < cells.length; k++) {
-      const cell = cells[k] as HTMLElement;
+    // 只迭代真正的 data cells (跳过 .sm-header / .sm-corner)
+    const cells = sm.querySelectorAll<HTMLElement>('.sm-cell');
+    for (const cell of Array.from(cells)) {
       const I = Number(cell.dataset.i!);
       const J = Number(cell.dataset.j!);
       const a = Number(cell.dataset.a!);
