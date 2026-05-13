@@ -275,6 +275,54 @@ test.describe('Sd-viz smoke tests', () => {
     await expect(btn).toBeEnabled();
   });
 
+  // 防回归 (2026-05-14): m = sum m_k 不能停在 dataset 初始值 8.
+  // 输入过程先更新维度提示; change/blur 后再重建 A 与 Stokes matrix。
+  test('m 维度提示随 m_k 输入更新, 提交后矩阵维度同步', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('console', m => {
+      if (m.type() !== 'error') return;
+      const t = m.text();
+      if (t.includes('/api/')) return;
+      if (t.includes('Failed to load resource')) return;
+      errors.push(t);
+    });
+    page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    await expect(page.locator('#dim-info')).toContainText('8');
+
+    const m0 = page.locator('#u-table input.mk-input[data-k="0"]').first();
+    await m0.fill('3');
+    await expect(page.locator('#dim-info')).toContainText('9');
+
+    await m0.press('Tab');
+    await expect(page.locator('#a-table tbody tr')).toHaveCount(9);
+    await expect(page.locator('#stokes-matrix .sm-cell')).toHaveCount(81);
+    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
+    await expect(page.locator('#stokes-display .value')).toContainText('stale dimension');
+    expect(errors).toEqual([]);
+  });
+
+  // 防回归 (2026-05-14): 矩阵行列指标字号跟 U 表 k 列行号走同一个 CSS SSOT.
+  test('Stokes matrix 行列指标跟 U 行号同字号', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    const sizes = await page.evaluate(() => {
+      const uCell = document.querySelector('#u-table .row-label') as HTMLElement;
+      const sCell = document.querySelector('#stokes-matrix .sm-row-header') as HTMLElement;
+      const uKatex = uCell.querySelector('.katex') as HTMLElement;
+      const sKatex = sCell.querySelector('.katex') as HTMLElement;
+      return {
+        uFont: getComputedStyle(uCell).fontSize,
+        sFont: getComputedStyle(sCell).fontSize,
+        uHeight: uKatex.getBoundingClientRect().height,
+        sHeight: sKatex.getBoundingClientRect().height,
+      };
+    });
+    expect(sizes.sFont).toBe(sizes.uFont);
+    expect(Math.abs(sizes.sHeight - sizes.uHeight)).toBeLessThan(2);
+  });
+
   // 防回归 (2026-05-13): Stokes matrix 跨 cell 小数点对齐
   // CSS var --cs-int-w / --cs-frac-w 在 refreshStokesMatrix 算全局 max int/frac 设到 stokes-matrix.
   // 所有 cs-grid 共用列宽 → cs-int 右边 (= 小数点 x) 跨 cell 一致.

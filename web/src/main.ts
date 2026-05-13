@@ -63,13 +63,16 @@ async function main() {
   let n = dataset.punctures.length;
   // 块结构: n 个块, 每块 m_k 大小, 总维度 N = sum m_k.
   // SSOT: A 内部存 N×N 复矩阵, 块结构由 m_sizes 描述.
-  const N0 = dataset.m_sizes.reduce((a, b) => a + b, 0);
+  const totalMultiplicity = (ms: number[]) => ms.reduce((a, b) => a + b, 0);
+  const N0 = totalMultiplicity(dataset.m_sizes);
   const blockStarts = (ms: number[]) => {
     const s = [0]; for (let k = 0; k < ms.length - 1; k++) s.push(s[k] + ms[k]); return s;
   };
+  const flatIndexLabel = (ms: number[], block: number, sub: number) =>
+    ms[block] > 1 ? `${block + 1},${sub + 1}` : `${block + 1}`;
   function rebuildInitialA(): ComplexNum[][] {
     const ms = dataset.m_sizes;
-    const N = ms.reduce((a, b) => a + b, 0);
+    const N = totalMultiplicity(ms);
     const starts = blockStarts(ms);
     const A: ComplexNum[][] = Array.from({ length: N }, () =>
       Array.from({ length: N }, () => ({ re: 0, im: 0 })));
@@ -279,7 +282,7 @@ async function main() {
     const newN = newM.length;
     if (!newU || newU.length !== newN) throw new Error('applyBlockResize: U/m length mismatch');
 
-    const newN_total = newM.reduce((a, b) => a + b, 0);
+    const newN_total = totalMultiplicity(newM);
     const newA = Array.from({ length: newN_total }, () =>
       Array.from({ length: newN_total }, () => ({ re: 0, im: 0 })));
     // 拷贝旧 block 数据 (block index < min(oldN, newN), sub-index < min(oldM[I], newM[I]))
@@ -587,7 +590,8 @@ async function main() {
     html += '</tbody>';
     t.innerHTML = html;
     refreshUTable();
-    t.addEventListener('change', onUEdit);
+    t.oninput = onUInput;
+    t.onchange = onUEdit;
   }
   function refreshUTable() {
     const ps = state.punctureOverrides!;
@@ -628,20 +632,36 @@ async function main() {
     updateStaleBanner();
     canvas.setState(state);
   }
-  function updateDimInfo() {
-    const ms = state.mOverrides!;
-    const m_total = ms.reduce((a, b) => a + b, 0);
+  function readMInputPreview(): number[] | null {
+    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('#u-table input.mk-input'));
+    if (inputs.length !== n) return null;
+    const ms = inputs.map(input => Number(input.value));
+    return ms.every(m => Number.isInteger(m) && m >= 1) ? ms : null;
+  }
+  function onUInput(e: Event) {
+    const t = e.target as HTMLInputElement;
+    if (!t.classList.contains('mk-input')) return;
+    updateDimInfo(readMInputPreview() ?? state.mOverrides!);
+  }
+  function updateDimInfo(ms = state.mOverrides!) {
+    const m_total = totalMultiplicity(ms);
     const el = document.getElementById('dim-info')!;
     el.innerHTML = tex(`m = \\sum_k m_k = ${m_total}`);
   }
+  function sameMultiplicities(a: number[], b: number[]) {
+    return a.length === b.length && a.every((m, i) => m === b[i]);
+  }
+  function stokesValuesMatchCurrentM() {
+    return sameMultiplicities(state.mOverrides ?? dataset.m_sizes, dataset.m_sizes);
+  }
 
   /** A 表: N×N 复矩阵 (N = sum m_k), 按块结构加视觉分隔.
-   * 列/行 header 显示 "u_I (a)" 表示 block I 的 sub-index a (m_I>1 时), 否则只 "u_I". */
+   * 列/行 header 用 flatIndexLabel: "I,a" 表示 block I 的 sub-index a (m_I>1 时), 否则只 "I". */
   function buildATable() {
     const t = document.getElementById('a-table') as HTMLTableElement;
     t.classList.add('a-table');
     const ms = state.mOverrides!;
-    const N = ms.reduce((a, b) => a + b, 0);
+    const N = totalMultiplicity(ms);
     const starts = blockStarts(ms);
     const blockOf = (fi: number) => {
       for (let k = ms.length - 1; k >= 0; k--) if (fi >= starts[k]) return [k, fi - starts[k]];
@@ -651,7 +671,7 @@ async function main() {
     for (let fj = 0; fj < N; fj++) {
       const [J, b] = blockOf(fj);
       const cls = (fj > 0 && b === 0) ? 'block-left' : '';
-      const lbl = ms[J] > 1 ? `{}_{${J+1},${b+1}}` : `{}_{${J+1}}`;
+      const lbl = flatIndexLabel(ms, J, b);
       html += `<th class="${cls}">${tex(lbl)}</th>`;
     }
     html += '</tr></thead><tbody>';
@@ -659,7 +679,7 @@ async function main() {
       const [I, a] = blockOf(fi);
       const trCls = (fi > 0 && a === 0) ? 'block-top' : '';
       html += `<tr class="${trCls}">`;
-      const rLbl = ms[I] > 1 ? `{}_{${I+1},${a+1}}` : `{}_{${I+1}}`;
+      const rLbl = flatIndexLabel(ms, I, a);
       html += `<td class="row-label">${tex(rLbl)}</td>`;
       for (let fj = 0; fj < N; fj++) {
         const [J, b] = blockOf(fj);
@@ -673,7 +693,7 @@ async function main() {
     html += '</tbody>';
     t.innerHTML = html;
     refreshATable();
-    t.addEventListener('change', onAEdit);
+    t.onchange = onAEdit;
   }
   function refreshATable() {
     const A = state.AOverrides!;
@@ -712,7 +732,7 @@ async function main() {
   function buildStokesMatrix() {
     const sm = document.getElementById('stokes-matrix')!;
     const ms = state.mOverrides ?? dataset.m_sizes;
-    const N = ms.reduce((a, b) => a + b, 0);
+    const N = totalMultiplicity(ms);
     const starts = blockStarts(ms);
     const blockOf = (fi: number) => {
       for (let k = ms.length - 1; k >= 0; k--) if (fi >= starts[k]) return [k, fi - starts[k]];
@@ -730,8 +750,7 @@ async function main() {
       const th = document.createElement('div');
       th.className = 'sm-header sm-col-header';
       if (fj > 0 && b === 0) th.classList.add('block-left');
-      const lbl = ms[J] > 1 ? `{}_{${J+1},${b+1}}` : `{}_{${J+1}}`;
-      th.innerHTML = tex(lbl);
+      th.innerHTML = tex(flatIndexLabel(ms, J, b));
       sm.appendChild(th);
     }
     // 数据 N 行: 行 label + N 个 data cell
@@ -740,8 +759,7 @@ async function main() {
       const rowH = document.createElement('div');
       rowH.className = 'sm-header sm-row-header';
       if (fi > 0 && a === 0) rowH.classList.add('block-top');
-      const rLbl = ms[I] > 1 ? `{}_{${I+1},${a+1}}` : `{}_{${I+1}}`;
-      rowH.innerHTML = tex(rLbl);
+      rowH.innerHTML = tex(flatIndexLabel(ms, I, a));
       sm.appendChild(rowH);
       for (let fj = 0; fj < N; fj++) {
         const [J, b] = blockOf(fj);
@@ -812,14 +830,17 @@ async function main() {
     const sm = document.getElementById('stokes-matrix')!;
     const ch = dataset.chambers[state.selectedChamber];
     const digits = selectedPrecisionDigits();
+    const valuesMatchCurrentM = stokesValuesMatchCurrentM();
     // 预算所有 (I, J) modified block (paper monodromy 块版修正一次, sub-cell 共享).
     const blockCache = new Map<string, ComplexNum[][]>();
-    for (const key of Object.keys(ch.entries)) {
-      const [I, J] = key.split(',').map(Number);
-      if (I === J) continue;
-      const e = ch.entries[key];
-      if (!e || e.error || !e.value_block) continue;
-      blockCache.set(key, modifiedBlock(e, ch.d, I, J));
+    if (valuesMatchCurrentM) {
+      for (const key of Object.keys(ch.entries)) {
+        const [I, J] = key.split(',').map(Number);
+        if (I === J) continue;
+        const e = ch.entries[key];
+        if (!e || e.error || !e.value_block) continue;
+        blockCache.set(key, modifiedBlock(e, ch.d, I, J));
+      }
     }
     // 跨 cell 小数点对齐: 扫所有 (off-diag) entry 算全局最大 int/frac 位数,
     // 设到 stokes-matrix 的 CSS var, cs-grid 列宽统一从这两个值取 → 所有 cell
@@ -846,6 +867,10 @@ async function main() {
       const b = Number(cell.dataset.b!);
       if (I === J) {
         cell.innerHTML = `<span class="cs-zero">${tex('0')}</span>`;
+        continue;
+      }
+      if (!valuesMatchCurrentM) {
+        cell.innerHTML = '<span class="cs-zero" title="stale dimension">—</span>';
         continue;
       }
       const e = ch.entries[`${I},${J}`];
@@ -878,6 +903,7 @@ async function main() {
   function refreshAllPaths() {
     state.paths.clear();
     if (!state.selectedEntry) return;
+    if (!stokesValuesMatchCurrentM()) return;
     const [i, j] = state.selectedEntry;
     // SSOT: 直接读 dataset.path (sage compute_Sd_entry 算出的 algo_wp). 同 chamber
     // 内 d 变 path 几何不变 (chamber-local 同伦不变性).
@@ -900,6 +926,11 @@ async function main() {
     const e = ch.entries[`${i},${j}`];
     if (!e) { el.innerHTML = '<span class="label">no data</span>'; return; }
     const labelTex = `(S_d)_{${i+1}${j+1}}`;
+    if (!stokesValuesMatchCurrentM()) {
+      el.innerHTML = `<div class="label">${tex(labelTex)}</div>`
+        + '<div class="value dim">stale dimension: recompute Stokes matrices</div>';
+      return;
+    }
     if (e.error) {
       el.innerHTML = `<div class="label">${tex(labelTex)}</div>
         <div class="value" style="color: var(--bad)">FAIL: ${e.error}</div>`;
@@ -929,6 +960,7 @@ async function main() {
   function updatePathInfo() {
     const el = document.getElementById('path-info')!;
     if (!state.selectedEntry) { el.textContent = '—'; return; }
+    if (!stokesValuesMatchCurrentM()) { el.textContent = '—'; return; }
     const [i, j] = state.selectedEntry;
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];

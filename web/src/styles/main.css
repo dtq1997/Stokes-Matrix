@@ -13,6 +13,8 @@
   --bad: #ff5555;
   --border: #2a2f38;
   --grid: #1f242c;
+  --matrix-index-font-size: 13px;
+  --matrix-input-font-size: 11px;
   --chamber-a: rgba(92, 200, 255, 0.06);
   --chamber-b: rgba(255, 184, 108, 0.05);
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -95,6 +97,22 @@ h2 {
   color: var(--fg);
 }
 
+h2.app-title {
+  font-size: 15px;
+  margin: 0 0 14px;
+}
+h2.app-title a {
+  color: var(--fg);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--fg-muted);
+  padding-bottom: 1px;
+}
+h2.app-title a:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+h2.app-title a .katex { color: inherit; }
+
 h3 {
   margin: 16px 0 6px;
   font-size: 11px;
@@ -168,7 +186,6 @@ h3 {
 }
 #n-input:focus { border-color: var(--accent); }
 #d-input {
-  flex: 1;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -177,7 +194,13 @@ h3 {
   font-size: 12px;
   padding: 4px 6px;
   outline: none;
-  width: 100%;
+  field-sizing: content;
+  min-width: 4ch;
+  text-align: right;
+}
+/* Safari < 18.2 fallback: 没有 field-sizing 时给个合理静态宽度 */
+@supports not (field-sizing: content) {
+  #d-input { width: 7ch; }
 }
 #d-input:focus { border-color: var(--accent); }
 #d-input.invalid { border-color: var(--bad); }
@@ -307,7 +330,7 @@ h3 {
   border-collapse: separate;
   border-spacing: 2px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--matrix-index-font-size);
   /* table-layout: auto 让列宽跟 cell 内容 (cx-pair input 走 field-sizing).
      不能用 fixed — fixed 锁列宽到 thead 第一行, input 动态宽度不生效. */
   table-layout: auto;
@@ -330,7 +353,7 @@ h3 {
   border: 1px solid transparent;
   color: var(--fg);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--matrix-input-font-size);
   padding: 3px 4px;
   outline: none;
   border-radius: 2px;
@@ -385,7 +408,7 @@ h3 {
   color: var(--fg-muted);
   text-align: right;
   padding-right: 4px;
-  font-size: 11px;
+  font-size: var(--matrix-index-font-size);
   /* sticky 第一列: 水平滚时行 label 冻结 (跟 Stokes 矩阵 sm-row-header SSOT) */
   position: sticky;
   left: 0;
@@ -399,9 +422,10 @@ h3 {
   background: var(--bg-panel);
   z-index: 3;
 }
-.state-table.a-table { font-size: 10px; }
-.state-table.a-table input.cx { font-size: 9px; padding: 2px 3px; }
-.state-table.u-table input.cx { font-size: 10px; }
+/* A/U 表 input 字体 SSOT: 共用 --matrix-input-font-size (默认 11px).
+   A 表 indices (th) 跟 U 共享 .state-table 基底, 不再单独缩小. */
+.state-table.a-table input.cx,
+.state-table.u-table input.cx { font-size: var(--matrix-input-font-size); }
 .state-table.u-table .mk-input {
   width: 44px;
   text-align: center;
@@ -478,7 +502,7 @@ h3 {
   display: grid;
   gap: 2px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--matrix-input-font-size);
   margin-bottom: 12px;
   overflow-x: auto;       /* N×N 矩阵横向超宽自滚, sticky 行 label 在此容器内生效 */
   max-width: 100%;
@@ -488,7 +512,7 @@ h3 {
   background: var(--bg-panel);
   color: var(--fg-muted);
   font-family: 'KaTeX_Main', 'Times New Roman', serif;
-  font-size: 11px;
+  font-size: var(--matrix-index-font-size);
   display: flex;
   align-items: center;
   justify-content: center;
