@@ -759,8 +759,11 @@ async function main() {
       if (!v || v === state.sdView) return;
       state.sdView = v;
       refreshSdViewSelector();
+      refreshAllPaths();
+      canvas.setState(state);
       refreshStokesMatrix();
       updateStokesPanel();
+      updatePathInfo();
     });
     refreshSdViewSelector();
   }
@@ -1035,19 +1038,142 @@ async function main() {
     updatePathInfo();
   }
 
+  type CutCoord = { x: number; y: number };
+
+  function toCutCoord(p: ComplexNum, d: number): CutCoord {
+    const c = Math.cos(d), s = Math.sin(d);
+    return { x: p.re * c - p.im * s, y: p.re * s + p.im * c };
+  }
+
+  function fromCutCoord(p: CutCoord, d: number): ComplexNum {
+    const c = Math.cos(d), s = Math.sin(d);
+    return { re: p.x * c + p.y * s, im: p.y * c - p.x * s };
+  }
+
+  function segmentHitsCut(a: CutCoord, b: CutCoord, cut: CutCoord): boolean {
+    const eps = 1e-9;
+    const dy = b.y - a.y;
+    if (Math.abs(dy) < eps) {
+      if (Math.abs(a.y - cut.y) > eps) return false;
+      return Math.max(a.x, b.x) >= cut.x - eps;
+    }
+    const t = (cut.y - a.y) / dy;
+    if (t <= eps || t >= 1 - eps) return false;
+    const x = a.x + t * (b.x - a.x);
+    return x >= cut.x - eps;
+  }
+
+  function pathHitsCuts(path: CutCoord[], cuts: CutCoord[]): boolean {
+    for (let p = 0; p < path.length - 1; p++) {
+      for (const cut of cuts) {
+        if (segmentHitsCut(path[p], path[p + 1], cut)) return true;
+      }
+    }
+    return false;
+  }
+
+  function cubicPoint(a: CutCoord, c1: CutCoord, c2: CutCoord, b: CutCoord, t: number): CutCoord {
+    const u = 1 - t;
+    const uu = u * u, tt = t * t;
+    return {
+      x: uu * u * a.x + 3 * uu * t * c1.x + 3 * u * tt * c2.x + tt * t * b.x,
+      y: uu * u * a.y + 3 * uu * t * c1.y + 3 * u * tt * c2.y + tt * t * b.y,
+    };
+  }
+
+  function sampleCubic(a: CutCoord, c1: CutCoord, c2: CutCoord, b: CutCoord): CutCoord[] {
+    const pts: CutCoord[] = [];
+    for (let k = 0; k <= 28; k++) pts.push(cubicPoint(a, c1, c2, b, k / 28));
+    return pts;
+  }
+
+  function polylineLength(path: CutCoord[]): number {
+    let total = 0;
+    for (let k = 0; k < path.length - 1; k++) {
+      total += Math.hypot(path[k + 1].x - path[k].x, path[k + 1].y - path[k].y);
+    }
+    return total;
+  }
+
+  function computeNaturalPath(i: number, j: number, punctures: ComplexNum[], d: number): {
+    vertices: ComplexNum[];
+    kind: 'line' | 'cubic' | 'poly';
+  } {
+    const start = punctures[i], end = punctures[j];
+    const a = toCutCoord(start, d);
+    const b = toCutCoord(end, d);
+    const cuts = punctures
+      .map((p, k) => ({ k, p: toCutCoord(p, d) }))
+      .filter(x => x.k !== i && x.k !== j)
+      .map(x => x.p);
+
+    if (cuts.length === 0 || !pathHitsCuts([a, b], cuts)) {
+      return { vertices: [{ ...start }, { ...end }], kind: 'line' };
+    }
+
+    const all = [a, b, ...cuts];
+    const xSpan = Math.max(1e-6, Math.max(...all.map(p => p.x)) - Math.min(...all.map(p => p.x)));
+    const ySpan = Math.max(1e-6, Math.max(...all.map(p => p.y)) - Math.min(...all.map(p => p.y)));
+    const scale = Math.max(1, xSpan, ySpan, Math.hypot(b.x - a.x, b.y - a.y));
+    const chord = Math.hypot(b.x - a.x, b.y - a.y);
+    const ux = chord > 1e-9 ? (b.x - a.x) / chord : 1;
+    const uy = chord > 1e-9 ? (b.y - a.y) / chord : 0;
+    const nx = -uy, ny = ux;
+    const base = Math.max(0.18 * chord, 0.10 * scale);
+    const candidates: Array<{ c1: CutCoord; c2: CutCoord; score: number }> = [];
+
+    for (const side of [1, -1]) {
+      for (const mult of [1, 1.6, 2.4, 3.5, 5]) {
+        const off = base * mult;
+        const c1 = { x: a.x + (b.x - a.x) * 0.34 + side * nx * off, y: a.y + (b.y - a.y) * 0.34 + side * ny * off };
+        const c2 = { x: a.x + (b.x - a.x) * 0.66 + side * nx * off, y: a.y + (b.y - a.y) * 0.66 + side * ny * off };
+        const sample = sampleCubic(a, c1, c2, b);
+        if (!pathHitsCuts(sample, cuts)) candidates.push({ c1, c2, score: polylineLength(sample) + off * 0.35 });
+      }
+    }
+
+    const minX = Math.min(...all.map(p => p.x));
+    for (const side of [1, -1]) {
+      for (const mult of [1, 1.8, 3]) {
+        const laneX = minX - (0.22 * scale * mult);
+        const yKick = side * 0.12 * scale;
+        const c1 = { x: laneX, y: a.y + yKick };
+        const c2 = { x: laneX, y: b.y + yKick };
+        const sample = sampleCubic(a, c1, c2, b);
+        if (!pathHitsCuts(sample, cuts)) candidates.push({ c1, c2, score: polylineLength(sample) + scale * mult });
+      }
+    }
+
+    candidates.sort((p, q) => p.score - q.score);
+    if (candidates.length > 0) {
+      const best = candidates[0];
+      return {
+        vertices: [a, best.c1, best.c2, b].map(p => fromCutCoord(p, d)),
+        kind: 'cubic',
+      };
+    }
+
+    const laneX = minX - 0.25 * scale;
+    const poly = [a, { x: laneX, y: a.y }, { x: laneX, y: b.y }, b];
+    return { vertices: poly.map(p => fromCutCoord(p, d)), kind: 'poly' };
+  }
+
   function refreshAllPaths() {
     state.paths.clear();
     if (!state.selectedEntry) return;
     if (!stokesValuesFresh()) return;
     const [i, j] = state.selectedEntry;
-    // SSOT: 直接读 dataset.path (sage compute_Sd_entry 算出的 algo_wp). 同 chamber
-    // 内 d 变 path 几何不变 (chamber-local 同伦不变性).
+    if (i === j) return;
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];
-    if (!e || !e.path) return;
-    const verts: ComplexNum[] = e.path.map(p => ({ re: p.re, im: p.im }));
-    const id = `${i},${j}`;
-    state.paths.set(id, { i, j, vertices: verts, homotopyId: id });
+    if (!e || e.error) return;
+    if (state.sdView === 'plus' || state.sdView === 'minus') return;
+    const ps = state.punctureOverrides ?? dataset.punctures;
+    const path = state.sdView === 'eg'
+      ? { vertices: [{ ...ps[i] }, { ...ps[j] }], kind: 'line' as const }
+      : computeNaturalPath(i, j, ps, currentD);
+    const id = `${i},${j}:${state.sdView === 'eg' ? 'eg-line' : `std-natural-${path.kind}`}`;
+    state.paths.set(id, { i, j, vertices: path.vertices, homotopyId: id });
   }
 
   function updateStokesPanel() {
@@ -1118,6 +1244,19 @@ async function main() {
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];
     if (!e) { el.textContent = '—'; return; }
+    if (state.sdView === 'plus' || state.sdView === 'minus') {
+      el.innerHTML = e.provenance
+        ? `<span class="provenance-info" data-provenance="${escapeHtml(e.provenance)}" hidden>${escapeHtml(e.provenance)}</span>`
+        : '—';
+      return;
+    }
+    const shownPath = Array.from(state.paths.values())[0];
+    if (shownPath) {
+      el.innerHTML =
+        `<div>vertices: ${shownPath.vertices.length}</div>` +
+        (e.provenance ? `<span class="provenance-info" data-provenance="${escapeHtml(e.provenance)}" hidden>${escapeHtml(e.provenance)}</span>` : '');
+      return;
+    }
     if (!e.path) {
       // v5 entry: no explicit PL representative; show a friendly note + keep
       // raw provenance under .provenance-info for e2e / debugging.

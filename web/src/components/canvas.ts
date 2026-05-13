@@ -236,12 +236,17 @@ export class Canvas {
         // 让箭头落在 puncture 边缘外 ~10px (避免被 puncture circle 盖住)
         const pts = p.vertices.map(v => this.toPx(v));
         if (pts.length < 2) return null;
+        const isNaturalCubic = p.homotopyId.includes(':std-natural-cubic') && pts.length === 4;
         const last = pts[pts.length - 1];
-        const prev = pts[pts.length - 2];
+        const prev = isNaturalCubic ? pts[2] : pts[pts.length - 2];
         const dx = last[0] - prev[0], dy = last[1] - prev[1];
         const len = Math.hypot(dx, dy);
         if (len > 12) {
           pts[pts.length - 1] = [last[0] - dx / len * 10, last[1] - dy / len * 10];
+        }
+        if (isNaturalCubic) {
+          const [a, c1, c2, b] = pts;
+          return `M${a[0]},${a[1]} C${c1[0]},${c1[1]} ${c2[0]},${c2[1]} ${b[0]},${b[1]}`;
         }
         return d3.line()(pts as any);
       });

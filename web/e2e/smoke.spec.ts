@@ -59,10 +59,16 @@ test.describe('Sd-viz smoke tests', () => {
     await page.goto('/?algorithm=v5_full');
     await page.waitForSelector('.puncture');
     await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
-    await expect(page.locator('.path-line')).toHaveCount(0);
-    await expect(page.locator('.path-vertex')).toHaveCount(0);
-    // v5 entry: 检查 hidden provenance carrier 含 v5_full marker
+    await expect(page.locator('.path-line')).toHaveCount(1);
+    // v5 entry: std view 现在画前端自然路径, 同时保留 hidden provenance carrier.
     await expect(page.locator('#path-info .provenance-info')).toHaveAttribute('data-provenance', /v5_full_wall_crossing/);
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]').click();
+    await expect(page.locator('.path-line')).toHaveCount(1);
+    await expect(page.locator('.path-vertex')).toHaveCount(0);
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="plus"]').click();
+    await expect(page.locator('.path-line')).toHaveCount(0);
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="minus"]').click();
+    await expect(page.locator('.path-line')).toHaveCount(0);
     await expect(page.locator('#stokes-display .value')).toBeVisible();
   });
 
