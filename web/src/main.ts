@@ -648,11 +648,12 @@ async function main() {
     const el = document.getElementById('dim-info')!;
     el.innerHTML = tex(`m = \\sum_k m_k = ${m_total}`);
   }
-  function sameMultiplicities(a: number[], b: number[]) {
-    return a.length === b.length && a.every((m, i) => m === b[i]);
-  }
-  function stokesValuesMatchCurrentM() {
-    return sameMultiplicities(state.mOverrides ?? dataset.m_sizes, dataset.m_sizes);
+  /** SSOT-consumer 统一: Stokes 渲染分支全部读 stokesStale.
+   * U/A/m/puncture 任意编辑都置 state.stokesStale=true (见 111/318/631/717 行),
+   * 渲染端不再自己做维度比对 — 单一不变式驱动 (uniform invariant enforcement,
+   * 避免 shotgun parsing). */
+  function stokesValuesFresh() {
+    return !state.stokesStale;
   }
 
   /** A 表: N×N 复矩阵 (N = sum m_k), 按块结构加视觉分隔.
@@ -830,10 +831,10 @@ async function main() {
     const sm = document.getElementById('stokes-matrix')!;
     const ch = dataset.chambers[state.selectedChamber];
     const digits = selectedPrecisionDigits();
-    const valuesMatchCurrentM = stokesValuesMatchCurrentM();
+    const valuesFresh = stokesValuesFresh();
     // 预算所有 (I, J) modified block (paper monodromy 块版修正一次, sub-cell 共享).
     const blockCache = new Map<string, ComplexNum[][]>();
-    if (valuesMatchCurrentM) {
+    if (valuesFresh) {
       for (const key of Object.keys(ch.entries)) {
         const [I, J] = key.split(',').map(Number);
         if (I === J) continue;
@@ -869,8 +870,8 @@ async function main() {
         cell.innerHTML = `<span class="cs-zero">${tex('0')}</span>`;
         continue;
       }
-      if (!valuesMatchCurrentM) {
-        cell.innerHTML = '<span class="cs-zero" title="stale dimension">—</span>';
+      if (!valuesFresh) {
+        cell.innerHTML = '<span class="cs-zero" title="stale: recompute Stokes matrices">—</span>';
         continue;
       }
       const e = ch.entries[`${I},${J}`];
@@ -903,7 +904,7 @@ async function main() {
   function refreshAllPaths() {
     state.paths.clear();
     if (!state.selectedEntry) return;
-    if (!stokesValuesMatchCurrentM()) return;
+    if (!stokesValuesFresh()) return;
     const [i, j] = state.selectedEntry;
     // SSOT: 直接读 dataset.path (sage compute_Sd_entry 算出的 algo_wp). 同 chamber
     // 内 d 变 path 几何不变 (chamber-local 同伦不变性).
@@ -926,9 +927,9 @@ async function main() {
     const e = ch.entries[`${i},${j}`];
     if (!e) { el.innerHTML = '<span class="label">no data</span>'; return; }
     const labelTex = `(S_d)_{${i+1}${j+1}}`;
-    if (!stokesValuesMatchCurrentM()) {
+    if (!stokesValuesFresh()) {
       el.innerHTML = `<div class="label">${tex(labelTex)}</div>`
-        + '<div class="value dim">stale dimension: recompute Stokes matrices</div>';
+        + '<div class="value dim">stale: recompute Stokes matrices</div>';
       return;
     }
     if (e.error) {
@@ -960,7 +961,7 @@ async function main() {
   function updatePathInfo() {
     const el = document.getElementById('path-info')!;
     if (!state.selectedEntry) { el.textContent = '—'; return; }
-    if (!stokesValuesMatchCurrentM()) { el.textContent = '—'; return; }
+    if (!stokesValuesFresh()) { el.textContent = '—'; return; }
     const [i, j] = state.selectedEntry;
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];

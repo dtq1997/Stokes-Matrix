@@ -299,8 +299,23 @@ test.describe('Sd-viz smoke tests', () => {
     await expect(page.locator('#a-table tbody tr')).toHaveCount(9);
     await expect(page.locator('#stokes-matrix .sm-cell')).toHaveCount(81);
     await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
-    await expect(page.locator('#stokes-display .value')).toContainText('stale dimension');
+    await expect(page.locator('#stokes-display .value')).toContainText('stale');
     expect(errors).toEqual([]);
+  });
+
+  // 防回归 (2026-05-14): 编辑 U/A 也要让 Stokes 立刻变 stale (单一不变式驱动 — POLA).
+  // 之前: 只 m_k 触发 cell 变 "—"; U/A 编辑只更新 banner, cell 用旧值, 行为不一致.
+  test('编辑 U 立刻让 Stokes 变 stale (跟 m_k 行为一致)', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    await expect(page.locator('#state-stale-banner')).toBeHidden();
+    const u0re = page.locator('#u-table input.cx[data-k="0"][data-axis="re"]').first();
+    await u0re.fill('1.5');
+    await u0re.press('Tab');
+    await expect(page.locator('#state-stale-banner')).toBeVisible();
+    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
+    await expect(page.locator('#stokes-display .value')).toContainText('stale');
+    await expect(page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first()).toContainText('—');
   });
 
   // 防回归 (2026-05-14): 矩阵行列指标字号跟 U 表 k 列行号走同一个 CSS SSOT.
