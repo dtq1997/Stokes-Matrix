@@ -28,12 +28,9 @@ function renderAllTex(root: ParentNode = document) {
   });
 }
 
+// SSOT: 所有复数虚部 i 字符的 HTML 表示走这一份, 输入框 (cx-pair) 和输出
+// (cs-grid) 共用. 不要在别处写 `<span class="im-unit">i</span>` 字面量.
 const IM_UNIT = '<span class="im-unit">i</span>';
-const fmtComplex = (re: number, im: number, digits = 4) => {
-  const r = re.toFixed(digits);
-  const sign = im >= 0 ? '+' : '-';
-  return `<span class="complex-re">${r}</span> ${sign} <span class="complex-im">${Math.abs(im).toFixed(digits)}</span>${IM_UNIT}`;
-};
 
 function precisionToDigits(p: string): number {
   switch (p) {
