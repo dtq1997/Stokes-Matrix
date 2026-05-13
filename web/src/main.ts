@@ -312,9 +312,9 @@ async function main() {
   buildStokesMatrix();
   updateDimInfo();
   setupResizeHandles();
-  // Recompute 按钮: 只要 (U, A, m) 有任何 commit (state.stokesStale=true) 就解锁.
-  // 不再用 backendAvailable 作为 disable 条件 —— offline 时按钮可点, 点击后由
-  // recomputeAsync 抛错并在 recompute-status 区域呈现, 用户感知更直接.
+  // Compute 按钮: 始终可点 (用户反馈 "锁就是不对, 按一下就该算一遍").
+  // stokesStale 仅用于驱动 stale-banner 文案; 不再控制按钮 disabled.
+  // computing 期间按钮变成 Cancel (click handler 内分支), 仍然 enabled.
   const recomputeBtn = document.getElementById('state-recompute') as HTMLButtonElement;
   const recomputeStatus = document.getElementById('recompute-status')!;
   let backendAvailable = false;
@@ -365,8 +365,9 @@ async function main() {
     }
   }
   function refreshRecomputeBtn() {
+    // 永远 enabled. computing 期间已经被 setComputingLock + classList 'computing' 处理.
     if (recomputeBtn.classList.contains('computing')) return;
-    recomputeBtn.disabled = !state.stokesStale;
+    recomputeBtn.disabled = false;
   }
 
   backendOnline().then(ok => {

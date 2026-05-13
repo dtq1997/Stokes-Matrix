@@ -257,19 +257,18 @@ test.describe('Sd-viz smoke tests', () => {
   });
 
   // 防回归 (2026-05-13): Compute 按钮策略
-  //   - 初始 (U, A, m) 未改: disabled
-  //   - 任何 commit (U/A 输入框 change) 后: enabled
+  //   - 始终 enabled (用户反馈: "锁就是不对, 按一下就该算一遍")
   //   - Reset 按钮已删除
   //   - 文本: "Compute Stokes Matrices"
-  test('Compute 按钮: 改完输入立刻解锁, 没有 Reset 按钮', async ({ page }) => {
+  test('Compute 按钮: 永远可点, 没有 Reset 按钮', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
     const btn = page.locator('#state-recompute');
-    await expect(btn).toBeDisabled();
+    await expect(btn).toBeEnabled();
     await expect(btn).toHaveText(/Compute Stokes Matrices/);
     // Reset 按钮已移除
     await expect(page.locator('#state-reset')).toHaveCount(0);
-    // 改 U 第一行实部 → 按钮解锁
+    // 改完 U 仍然 enabled (没回锁)
     const u00re = page.locator('#u-table input[data-k="0"][data-axis="re"]').first();
     await u00re.fill('1.234');
     await u00re.press('Tab');
