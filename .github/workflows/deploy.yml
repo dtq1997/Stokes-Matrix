@@ -29,8 +29,18 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm run typecheck
-      - name: Install Playwright browsers
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-chromium-v1
+      - name: Install Playwright (browsers + deps)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+      - name: Install Playwright system deps only (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       - run: npm run test:e2e
       - name: Build
         env:
