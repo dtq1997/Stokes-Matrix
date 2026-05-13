@@ -758,28 +758,15 @@ async function main() {
       if (!v || v === state.sdView) return;
       state.sdView = v;
       refreshSdViewSelector();
-      updateSdViewTitle();
       refreshStokesMatrix();
       updateStokesPanel();
     });
     refreshSdViewSelector();
-    updateSdViewTitle();
   }
   function refreshSdViewSelector() {
     document.querySelectorAll<HTMLElement>('#sd-view-selector .sd-view-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.view === state.sdView);
     });
-  }
-  function updateSdViewTitle() {
-    const t = document.getElementById('sd-view-title');
-    if (!t) return;
-    const map = { std: 'S_d', plus: 'S_d^{+}', minus: 'S_d^{-}' } as const;
-    const src = map[state.sdView];
-    t.dataset.tex = src;
-    if (t.dataset.texRendered !== src) {
-      t.innerHTML = tex(src);
-      t.dataset.texRendered = src;
-    }
   }
 
   /** Stokes 矩阵网格: N×N flat grid, 按块结构加视觉分隔.
