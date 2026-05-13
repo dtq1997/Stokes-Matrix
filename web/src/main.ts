@@ -949,11 +949,11 @@ async function main() {
         }
       }
     }
-    // 跨 cell 小数点对齐: 扫所有 (off-diag) entry 算全局最大 int/frac 位数,
-    // 设到 stokes-matrix 的 CSS var, cs-grid 列宽统一从这两个值取 → 所有 cell
-    // 的 cs-int 右边界 (= 小数点位置) 一致.
+    // 跨 cell 小数点对齐 + 跨 view 同尺寸: 列宽按 std S_d (当前 chamber) 算上界,
+    // 再跟当前 view 的实际值取 max — 这样 std/plus/minus/eg 默认同宽,
+    // 只在 eg 数值变大 (远 d 强制 lift) 时才扩, 不会缩.
     let maxInt = 1, maxFrac = 0;
-    for (const mod of blockCache.values()) {
+    const accumulate = (mod: ComplexNum[][]) => {
       for (const row of mod) for (const v of row) {
         for (const x of [v.re, v.im]) {
           if (x === 0 || !Number.isFinite(x)) continue;
@@ -962,6 +962,17 @@ async function main() {
           maxFrac = Math.max(maxFrac, Math.max(0, digits - mag - 1));
         }
       }
+    };
+    if (valuesFresh) {
+      for (const key of Object.keys(ch.entries)) {
+        const [I, J] = key.split(',').map(Number);
+        if (I === J) continue;
+        const e = ch.entries[key];
+        if (!e || e.error || !e.value_block) continue;
+        accumulate(modifiedBlock(e, ch.d, I, J));
+      }
+      // 再扫当前 view 的 blockCache (eg 模式下可能含更宽数值)
+      for (const mod of blockCache.values()) accumulate(mod);
     }
     sm.style.setProperty('--cs-int-w', `${maxInt}ch`);
     sm.style.setProperty('--cs-frac-w', `${maxFrac > 0 ? maxFrac + 1 : 0}ch`);
