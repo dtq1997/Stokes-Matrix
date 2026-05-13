@@ -462,6 +462,41 @@ test.describe('Sd-viz smoke tests', () => {
     expect(before01 !== after01 || before10 !== after10).toBe(true);
   });
 
+  // 防回归 (2026-05-14): S_d^eg view. 默认初始 d = d_ref, 此时 (S_d^eg)_{ij}=(S_{d_ref})_{ij}
+  // (Δm=0 sandwich 退化). 转动 d 后 per-pair lift 让 entry 变.
+  test('S_d^eg: 初始 d=d_ref 时与 std S_d off-diag 一致, 转动 d 后变化', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('#stokes-matrix .sm-cell');
+    const cellText = async (sel: string) => (await page.locator(sel).first().textContent() ?? '').replace(/\s+/g, '');
+    const c01_std = await cellText('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]');
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]').click();
+    await expect(page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]')).toHaveClass(/active/);
+    const c01_eg_ref = await cellText('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]');
+    expect(c01_eg_ref).toBe(c01_std);
+    // 拖 d 到一个远离 d_ref 的位置 (~ +π/2), 应触发至少一个 (i,j) 的 Δm ≠ 0.
+    const slider = page.locator('#d-slider-wrap input[type="range"]');
+    await slider.evaluate((el: HTMLInputElement) => {
+      el.value = String(Math.PI / 2);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // 找至少一个 off-diag cell 在 eg 模式下相对 ref 处文本变了.
+    const changed = await page.$$eval(
+      '#stokes-matrix .sm-cell:not(.diag)',
+      (cells, ref) => cells.some(c => (c.textContent ?? '').replace(/\s+/g, '') !== ref),
+      // ref string passed positionally — we don't have one ref, so just check that at least
+      // some cells exhibit a *change* between view modes; easier: snapshot full grid then std.
+      '__nothing__',
+    );
+    // 上一行没有意义的对比, 改成更直接的: 切回 std 同一 d, 把 eg 和 std 两套 off-diag 全文比一下, 应有不同.
+    void changed;
+    const collect = async () => page.$$eval('#stokes-matrix .sm-cell:not(.diag)', cs =>
+      cs.map(c => (c.textContent ?? '').replace(/\s+/g, '')).join('|'));
+    const eg_at_pi2 = await collect();
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="std"]').click();
+    const std_at_pi2 = await collect();
+    expect(eg_at_pi2).not.toBe(std_at_pi2);  // 远离 d_ref 时两者一般不同
+  });
+
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
   test('U/A input 接受分式 a/b 输入', async ({ page }) => {
     await page.goto('/');

@@ -141,6 +141,8 @@ async function main() {
   // 默认 d: 优先用 dataset 里的 d_reg (v5 的 reference direction, 落在 [-π, π) 内);
   // 没有时 fallback -π/2.
   let initialD = -Math.PI / 2;
+  let dRef = -Math.PI / 2;  // S_d^eg 的参考方向, 用户定义 = 最大非正 chamber midpoint.
+  let baseChamberIndex = 0;
   try {
     const meta = (dataset as any)._v5;
     const dReg = meta && typeof meta.d_reg === 'number' ? meta.d_reg : null;
@@ -150,6 +152,10 @@ async function main() {
       while (normalized >= Math.PI) normalized -= 2 * Math.PI;
       while (normalized < -Math.PI) normalized += 2 * Math.PI;
       initialD = normalized;
+      dRef = normalized;
+    }
+    if (meta && typeof meta.base_chamber_index === 'number') {
+      baseChamberIndex = meta.base_chamber_index;
     }
   } catch { /* ignore, use fallback */ }
   let currentD = initialD;
@@ -743,9 +749,10 @@ async function main() {
     const el = document.getElementById('sd-view-selector');
     if (!el) return;
     const opts: Array<{ key: import('./lib/types.js').SdView; tex: string; title: string }> = [
-      { key: 'std',   tex: 'S_d',     title: 'standard Stokes matrix' },
-      { key: 'plus',  tex: 'S_d^{+}', title: 'upper part w.r.t. -d labels (diag = I)' },
-      { key: 'minus', tex: 'S_d^{-}', title: 'lower part w.r.t. -d labels, negated' },
+      { key: 'std',   tex: 'S_d',                  title: 'standard Stokes matrix' },
+      { key: 'plus',  tex: 'S_d^{+}',              title: 'upper part w.r.t. -d labels (diag = I)' },
+      { key: 'minus', tex: 'S_d^{-}',              title: 'lower part w.r.t. -d labels, negated (diag = I)' },
+      { key: 'eg',    tex: 'S_d^{\\mathrm{eg}}',   title: 'per-pair branch S_[τ_ij^closest], θ_ij = -arg(u_j - u_i)' },
     ];
     el.innerHTML = opts.map(o =>
       `<button type="button" class="sd-view-btn" data-view="${o.key}" title="${o.title}">` +
@@ -851,6 +858,42 @@ async function main() {
     return mmul(mmul(left, block), right);
   }
 
+  /** S_d^eg 的 (I, J) 块: 按 per-pair θ_IJ = -arg(u_J - u_I) ∈ [-π, π) 取距 d 最近的 2π 分支.
+   *
+   *  公式 (M30' per-pair):
+   *    (S_d^eg)_{IJ} = e^{-2πi Δm A_II} · (S_{d_ref})_{IJ} · e^{2πi Δm A_JJ}
+   *    Δm = round((d - θ)/2π) - round((d_ref - θ)/2π)
+   *
+   *  baseline (S_{d_ref})_{IJ} = monodromyTransforms(d_ref, chamber.d) · value_block,
+   *  从 d_ref 所在 chamber (base_chamber_index) 取. d_ref 是最大非正 chamber midpoint.
+   */
+  function egBlock(I: number, J: number): ComplexNum[][] | null {
+    const ps = state.punctureOverrides ?? dataset.punctures;
+    const dx = ps[J].re - ps[I].re, dy = ps[J].im - ps[I].im;
+    let theta = -Math.atan2(dy, dx);
+    // normalize to [-π, π) (与 user 偏好一致)
+    while (theta >= Math.PI) theta -= 2 * Math.PI;
+    while (theta < -Math.PI) theta += 2 * Math.PI;
+    const tp = 2 * Math.PI;
+    const m_d  = Math.round((currentD - theta) / tp);
+    const m_ref = Math.round((dRef - theta) / tp);
+    const dm = m_d - m_ref;
+
+    const baseCh = dataset.chambers[baseChamberIndex] ?? dataset.chambers[0];
+    const e = baseCh.entries[`${I},${J}`];
+    if (!e || e.error) return null;
+    const block = e.value_block ?? [[{ re: e.value_re ?? 0, im: e.value_im ?? 0 }]];
+    const A_II = getABlock(I);
+    const A_JJ = getABlock(J);
+    // baseline = sandwich(value_block, lift from chamber.d to d_ref)
+    const refLift = monodromyTransforms(dRef, baseCh.d, A_II, A_JJ);
+    let baseline = (refLift.m === 0) ? block : mmul(mmul(refLift.left, block), refLift.right);
+    if (dm === 0) return baseline;
+    // 再 sandwich 一次 with delta_m (monodromyTransforms 把 dm 编码为 d 差 = dm·2π)
+    const dmLift = monodromyTransforms(dm * tp, 0, A_II, A_JJ);
+    return mmul(mmul(dmLift.left, baseline), dmLift.right);
+  }
+
   /** 复数 entry 渲染为 HTML grid (5 列: sign | gap | 整数 | 小数 | i).
    * 两行 (re / im·i) 用同一 grid 让符号竖直对齐 + 小数点对齐 (整数右对齐 + 小数左对齐).
    * KaTeX 不支持 `array{r@{}l}` 的 `@{}` 列间距控制, 用 LaTeX 渲染会失败回退到源码.
@@ -877,15 +920,22 @@ async function main() {
     const ch = dataset.chambers[state.selectedChamber];
     const digits = selectedPrecisionDigits();
     const valuesFresh = stokesValuesFresh();
+    const view = state.sdView;
     // 预算所有 (I, J) modified block (paper monodromy 块版修正一次, sub-cell 共享).
+    // eg 模式: baseline + per-pair Δm sandwich (egBlock).
     const blockCache = new Map<string, ComplexNum[][]>();
     if (valuesFresh) {
-      for (const key of Object.keys(ch.entries)) {
-        const [I, J] = key.split(',').map(Number);
+      const n_ch = state.mOverrides ? state.mOverrides.length : dataset.m_sizes.length;
+      for (let I = 0; I < n_ch; I++) for (let J = 0; J < n_ch; J++) {
         if (I === J) continue;
-        const e = ch.entries[key];
-        if (!e || e.error || !e.value_block) continue;
-        blockCache.set(key, modifiedBlock(e, ch.d, I, J));
+        if (view === 'eg') {
+          const eg = egBlock(I, J);
+          if (eg) blockCache.set(`${I},${J}`, eg);
+        } else {
+          const e = ch.entries[`${I},${J}`];
+          if (!e || e.error || !e.value_block) continue;
+          blockCache.set(`${I},${J}`, modifiedBlock(e, ch.d, I, J));
+        }
       }
     }
     // 跨 cell 小数点对齐: 扫所有 (off-diag) entry 算全局最大 int/frac 位数,
@@ -905,8 +955,7 @@ async function main() {
     sm.style.setProperty('--cs-int-w', `${maxInt}ch`);
     sm.style.setProperty('--cs-frac-w', `${maxFrac > 0 ? maxFrac + 1 : 0}ch`);
     // 只迭代真正的 data cells (跳过 .sm-header / .sm-corner)
-    const view = state.sdView;
-    const labels = view === 'std' ? null : dLabels();
+    const labels = (view === 'plus' || view === 'minus') ? dLabels() : null;
     const cells = sm.querySelectorAll<HTMLElement>('.sm-cell');
     for (const cell of Array.from(cells)) {
       const I = Number(cell.dataset.i!);
@@ -914,9 +963,9 @@ async function main() {
       const a = Number(cell.dataset.a!);
       const b = Number(cell.dataset.b!);
       if (I === J) {
-        // plus / minus 模式对角块 = I_block: a==b → 1, a≠b → 0; std → 0.
-        // 用户约定: displayed S_d diag=0, 但 displayed S_d^± diag=I, 保 S_d=S_d^+−S_d^−
-        // 在 off-diag 逐 entry 等式 + 对角 (0 = 1−1) 全部成立.
+        // 对角块: plus/minus = I_block (a==b → 1, 否则 0); std/eg = 0.
+        // 约定: displayed S_d diag=0, displayed S_d^± diag=I 保 0 = 1−1 自洽.
+        // S_d^eg diag = 0 (用户指定: per-pair 直线段公式仅对 i≠j 定义).
         if ((view === 'plus' || view === 'minus') && a === b) {
           cell.innerHTML = `<span class="cs-zero">${tex('1')}</span>`;
         } else {
@@ -936,8 +985,8 @@ async function main() {
         cell.innerHTML = `<span style="color: var(--bad)">!</span>`;
         continue;
       }
-      // Entry 分类 (plus/minus): label[I] vs label[J] 比较, 与 (I,J) 索引大小无关.
-      let sign: 1 | -1 | 0 = 1;  // 1: 显示 S_d 值; -1: 显示 -S_d 值; 0: 显示 0.
+      // Entry 分类: std/eg 全展示, plus/minus 按 label 排序保/置 0.
+      let sign: 1 | -1 | 0 = 1;
       if (view === 'plus')  sign = labels![I] < labels![J] ? 1 : 0;
       if (view === 'minus') sign = labels![I] > labels![J] ? -1 : 0;
       if (sign === 0) {
@@ -989,7 +1038,7 @@ async function main() {
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];
     if (!e) { el.innerHTML = '<span class="label">no data</span>'; return; }
-    const symMap = { std: 'S_d', plus: 'S_d^{+}', minus: 'S_d^{-}' } as const;
+    const symMap = { std: 'S_d', plus: 'S_d^{+}', minus: 'S_d^{-}', eg: 'S_d^{\\mathrm{eg}}' } as const;
     const labelTex = `(${symMap[state.sdView]})_{${i+1}${j+1}}`;
     if (!stokesValuesFresh()) {
       el.innerHTML = `<div class="label">${tex(labelTex)}</div>`
@@ -1001,11 +1050,16 @@ async function main() {
         <div class="value" style="color: var(--bad)">FAIL: ${e.error}</div>`;
       return;
     }
-    // 块版: 列出整个 m_i × m_j sub-block. 用 modifiedBlock (paper monodromy 块版修正).
-    let mod = modifiedBlock(e, ch.d, i, j);
+    // 块版: 列出整个 m_i × m_j sub-block. std/plus/minus 用 modifiedBlock; eg 用 egBlock.
+    let mod: ComplexNum[][];
+    if (state.sdView === 'eg' && i !== j) {
+      mod = egBlock(i, j) ?? modifiedBlock(e, ch.d, i, j);
+    } else {
+      mod = modifiedBlock(e, ch.d, i, j);
+    }
     // plus/minus 模式按 -d label 决定是否保留. selected entry 永远 off-diag (UI 不让点对角),
     // 但保险起见 i===j 时空 block.
-    if (state.sdView !== 'std' && i !== j) {
+    if ((state.sdView === 'plus' || state.sdView === 'minus') && i !== j) {
       const lab = dLabels();
       const keep = state.sdView === 'plus' ? lab[i] < lab[j] : lab[i] > lab[j];
       const negate = state.sdView === 'minus';
