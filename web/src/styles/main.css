@@ -275,6 +275,12 @@ h3 {
 }
 
 /* ---------- State (U, A) tables ---------- */
+/* wrapper: 表本身能自带横向滚动 (panel 整体已 overflow-x:hidden); 第一列 sticky 在 wrapper 内生效 */
+.state-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  margin-bottom: 6px;
+}
 .state-table {
   width: auto;             /* 不强制填满 panel, 让 cell 保持自然宽度 (panel 横向滚) */
   border-collapse: separate;
@@ -335,6 +341,18 @@ h3 {
   text-align: right;
   padding-right: 4px;
   font-size: 11px;
+  /* sticky 第一列: 水平滚时行 label 冻结 (跟 Stokes 矩阵 sm-row-header SSOT) */
+  position: sticky;
+  left: 0;
+  background: var(--bg-panel);
+  z-index: 2;
+}
+.state-table thead th:first-child {
+  /* 左上 corner: sticky 双向, 比 row-label / col-header 高一层 */
+  position: sticky;
+  left: 0;
+  background: var(--bg-panel);
+  z-index: 3;
 }
 .state-table.a-table { font-size: 10px; }
 .state-table.a-table input.cx { font-size: 9px; padding: 2px 3px; }
