@@ -339,27 +339,33 @@ h3 {
 }
 .state-table input.cx:focus { border-color: var(--accent); background: var(--bg); }
 .state-table input.cx.invalid { border-color: var(--bad); }
-/* cx-pair: Re 一行 / Im+i 一行 (跟 output Stokes entry 两行布局一致) */
+/* cx-pair: Re 一行 / Im+i 一行 (跟 output Stokes entry 两行布局一致).
+   grid-template-columns max-content (不能用 auto): 让第 1 列取 re/im 两 input
+   intrinsic max — 配合 input width:100% 让 re/im 同宽, 小数点对齐.
+   auto 在 chrome + field-sizing + width:100% 下会缩到 min-content, 裁切内容. */
 .state-table .cx-pair {
   display: grid;
-  grid-template-columns: auto 1.25ch;     /* 列宽跟随 input 内容 (field-sizing) */
+  grid-template-columns: max-content 1.25ch;
   gap: 1px 2px;
   align-items: center;
 }
-/* 复数实/虚部 input: 动态宽度 (用户反馈: 固定靠右对齐难受).
-   width: max-content + field-sizing: content 让 input 宽度 = 内容宽度.
-   单独 width: auto 在 grid auto cell 里 chrome 不撑开 input — 必须 max-content.
-   min-width: 5ch 防御空输入 / 极短分式 "3/4" 时变成 0. */
+/* 复数实/虚部 input: 同 cx-pair 内 re/im 共享同一宽度 (取 max), 这样小数点对齐.
+   机制: field-sizing: content 让 input intrinsic width = 各自内容宽度;
+         grid column 1 auto 取 max(re intrinsic, im intrinsic);
+         input width: 100% 撑满 grid column → re/im 同宽 → text-align: right
+         + tabular-nums 让小数点位置一致.
+   关键: 不能 width: max-content (各 input 按自身内容算, re/im 宽度不一); 必须 100%.
+   min-width: 5ch 防御空 input. */
 .state-table .cx-pair input.cx {
   field-sizing: content;
-  width: max-content;
+  width: 100%;
   min-width: 5ch;
   text-align: right;
   grid-column: 1 / 2;
 }
-/* Safari < 18.2 不支持 field-sizing, max-content 在 input 上也不可靠.
-   fallback 给静态 width: 8ch (装 "+0.5000" 7 字符 + 1ch 余量); 长内容溢出
-   靠 input 内置滚动 (浏览器默认). 比起默认 ~150px 已经紧凑得多. */
+/* Safari < 18.2 不支持 field-sizing: input intrinsic 走浏览器默认 (~150px),
+   会让 grid column 撑爆. fallback 静态 width: 8ch (装 "+0.5000" 7 字符 + 1ch 余量);
+   两 input 同宽, 小数点仍对齐, 长内容靠 input 内置滚动. */
 @supports not (field-sizing: content) {
   .state-table .cx-pair input.cx {
     width: 8ch;

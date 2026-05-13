@@ -292,6 +292,23 @@ test.describe('Sd-viz smoke tests', () => {
     expect(allEqual).toBe(true);
   });
 
+  // 防回归 (2026-05-13): 同 cx-pair 内 re/im input 宽度一致 (小数点对齐).
+  // 之前 width: max-content 让 re/im 各自按内容算宽, sign 长度差 1ch 导致小数点错位.
+  // 修法: grid-template-columns: max-content + input width: 100% → re/im 同宽.
+  test('cx-pair 内 re/im input 同宽 (小数点对齐)', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    const widths = await page.$$eval('#a-table .cx-pair', els =>
+      els.slice(0, 6).map(pair => {
+        const ins = pair.querySelectorAll('input.cx');
+        return Array.from(ins).map(i => Math.round((i as HTMLElement).getBoundingClientRect().width));
+      })
+    );
+    for (const [re, im] of widths) {
+      expect(Math.abs(re - im)).toBeLessThan(1);
+    }
+  });
+
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
   test('U/A input 接受分式 a/b 输入', async ({ page }) => {
     await page.goto('/');
