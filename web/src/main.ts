@@ -352,10 +352,10 @@ async function main() {
   function renderBackendStatus() {
     const base = getBackendBase();
     const baseDisplay = base || '(local server)';
-    const escapedBase = escapeHtml(base);
+    const escapedBaseTitle = escapeHtml(`${baseDisplay} — click change… to switch`);
     const heading = backendAvailable
-      ? `<span style="color:var(--good)">● compute server connected</span>`
-      : `<span style="color:var(--warn,#d4a76a)">● compute server offline</span>`;
+      ? `<span style="color:var(--good)" title="${escapedBaseTitle}">● compute server connected</span>`
+      : `<span style="color:var(--warn,#d4a76a)" title="${escapedBaseTitle}">● compute server offline</span>`;
     const description = backendAvailable
       ? ''
       : '<div style="color:var(--fg-muted);font-size:11px;line-height:1.4;margin:2px 0">'
@@ -365,8 +365,7 @@ async function main() {
     recomputeStatus.innerHTML = `
       <div style="font-size:11px;line-height:1.5">
         ${heading}
-        <span style="color:var(--fg-muted);font-size:10px;margin-left:6px" title="${escapedBase}">${escapeHtml(baseDisplay).slice(0, 60)}</span>
-        <button id="backend-edit" type="button" style="margin-left:4px;font-size:10px;padding:0 6px;cursor:pointer">change…</button>
+        <button id="backend-edit" type="button" style="margin-left:6px;font-size:10px;padding:0 6px;cursor:pointer">change…</button>
         ${description}
       </div>
     `;
