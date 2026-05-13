@@ -372,6 +372,75 @@ test.describe('Sd-viz smoke tests', () => {
     }
   });
 
+  // 防回归 (2026-05-14): S_d / S_d^+ / S_d^- selector. plus 模式对角块 = I_block,
+  // off-diag 按 -d label 重组 (label[i]<label[j] 留 S_d 值, 否则 0).
+  test('S_d^+ / S_d^- selector 切换矩阵内容, 尺寸不变', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('#stokes-matrix .sm-cell');
+    const cellCountBefore = await page.locator('#stokes-matrix .sm-cell').count();
+    // 默认 std: 对角 cell (I===J, a===b) 显示 0. KaTeX 渲染会有额外 mathml/whitespace,
+    // 用 visible text 兜底: 应包含 '0' 但不包含 '1'.
+    const norm = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, '');
+    const diagText0 = norm(await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="0"]').first().textContent());
+    expect(diagText0).toContain('0');
+    expect(diagText0).not.toContain('1');
+    // 切到 S_d^+: 对角 cell 应显示 1.
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="plus"]').click();
+    await expect(page.locator('#sd-view-selector .sd-view-btn[data-view="plus"]')).toHaveClass(/active/);
+    const diagPlus = norm(await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="0"]').first().textContent());
+    expect(diagPlus).toContain('1');
+    // 尺寸不变: cell 数相同.
+    const cellCountAfter = await page.locator('#stokes-matrix .sm-cell').count();
+    expect(cellCountAfter).toBe(cellCountBefore);
+    // plus + minus 模式下: 对任意 off-diag (I,J), 两者中至少一个是 0
+    // (label[I]<label[J] → plus 非零 minus 0; 反之 plus 0 minus 非零).
+    // off-diag cell 判 isZero: 看是否有 .cs-zero 而无 .cs-grid (cs-grid 是非零渲染).
+    const collect = async () => page.$$eval(
+      '#stokes-matrix .sm-cell:not(.diag)',
+      cells => cells.map(c => ({
+        key: `${c.getAttribute('data-i')},${c.getAttribute('data-j')}`,
+        isZero: !c.querySelector('.cs-grid'),
+      })),
+    );
+    const pluses = await collect();
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="minus"]').click();
+    const minuses = await collect();
+    const byKey: Record<string, { p: boolean; m: boolean }> = {};
+    for (const p of pluses) (byKey[p.key] ??= { p: false, m: false }).p = p.isZero;
+    for (const m of minuses) (byKey[m.key] ??= { p: false, m: false }).m = m.isZero;
+    for (const k of Object.keys(byKey)) {
+      const [i, j] = k.split(',').map(Number);
+      if (i === j) continue;
+      const { p, m } = byKey[k];
+      expect(p || m, `cell ${k}: plus zero=${p}, minus zero=${m} — exactly one应该非零`).toBe(true);
+    }
+    // 切回 S_d.
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="std"]').click();
+    await expect(page.locator('#sd-view-selector .sd-view-btn[data-view="std"]')).toHaveClass(/active/);
+  });
+
+  // 防回归 (2026-05-14): 拖 d slider 时 S_d^+ 矩阵内容随 -d label 重新分类.
+  test('S_d^+ 内容随 d 改变 (label 重排)', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('#stokes-matrix .sm-cell');
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="plus"]').click();
+    // 取一个 off-diag cell 在初始 d 下的文本.
+    const cell01 = page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first();
+    const cell10 = page.locator('#stokes-matrix .sm-cell[data-i="1"][data-j="0"]').first();
+    const before01 = (await cell01.textContent())?.trim();
+    const before10 = (await cell10.textContent())?.trim();
+    // 拖 d 滑块到 π/2 附近 (大幅度变动 → label 极可能重排).
+    const slider = page.locator('#d-slider-wrap input[type="range"]');
+    await slider.evaluate((el: HTMLInputElement) => {
+      el.value = String(Math.PI / 2);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const after01 = (await cell01.textContent())?.trim();
+    const after10 = (await cell10.textContent())?.trim();
+    // 至少有一个变 (S_d 数值随 chamber/d 变, 或 plus 分类翻转).
+    expect(before01 !== after01 || before10 !== after10).toBe(true);
+  });
+
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
   test('U/A input 接受分式 a/b 输入', async ({ page }) => {
     await page.goto('/');

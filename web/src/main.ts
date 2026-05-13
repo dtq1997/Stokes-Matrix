@@ -102,6 +102,7 @@ async function main() {
     AOverrides: initialA.map(row => row.map(c => ({ ...c }))),
     mOverrides: [...dataset.m_sizes],
     stokesStale: false,
+    sdView: 'std',
   };
 
   const onStateChange = (_s: VizState) => {
@@ -335,6 +336,7 @@ async function main() {
   buildUTable();
   buildATable();
   buildStokesMatrix();
+  buildSdViewSelector();
   updateDimInfo();
   setupResizeHandles();
   const precisionSelect = document.getElementById('precision-select') as HTMLSelectElement;
@@ -724,9 +726,66 @@ async function main() {
     refreshRecomputeBtn();
   }
 
+  /** -d 方向 label 排序: label[k] = 1-based rank descending of Im(u_k · e^{i·d}).
+   *  与 sage 端 compute_sd.sage σ_d 规则一致 (Re(i·u_k·e^{id}) min ⇔ Im max ⇔ rank 1).
+   *  driven by currentD + punctureOverrides; d 变 label 即变, 据此重组 S_d^+/S_d^-. */
+  function dLabels(): number[] {
+    const ps = state.punctureOverrides ?? dataset.punctures;
+    const sin_d = Math.sin(currentD), cos_d = Math.cos(currentD);
+    const proj = ps.map((u, k) => ({ k, v: u.re * sin_d + u.im * cos_d }));
+    proj.sort((a, b) => b.v - a.v);
+    const lab = new Array<number>(ps.length);
+    proj.forEach((p, idx) => { lab[p.k] = idx + 1; });
+    return lab;
+  }
+
+  function buildSdViewSelector() {
+    const el = document.getElementById('sd-view-selector');
+    if (!el) return;
+    const opts: Array<{ key: import('./lib/types.js').SdView; tex: string; title: string }> = [
+      { key: 'std',   tex: 'S_d',     title: 'standard Stokes matrix' },
+      { key: 'plus',  tex: 'S_d^{+}', title: 'upper part w.r.t. -d labels (diag = I)' },
+      { key: 'minus', tex: 'S_d^{-}', title: 'lower part w.r.t. -d labels, negated' },
+    ];
+    el.innerHTML = opts.map(o =>
+      `<button type="button" class="sd-view-btn" data-view="${o.key}" title="${o.title}">` +
+        `<span data-tex="${o.tex}"></span></button>`
+    ).join('');
+    el.addEventListener('click', (ev) => {
+      const btn = (ev.target as HTMLElement).closest<HTMLElement>('.sd-view-btn');
+      if (!btn) return;
+      const v = btn.dataset.view as import('./lib/types.js').SdView | undefined;
+      if (!v || v === state.sdView) return;
+      state.sdView = v;
+      refreshSdViewSelector();
+      updateSdViewTitle();
+      refreshStokesMatrix();
+      updateStokesPanel();
+    });
+    refreshSdViewSelector();
+    updateSdViewTitle();
+  }
+  function refreshSdViewSelector() {
+    document.querySelectorAll<HTMLElement>('#sd-view-selector .sd-view-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.view === state.sdView);
+    });
+  }
+  function updateSdViewTitle() {
+    const t = document.getElementById('sd-view-title');
+    if (!t) return;
+    const map = { std: 'S_d', plus: 'S_d^{+}', minus: 'S_d^{-}' } as const;
+    const src = map[state.sdView];
+    t.dataset.tex = src;
+    if (t.dataset.texRendered !== src) {
+      t.innerHTML = tex(src);
+      t.dataset.texRendered = src;
+    }
+  }
+
   /** Stokes 矩阵网格: N×N flat grid, 按块结构加视觉分隔.
-   * 对角块 (I, I) 显示零 m_I × m_I (M25: S_d = S_d^+ - S_d^-).
-   * 非对角块 (I, J) 显示 m_I × m_J entry 矩阵 (从 entry.value_block 取 (a, b)).
+   * std 模式: 对角块 (I, I) 显示 0 (S_d 默认 - I 视觉约定), 非对角显示 S_d entry.
+   * plus 模式: 对角块 = I_block (a=b → 1, a≠b → 0); 非对角 (I, J) label[I]<label[J] → S_d, 否则 0.
+   * minus 模式: 对角块 = 0; 非对角 (I, J) label[I]>label[J] → -S_d, 否则 0.
    * 点击任意 sub-cell 选 block (I, J).
    */
   function buildStokesMatrix() {
@@ -859,6 +918,8 @@ async function main() {
     sm.style.setProperty('--cs-int-w', `${maxInt}ch`);
     sm.style.setProperty('--cs-frac-w', `${maxFrac > 0 ? maxFrac + 1 : 0}ch`);
     // 只迭代真正的 data cells (跳过 .sm-header / .sm-corner)
+    const view = state.sdView;
+    const labels = view === 'std' ? null : dLabels();
     const cells = sm.querySelectorAll<HTMLElement>('.sm-cell');
     for (const cell of Array.from(cells)) {
       const I = Number(cell.dataset.i!);
@@ -866,7 +927,12 @@ async function main() {
       const a = Number(cell.dataset.a!);
       const b = Number(cell.dataset.b!);
       if (I === J) {
-        cell.innerHTML = `<span class="cs-zero">${tex('0')}</span>`;
+        // plus 模式对角块 = I_block: a==b → 1, a≠b → 0; std / minus → 0.
+        if (view === 'plus' && a === b) {
+          cell.innerHTML = `<span class="cs-zero">${tex('1')}</span>`;
+        } else {
+          cell.innerHTML = `<span class="cs-zero">${tex('0')}</span>`;
+        }
         continue;
       }
       if (!valuesFresh) {
@@ -879,10 +945,19 @@ async function main() {
       cell.classList.toggle('selected', sel);
       if (!e || e.error) {
         cell.innerHTML = `<span style="color: var(--bad)">!</span>`;
+        continue;
+      }
+      // Entry 分类 (plus/minus): label[I] vs label[J] 比较, 与 (I,J) 索引大小无关.
+      let sign: 1 | -1 | 0 = 1;  // 1: 显示 S_d 值; -1: 显示 -S_d 值; 0: 显示 0.
+      if (view === 'plus')  sign = labels![I] < labels![J] ? 1 : 0;
+      if (view === 'minus') sign = labels![I] > labels![J] ? -1 : 0;
+      if (sign === 0) {
+        cell.innerHTML = `<span class="cs-zero">${tex('0')}</span>`;
       } else {
         const mod = blockCache.get(`${I},${J}`);
         const v = mod?.[a]?.[b] ?? { re: 0, im: 0 };
-        cell.innerHTML = renderComplex(v, digits);
+        const w = sign === 1 ? v : { re: -v.re, im: -v.im };
+        cell.innerHTML = renderComplex(w, digits);
       }
     }
   }
@@ -925,7 +1000,8 @@ async function main() {
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];
     if (!e) { el.innerHTML = '<span class="label">no data</span>'; return; }
-    const labelTex = `(S_d)_{${i+1}${j+1}}`;
+    const symMap = { std: 'S_d', plus: 'S_d^{+}', minus: 'S_d^{-}' } as const;
+    const labelTex = `(${symMap[state.sdView]})_{${i+1}${j+1}}`;
     if (!stokesValuesFresh()) {
       el.innerHTML = `<div class="label">${tex(labelTex)}</div>`
         + '<div class="value dim">stale: recompute Stokes matrices</div>';
@@ -937,7 +1013,19 @@ async function main() {
       return;
     }
     // 块版: 列出整个 m_i × m_j sub-block. 用 modifiedBlock (paper monodromy 块版修正).
-    const mod = modifiedBlock(e, ch.d, i, j);
+    let mod = modifiedBlock(e, ch.d, i, j);
+    // plus/minus 模式按 -d label 决定是否保留. selected entry 永远 off-diag (UI 不让点对角),
+    // 但保险起见 i===j 时空 block.
+    if (state.sdView !== 'std' && i !== j) {
+      const lab = dLabels();
+      const keep = state.sdView === 'plus' ? lab[i] < lab[j] : lab[i] > lab[j];
+      const negate = state.sdView === 'minus';
+      if (!keep) {
+        mod = mod.map(row => row.map(() => ({ re: 0, im: 0 })));
+      } else if (negate) {
+        mod = mod.map(row => row.map(v => ({ re: -v.re, im: -v.im })));
+      }
+    }
     const m_i = mod.length, m_j = mod[0]?.length ?? 1;
     const digits = selectedPrecisionDigits();
     let inner = '';

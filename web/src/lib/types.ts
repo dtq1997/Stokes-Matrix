@@ -66,4 +66,12 @@ export interface VizState {
   AOverrides: ComplexNum[][] | null;     // 用户编辑后的 A (N×N 复矩阵, N = sum m_k)
   mOverrides: number[] | null;           // 用户编辑后的 m_k 重数
   stokesStale: boolean;                  // A/U/m 改了 Stokes 数值还没重算
+  sdView: SdView;                        // S_d 矩阵右栏当前显示模式
 }
+
+/** 右栏 stokes-matrix 显示模式. -d 方向 label 排序定义 S_d^± entrywise:
+ *  label[k] = rank descending of Im(u_k · e^{i·d}) (1-based). label 最小 = -d 方向最"左".
+ *  对 i≠j: S_d^+_{ij} = S_d_{ij} 若 label[i]<label[j], 否则 0.
+ *          S_d^-_{ij} = -S_d_{ij} 若 label[i]>label[j], 否则 0.
+ *  对角块: S_d^+ = I_block, S_d^- = 0; 故 S_d = S_d^+ - S_d^- (formal grading 下 S_d 对角 = I). */
+export type SdView = 'std' | 'plus' | 'minus';

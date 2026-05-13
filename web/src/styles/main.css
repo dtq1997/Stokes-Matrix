@@ -502,6 +502,32 @@ h3 {
   line-height: 1.4;
 }
 
+/* ---------- S_d view selector (S_d / S_d^+ / S_d^-) ---------- */
+.sd-view-selector {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+.sd-view-selector .sd-view-btn {
+  background: var(--bg-elev);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.sd-view-selector .sd-view-btn .katex { color: inherit; font-size: 1em; }
+.sd-view-selector .sd-view-btn:hover { background: #232932; color: var(--fg); }
+.sd-view-selector .sd-view-btn.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
 /* ---------- Stokes matrix grid (right panel) ---------- */
 #stokes-matrix {
   display: grid;
