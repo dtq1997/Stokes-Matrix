@@ -530,14 +530,14 @@ async function main() {
     if (x === 0) return '0';
     return x.toFixed(4).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
   }
-  // 输入框 value 永远带前导 +/− (SSOT: 跟输出 renderComplex 的 sign 列一致).
-  // 用户原话: "应该是 a+bi 的形式, 虚部就算是正的前面也应该显示 +".
-  // 用 ASCII '-' (U+002D) 而非 '−' (U+2212), 让 Number() 直接 parse.
-  // -0 / 0 都归到 '+0.0000'.
-  function fmtInputNum(x: number): string {
+  // 输入框 value: a+bi 自然写法 — 实部正数不带 +, 虚部正数显示 +.
+  // 负数永远 '-' (ASCII U+002D, Number() 可直接 parse).
+  // 0 / -0 统一: 实部 '0.0000', 虚部 '+0.0000'.
+  function fmtInputNum(x: number, axis: 're' | 'im' = 're'): string {
     if (!Number.isFinite(x)) return String(x);
     const s = x.toFixed(4);
-    return s.startsWith('-') ? s : '+' + s;
+    if (axis === 'im') return s.startsWith('-') ? s : '+' + s;
+    return s;
   }
   function complexInputHtml(attrs: string, rePlaceholder = 'Re', imPlaceholder = 'Im'): string {
     return `<div class="cx-pair">` +
@@ -571,7 +571,7 @@ async function main() {
         input.value = String(ms[k]);
       } else {
         const axis = input.dataset.axis as 're' | 'im';
-        input.value = fmtInputNum(ps[k][axis]);
+        input.value = fmtInputNum(ps[k][axis], axis);
       }
     });
   }
@@ -654,7 +654,7 @@ async function main() {
       const i = Number(input.dataset.i!);
       const j = Number(input.dataset.j!);
       const axis = input.dataset.axis as 're' | 'im';
-      input.value = fmtInputNum(A[i][j][axis]);
+      input.value = fmtInputNum(A[i][j][axis], axis);
     });
   }
   function onAEdit(e: Event) {
@@ -753,7 +753,8 @@ async function main() {
       const dot = s.indexOf('.');
       return dot < 0 ? [s, ''] : [s.slice(0, dot), s.slice(dot)];
     };
-    const reSign = v.re >= 0 ? '+' : '−';  // U+2212 minus sign, 比 '-' 视觉宽
+    // a+bi 自然写法: 实部正不带 +, 负数 '−'; 虚部正显示 +, 负 '−'. (U+2212 minus, 视觉比 '-' 宽)
+    const reSign = v.re < 0 ? '−' : '';
     const imSign = v.im >= 0 ? '+' : '−';
     const [reInt, reFrac] = split(v.re);
     const [imInt, imFrac] = split(v.im);
