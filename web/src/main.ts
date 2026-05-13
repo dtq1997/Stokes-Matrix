@@ -530,8 +530,14 @@ async function main() {
     if (x === 0) return '0';
     return x.toFixed(4).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
   }
+  // 输入框 value 永远带前导 +/− (SSOT: 跟输出 renderComplex 的 sign 列一致).
+  // 用户原话: "应该是 a+bi 的形式, 虚部就算是正的前面也应该显示 +".
+  // 用 ASCII '-' (U+002D) 而非 '−' (U+2212), 让 Number() 直接 parse.
+  // -0 / 0 都归到 '+0.0000'.
   function fmtInputNum(x: number): string {
-    return Number.isFinite(x) ? x.toFixed(4) : String(x);
+    if (!Number.isFinite(x)) return String(x);
+    const s = x.toFixed(4);
+    return s.startsWith('-') ? s : '+' + s;
   }
   function complexInputHtml(attrs: string, rePlaceholder = 'Re', imPlaceholder = 'Im'): string {
     return `<div class="cx-pair">` +
