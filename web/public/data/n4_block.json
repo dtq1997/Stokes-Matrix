@@ -5197,7 +5197,8 @@
       "safety_factor": 0.5,
       "detour_factor": 0.8,
       "residual_max": 4.6201425810779515e-16,
-      "precompute_seconds": 138.18384718894958,
+      "confidence": 0.0005494773486485753,
+      "precompute_seconds": 123.89933490753174,
       "rays_mod": [
         0.2825549524695875,
         0.9994588469612699,
@@ -5315,7 +5316,8 @@
     "safety_factor": 0.5,
     "detour_factor": 0.8,
     "residual_max": 4.6201425810779515e-16,
-    "precompute_seconds": 138.18384718894958,
+    "confidence": 0.0005494773486485753,
+    "precompute_seconds": 123.89933490753174,
     "rays_mod": [
       0.2825549524695875,
       0.9994588469612699,

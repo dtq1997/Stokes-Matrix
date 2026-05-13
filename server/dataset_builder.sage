@@ -207,6 +207,10 @@ def _v5_metadata_for_dataset(info_v5, kwargs, precompute_seconds):
         'safety_factor': float(info_v5['d_reg_info'].get('safety_factor')),
         'detour_factor': float(info_v5['d_reg_info'].get('detour_factor')),
         'residual_max': float(info_v5['d_reg_info']['residual_max']),
+        'confidence': (
+            float(info_v5['d_reg_info']['confidence'])
+            if info_v5['d_reg_info'].get('confidence') is not None else None
+        ),
         'precompute_seconds': float(precompute_seconds),
         'rays_mod': [float(x) for x in info_v5['rays_mod']],
         'wall_steps': [
