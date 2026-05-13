@@ -462,39 +462,42 @@ test.describe('Sd-viz smoke tests', () => {
     expect(before01 !== after01 || before10 !== after10).toBe(true);
   });
 
-  // 防回归 (2026-05-14): S_d^eg view. 默认初始 d = d_ref, 此时 (S_d^eg)_{ij}=(S_{d_ref})_{ij}
-  // (Δm=0 sandwich 退化). 转动 d 后 per-pair lift 让 entry 变.
-  test('S_d^eg: 初始 d=d_ref 时与 std S_d off-diag 一致, 转动 d 后变化', async ({ page }) => {
+  // 防回归 (2026-05-14): S_d^eg view 语义.
+  //   (S_d^eg)_{ij} = (S_[τ_closest])_{ij}, 与 std (S_d)_{ij} 一般不等
+  //   (std 经过若干 wall-crossing 累积; eg 是 (i,j) 直线段紧邻 chamber 的值 + M30' lift).
+  // 默认 dataset 下 (1,3) entry 应被验证为 std ≠ eg @ d_ref (manual check via python sage data).
+  test('S_d^eg: per-pair branch lookup, std/eg 在大部分 pair 上不等', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('#stokes-matrix .sm-cell');
     const cellText = async (sel: string) => (await page.locator(sel).first().textContent() ?? '').replace(/\s+/g, '');
-    const c01_std = await cellText('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]');
+    // 全表 std 快照
+    const collect = async () => page.$$eval(
+      '#stokes-matrix .sm-cell:not(.diag)',
+      cs => cs.map(c => `${c.getAttribute('data-i')},${c.getAttribute('data-j')}:` +
+                       (c.textContent ?? '').replace(/\s+/g, '')),
+    );
+    const stdSnap = await collect();
     await page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]').click();
-    await expect(page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]')).toHaveClass(/active/);
-    const c01_eg_ref = await cellText('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]');
-    expect(c01_eg_ref).toBe(c01_std);
-    // 拖 d 到一个远离 d_ref 的位置 (~ +π/2), 应触发至少一个 (i,j) 的 Δm ≠ 0.
+    const egSnap = await collect();
+    // 至少有一个 off-diag entry 在 std 和 eg 之间值不同 (默认 dataset 必然如此).
+    const diffs = stdSnap.filter((s, k) => s !== egSnap[k]);
+    expect(diffs.length).toBeGreaterThan(0);
+    // (1,3) 在默认 dataset 下 std ≠ eg (manually verified): 8.186+2.237i vs 0.069+1.525i.
+    const std13 = await (async () => {
+      await page.locator('#sd-view-selector .sd-view-btn[data-view="std"]').click();
+      return cellText('#stokes-matrix .sm-cell[data-i="1"][data-j="3"]');
+    })();
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]').click();
+    const eg13 = await cellText('#stokes-matrix .sm-cell[data-i="1"][data-j="3"]');
+    expect(eg13).not.toBe(std13);
+    // 拖 d 远离 d_ref 后, eg 仍按 per-pair branch lookup 变 — 至少一个 cell 文本变了.
     const slider = page.locator('#d-slider-wrap input[type="range"]');
     await slider.evaluate((el: HTMLInputElement) => {
       el.value = String(Math.PI / 2);
       el.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    // 找至少一个 off-diag cell 在 eg 模式下相对 ref 处文本变了.
-    const changed = await page.$$eval(
-      '#stokes-matrix .sm-cell:not(.diag)',
-      (cells, ref) => cells.some(c => (c.textContent ?? '').replace(/\s+/g, '') !== ref),
-      // ref string passed positionally — we don't have one ref, so just check that at least
-      // some cells exhibit a *change* between view modes; easier: snapshot full grid then std.
-      '__nothing__',
-    );
-    // 上一行没有意义的对比, 改成更直接的: 切回 std 同一 d, 把 eg 和 std 两套 off-diag 全文比一下, 应有不同.
-    void changed;
-    const collect = async () => page.$$eval('#stokes-matrix .sm-cell:not(.diag)', cs =>
-      cs.map(c => (c.textContent ?? '').replace(/\s+/g, '')).join('|'));
-    const eg_at_pi2 = await collect();
-    await page.locator('#sd-view-selector .sd-view-btn[data-view="std"]').click();
-    const std_at_pi2 = await collect();
-    expect(eg_at_pi2).not.toBe(std_at_pi2);  // 远离 d_ref 时两者一般不同
+    const egAtPi2 = await collect();
+    expect(egAtPi2.join('|')).not.toBe(egSnap.join('|'));
   });
 
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)

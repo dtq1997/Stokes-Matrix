@@ -141,8 +141,6 @@ async function main() {
   // 默认 d: 优先用 dataset 里的 d_reg (v5 的 reference direction, 落在 [-π, π) 内);
   // 没有时 fallback -π/2.
   let initialD = -Math.PI / 2;
-  let dRef = -Math.PI / 2;  // S_d^eg 的参考方向, 用户定义 = 最大非正 chamber midpoint.
-  let baseChamberIndex = 0;
   try {
     const meta = (dataset as any)._v5;
     const dReg = meta && typeof meta.d_reg === 'number' ? meta.d_reg : null;
@@ -152,10 +150,6 @@ async function main() {
       while (normalized >= Math.PI) normalized -= 2 * Math.PI;
       while (normalized < -Math.PI) normalized += 2 * Math.PI;
       initialD = normalized;
-      dRef = normalized;
-    }
-    if (meta && typeof meta.base_chamber_index === 'number') {
-      baseChamberIndex = meta.base_chamber_index;
     }
   } catch { /* ignore, use fallback */ }
   let currentD = initialD;
@@ -858,40 +852,57 @@ async function main() {
     return mmul(mmul(left, block), right);
   }
 
-  /** S_d^eg 的 (I, J) 块: 按 per-pair θ_IJ = -arg(u_J - u_I) ∈ [-π, π) 取距 d 最近的 2π 分支.
+  /** Pair (I, J) → ray-index in dataset.rays. (I, J) 的 anti-Stokes ray θ_IJ = -arg(u_J-u_I)
+   *  与 sage 端 sort 后的 rays 数组里某个值 (modulo 2π) 完全相等. 用 nearest-snap 找回,
+   *  而不是 ε 扰动 — 后者依赖 sage / front-end 浮点完全一致, 不稳健.
+   *  rays 间距通常 ≫ 1e-6, snap-to-nearest 唯一性强. */
+  function pairToRayIdx(I: number, J: number): number {
+    const ps = state.punctureOverrides ?? dataset.punctures;
+    const dx = ps[J].re - ps[I].re, dy = ps[J].im - ps[I].im;
+    const tp = 2 * Math.PI;
+    let theta = -Math.atan2(dy, dx);
+    let theta_pos = theta < 0 ? theta + tp : theta;
+    const rays = dataset.rays;
+    let best = 0, bestDiff = Infinity;
+    for (let k = 0; k < rays.length; k++) {
+      const dd = Math.min(
+        Math.abs(rays[k] - theta_pos),
+        Math.abs(rays[k] - theta_pos - tp),
+        Math.abs(rays[k] - theta_pos + tp),
+      );
+      if (dd < bestDiff) { bestDiff = dd; best = k; }
+    }
+    return best;
+  }
+
+  /** S_d^eg 的 (I, J) 块: (S_d^eg)_{IJ} := (S_{τ_closest})_{IJ},
+   *  其中 τ_closest = θ_IJ + 2π·m_IJ(d), m_IJ(d) = round((d - θ_IJ)/2π),
+   *  θ_IJ = -arg(u_J - u_I) ∈ [-π, π) (principal branch).
    *
-   *  公式 (M30' per-pair):
-   *    (S_d^eg)_{IJ} = e^{-2πi Δm A_II} · (S_{d_ref})_{IJ} · e^{2πi Δm A_JJ}
-   *    Δm = round((d - θ)/2π) - round((d_ref - θ)/2π)
+   *  实现: 初始 entry (S_[θ_IJ])_{IJ} = chamber r_idx 的 value_block, r_idx = pairToRayIdx(I,J).
+   *  chamber r_idx 是 ray r_idx 右邻 chamber (interval [rays[r_idx], rays[r_idx+1]) 包含 c.d).
+   *  monodromyTransforms 把它从 c.d 推到 τ_closest, 自动算 M30' lift.
    *
-   *  baseline (S_{d_ref})_{IJ} = monodromyTransforms(d_ref, chamber.d) · value_block,
-   *  从 d_ref 所在 chamber (base_chamber_index) 取. d_ref 是最大非正 chamber midpoint.
-   */
+   *  ⚠ baseline 不是 (S_{d_ref})_{IJ} — 后者经过若干 wall-crossing, 与直线段 ρ-值 一般不等. */
   function egBlock(I: number, J: number): ComplexNum[][] | null {
     const ps = state.punctureOverrides ?? dataset.punctures;
     const dx = ps[J].re - ps[I].re, dy = ps[J].im - ps[I].im;
     let theta = -Math.atan2(dy, dx);
-    // normalize to [-π, π) (与 user 偏好一致)
     while (theta >= Math.PI) theta -= 2 * Math.PI;
     while (theta < -Math.PI) theta += 2 * Math.PI;
     const tp = 2 * Math.PI;
-    const m_d  = Math.round((currentD - theta) / tp);
-    const m_ref = Math.round((dRef - theta) / tp);
-    const dm = m_d - m_ref;
 
-    const baseCh = dataset.chambers[baseChamberIndex] ?? dataset.chambers[0];
-    const e = baseCh.entries[`${I},${J}`];
+    const c_idx = pairToRayIdx(I, J);
+    const c = dataset.chambers[c_idx];
+    const e = c.entries[`${I},${J}`];
     if (!e || e.error) return null;
-    const block = e.value_block ?? [[{ re: e.value_re ?? 0, im: e.value_im ?? 0 }]];
-    const A_II = getABlock(I);
-    const A_JJ = getABlock(J);
-    // baseline = sandwich(value_block, lift from chamber.d to d_ref)
-    const refLift = monodromyTransforms(dRef, baseCh.d, A_II, A_JJ);
-    let baseline = (refLift.m === 0) ? block : mmul(mmul(refLift.left, block), refLift.right);
-    if (dm === 0) return baseline;
-    // 再 sandwich 一次 with delta_m (monodromyTransforms 把 dm 编码为 d 差 = dm·2π)
-    const dmLift = monodromyTransforms(dm * tp, 0, A_II, A_JJ);
-    return mmul(mmul(dmLift.left, baseline), dmLift.right);
+    const raw = e.value_block ?? [[{ re: e.value_re ?? 0, im: e.value_im ?? 0 }]];
+
+    const m_d = Math.round((currentD - theta) / tp);
+    const tau_closest = theta + m_d * tp;
+    const A_II = getABlock(I), A_JJ = getABlock(J);
+    const { left, right, m } = monodromyTransforms(tau_closest, c.d, A_II, A_JJ);
+    return (m === 0) ? raw : mmul(mmul(left, raw), right);
   }
 
   /** 复数 entry 渲染为 HTML grid (5 列: sign | gap | 整数 | 小数 | i).
