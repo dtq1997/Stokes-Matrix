@@ -787,7 +787,7 @@ async function main() {
     return mmul(mmul(left, block), right);
   }
 
-  /** 复数 entry 渲染为 HTML grid (4 列: sign | 整数 | 小数 | i).
+  /** 复数 entry 渲染为 HTML grid (5 列: sign | gap | 整数 | 小数 | i).
    * 两行 (re / im·i) 用同一 grid 让符号竖直对齐 + 小数点对齐 (整数右对齐 + 小数左对齐).
    * KaTeX 不支持 `array{r@{}l}` 的 `@{}` 列间距控制, 用 LaTeX 渲染会失败回退到源码.
    * 改用 HTML 完全可控. 字体用 KaTeX_Main 保持数学风格.
@@ -803,8 +803,8 @@ async function main() {
     const [reInt, reFrac] = splitBySigDigits(v.re, digits);
     const [imInt, imFrac] = splitBySigDigits(v.im, digits);
     return `<div class="cs-grid">
-      <span class="cs-sign">${reSign}</span><span class="cs-int">${reInt}</span><span class="cs-frac">${reFrac}</span><span class="cs-i"></span>
-      <span class="cs-sign">${imSign}</span><span class="cs-int">${imInt}</span><span class="cs-frac">${imFrac}</span><span class="cs-i">${IM_UNIT}</span>
+      <span class="cs-sign">${reSign}</span><span class="cs-gap"></span><span class="cs-int">${reInt}</span><span class="cs-frac">${reFrac}</span><span class="cs-i"></span>
+      <span class="cs-sign">${imSign}</span><span class="cs-gap"></span><span class="cs-int">${imInt}</span><span class="cs-frac">${imFrac}</span><span class="cs-i">${IM_UNIT}</span>
     </div>`;
   }
 

@@ -508,22 +508,27 @@ h3 {
   font-size: 12px;
 }
 
-/* 复数 entry 4 列 grid: sign | int | frac | i
- *   sign: 1ch 居中 (+/−)
+/* 复数 entry 5 列 grid: sign | gap | int | frac | i
+ *   sign: 自然宽度; 正实部为空但仍按另一行符号列占位
+ *   gap:  只放在符号和数字之间, 不影响 int/frac 的小数点边界
  *   int:  右对齐 (1+ 位数字, 紧贴小数点)
  *   frac: 左对齐 (".xx", 紧贴小数点)
  *   i:    1ch 左对齐 (italic)
  * 整数列右边界 = 小数点位置, 两行小数点天然对齐. sign 在最左竖直对齐. */
 .cs-grid {
   display: grid;
-  grid-template-columns: 1ch auto auto 1ch;
+  grid-template-columns: max-content 0.45ch max-content max-content max-content;
   column-gap: 0;
   row-gap: 0;
   align-items: baseline;
   justify-items: center;
   font-variant-numeric: tabular-nums;
 }
-.cs-sign { color: var(--fg); }
+.cs-sign {
+  color: var(--fg);
+  justify-self: center;
+}
+.cs-gap { width: 0.45ch; }
 .cs-int { justify-self: end; }
 .cs-frac { justify-self: start; }
 .cs-i {
