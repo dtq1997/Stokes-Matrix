@@ -174,7 +174,6 @@ h3 {
 }
 #precision-select:focus { border-color: var(--accent); outline: none; }
 #n-input {
-  width: 50px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -183,8 +182,14 @@ h3 {
   font-size: 12px;
   padding: 4px 6px;
   outline: none;
+  field-sizing: content;
+  min-width: 3ch;
+  text-align: right;
 }
 #n-input:focus { border-color: var(--accent); }
+@supports not (field-sizing: content) {
+  #n-input { width: 4ch; }
+}
 #d-input {
   background: var(--bg-elev);
   border: 1px solid var(--border);
