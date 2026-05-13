@@ -255,4 +255,24 @@ test.describe('Sd-viz smoke tests', () => {
     expect(meta.v5_p1).toBe(500);
     expect(meta.v5_p2).toBe(1500);
   });
+
+  // 防回归 (2026-05-13): Compute 按钮策略
+  //   - 初始 (U, A, m) 未改: disabled
+  //   - 任何 commit (U/A 输入框 change) 后: enabled
+  //   - Reset 按钮已删除
+  //   - 文本: "Compute Stokes Matrices"
+  test('Compute 按钮: 改完输入立刻解锁, 没有 Reset 按钮', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    const btn = page.locator('#state-recompute');
+    await expect(btn).toBeDisabled();
+    await expect(btn).toHaveText(/Compute Stokes Matrices/);
+    // Reset 按钮已移除
+    await expect(page.locator('#state-reset')).toHaveCount(0);
+    // 改 U 第一行实部 → 按钮解锁
+    const u00re = page.locator('#u-table input[data-k="0"][data-axis="re"]').first();
+    await u00re.fill('1.234');
+    await u00re.press('Tab');
+    await expect(btn).toBeEnabled();
+  });
 });

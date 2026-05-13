@@ -312,7 +312,9 @@ async function main() {
   buildStokesMatrix();
   updateDimInfo();
   setupResizeHandles();
-  // Recompute 按钮 (后端可用 + state stale 时启用)
+  // Recompute 按钮: 只要 (U, A, m) 有任何 commit (state.stokesStale=true) 就解锁.
+  // 不再用 backendAvailable 作为 disable 条件 —— offline 时按钮可点, 点击后由
+  // recomputeAsync 抛错并在 recompute-status 区域呈现, 用户感知更直接.
   const recomputeBtn = document.getElementById('state-recompute') as HTMLButtonElement;
   const recomputeStatus = document.getElementById('recompute-status')!;
   let backendAvailable = false;
@@ -362,23 +364,23 @@ async function main() {
       recomputeBtn.removeAttribute('title');
     }
   }
+  function refreshRecomputeBtn() {
+    if (recomputeBtn.classList.contains('computing')) return;
+    recomputeBtn.disabled = !state.stokesStale;
+  }
 
   backendOnline().then(ok => {
     backendAvailable = ok;
     renderBackendStatus();
     refreshRecomputeBtn();
   });
-  function refreshRecomputeBtn() {
-    if (recomputeBtn.classList.contains('computing')) return;
-    recomputeBtn.disabled = !(backendAvailable && state.stokesStale);
-  }
   /**
    * 计算进行中锁定 / 解锁所有用户输入. 防止重算正跑时用户改了 (U, A, m, d)
    * 让 frontend state 跟 backend 收到的 snapshot 不一致.
    *
    * 锁住的 surface:
    *   - svg 上 puncture / path-vertex drag (canvas.setInteractionLocked)
-   *   - n 输入, U/A 表所有 input, Reset button
+   *   - n 输入, U/A 表所有 input
    *   - d 输入框 + slider
    *   - precision select
    */
@@ -386,7 +388,7 @@ async function main() {
     canvas.setInteractionLocked(locked);
     const inputs = document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
       '#n-input, #precision-select, #d-input, #d-slider-wrap input, '
-      + '#u-table input, #a-table input, #state-reset'
+      + '#u-table input, #a-table input'
     );
     inputs.forEach(el => { el.disabled = locked; });
     document.body.classList.toggle('computing-lock', locked);
@@ -514,29 +516,10 @@ async function main() {
     } finally {
       currentJobId = null;
       recomputeBtn.classList.remove('computing');
-      recomputeBtn.textContent = 'Recompute Stokes';
+      recomputeBtn.textContent = 'Compute Stokes Matrices';
       setComputingLock(false);
       refreshRecomputeBtn();
     }
-  });
-
-  document.getElementById('state-reset')!.addEventListener('click', () => {
-    state.punctureOverrides = dataset.punctures.map(p => ({ ...p }));
-    state.AOverrides = initialA.map(row => row.map(c => ({ ...c })));
-    state.mOverrides = [...dataset.m_sizes];
-    state.selectedEntry = null;
-    state.paths.clear();
-    state.stokesStale = false;
-    n = dataset.punctures.length;
-    nInput.value = String(n);
-    buildUTable();
-    buildATable();
-    buildStokesMatrix();
-    updateDimInfo();
-    updateStaleBanner();
-    canvas.setState(state);
-    updateStokesPanel();
-    updatePathInfo();
   });
 
   // 初始化默认值

@@ -20,15 +20,6 @@
           <span class="n-comma">,</span>
           <span class="dim" id="dim-info"></span>
         </div>
-        <div class="precision-wrap mono">
-          <label for="precision-select">precision</label>
-          <select id="precision-select">
-            <option value="fast">fast (~5s, 4-5 digits)</option>
-            <option value="low">low (~20s, 5-6 digits)</option>
-            <option value="medium" selected>medium (~40s, 7-8 digits)</option>
-            <option value="high">high (~100s, 10+ digits)</option>
-          </select>
-        </div>
         <h3>Leading term <span data-tex="U = \mathrm{diag}(u_1 I_{m_1}, \ldots, u_n I_{m_n})"></span></h3>
         <table id="u-table" class="state-table"></table>
         <h3>Residue matrix <span data-tex="A"></span></h3>
@@ -37,8 +28,16 @@
           <div id="state-stale-banner" class="stale-banner" hidden>
             <span data-tex="(U, A, m)"></span> changed — Stokes values shown are out of date
           </div>
-          <button id="state-recompute" class="btn-primary" disabled>Recompute Stokes</button>
-          <button id="state-reset" class="btn-secondary">Reset</button>
+          <div class="precision-wrap mono">
+            <label for="precision-select">precision</label>
+            <select id="precision-select">
+              <option value="fast">fast (~5s, 4-5 digits)</option>
+              <option value="low">low (~20s, 5-6 digits)</option>
+              <option value="medium" selected>medium (~40s, 7-8 digits)</option>
+              <option value="high">high (~100s, 10+ digits)</option>
+            </select>
+          </div>
+          <button id="state-recompute" class="btn-primary" disabled>Compute Stokes Matrices</button>
           <div id="recompute-status" class="mono dim"></div>
         </div>
         <h3 id="d-heading">Direction</h3>
