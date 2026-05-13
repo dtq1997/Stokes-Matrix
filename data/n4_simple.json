@@ -2826,7 +2826,8 @@
       "detour_factor": 0.8,
       "residual_max": 1.1586695493825393e-15,
       "confidence": 0.0009147206171737082,
-      "precompute_seconds": 19.877851963043213,
+      "chamber_eigvals_cache_size": 48,
+      "precompute_seconds": 12.655505895614624,
       "rays_mod": [
         0.2825549524695875,
         0.9994588469612699,
@@ -2945,7 +2946,8 @@
     "detour_factor": 0.8,
     "residual_max": 1.1586695493825393e-15,
     "confidence": 0.0009147206171737082,
-    "precompute_seconds": 19.877851963043213,
+    "chamber_eigvals_cache_size": 48,
+    "precompute_seconds": 12.655505895614624,
     "rays_mod": [
       0.2825549524695875,
       0.9994588469612699,

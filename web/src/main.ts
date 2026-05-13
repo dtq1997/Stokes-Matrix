@@ -688,7 +688,7 @@ async function main() {
   }
 
   /** Stokes 矩阵网格: N×N flat grid, 按块结构加视觉分隔.
-   * 对角块 (I, I) 显示单位 m_I × m_I (1/0).
+   * 对角块 (I, I) 显示零 m_I × m_I (M25: S_d = S_d^+ - S_d^-).
    * 非对角块 (I, J) 显示 m_I × m_J entry 矩阵 (从 entry.value_block 取 (a, b)).
    * 点击任意 sub-cell 选 block (I, J).
    */
@@ -793,9 +793,7 @@ async function main() {
       const a = Number(cell.dataset.a!);
       const b = Number(cell.dataset.b!);
       if (I === J) {
-        cell.innerHTML = a === b
-          ? '<span class="cs-int">1</span>'
-          : '<span class="cs-zero">0</span>';
+        cell.innerHTML = '<span class="cs-zero">0</span>';
         continue;
       }
       const e = ch.entries[`${I},${J}`];

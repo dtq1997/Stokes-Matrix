@@ -211,6 +211,10 @@ def _v5_metadata_for_dataset(info_v5, kwargs, precompute_seconds):
             float(info_v5['d_reg_info']['confidence'])
             if info_v5['d_reg_info'].get('confidence') is not None else None
         ),
+        'chamber_eigvals_cache_size': (
+            _py_int(info_v5['d_reg_info']['chamber_eigvals_cache_size'])
+            if info_v5['d_reg_info'].get('chamber_eigvals_cache_size') is not None else None
+        ),
         'precompute_seconds': float(precompute_seconds),
         'rays_mod': [float(x) for x in info_v5['rays_mod']],
         'wall_steps': [
