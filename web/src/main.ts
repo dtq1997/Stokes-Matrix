@@ -141,6 +141,8 @@ async function main() {
   // 默认 d: 优先用 dataset 里的 d_reg (v5 的 reference direction, 落在 [-π, π) 内);
   // 没有时 fallback -π/2.
   let initialD = -Math.PI / 2;
+  let dRegLifted = -Math.PI / 2;  // d_reg, S_d^eg 公式里用 (per-pair tau_lift 参考方向)
+  let baseChamberIndex = 0;       // d_reg 所在 chamber 索引; S_d^eg baseline = chambers[baseChamberIndex].value_block
   try {
     const meta = (dataset as any)._v5;
     const dReg = meta && typeof meta.d_reg === 'number' ? meta.d_reg : null;
@@ -150,6 +152,10 @@ async function main() {
       while (normalized >= Math.PI) normalized -= 2 * Math.PI;
       while (normalized < -Math.PI) normalized += 2 * Math.PI;
       initialD = normalized;
+      dRegLifted = dReg;  // 原值 (不 normalize), 用来算 per-pair tau_lift = θ + 2π·round((d_reg-θ)/2π)
+    }
+    if (meta && typeof meta.base_chamber_index === 'number') {
+      baseChamberIndex = meta.base_chamber_index;
     }
   } catch { /* ignore, use fallback */ }
   let currentD = initialD;
@@ -855,38 +861,24 @@ async function main() {
     return mmul(mmul(left, block), right);
   }
 
-  /** Pair (I, J) → ray-index in dataset.rays. (I, J) 的 anti-Stokes ray θ_IJ = -arg(u_J-u_I)
-   *  与 sage 端 sort 后的 rays 数组里某个值 (modulo 2π) 完全相等. 用 nearest-snap 找回,
-   *  而不是 ε 扰动 — 后者依赖 sage / front-end 浮点完全一致, 不稳健.
-   *  rays 间距通常 ≫ 1e-6, snap-to-nearest 唯一性强. */
-  function pairToRayIdx(I: number, J: number): number {
-    const ps = state.punctureOverrides ?? dataset.punctures;
-    const dx = ps[J].re - ps[I].re, dy = ps[J].im - ps[I].im;
-    const tp = 2 * Math.PI;
-    let theta = -Math.atan2(dy, dx);
-    let theta_pos = theta < 0 ? theta + tp : theta;
-    const rays = dataset.rays;
-    let best = 0, bestDiff = Infinity;
-    for (let k = 0; k < rays.length; k++) {
-      const dd = Math.min(
-        Math.abs(rays[k] - theta_pos),
-        Math.abs(rays[k] - theta_pos - tp),
-        Math.abs(rays[k] - theta_pos + tp),
-      );
-      if (dd < bestDiff) { bestDiff = dd; best = k; }
-    }
-    return best;
-  }
-
-  /** S_d^eg 的 (I, J) 块: (S_d^eg)_{IJ} := (S_{τ_closest})_{IJ},
-   *  其中 τ_closest = θ_IJ + 2π·m_IJ(d), m_IJ(d) = round((d - θ_IJ)/2π),
-   *  θ_IJ = -arg(u_J - u_I) ∈ [-π, π) (principal branch).
+  /** S_d^eg 的 (I, J) 块: (S_d^eg)_{IJ} := (S_[τ_closest])_{IJ},
+   *  其中 τ_closest = θ_IJ + 2π·m_d, m_d = round((currentD - θ_IJ)/2π).
    *
-   *  实现: 初始 entry (S_[θ_IJ])_{IJ} = chamber r_idx 的 value_block, r_idx = pairToRayIdx(I,J).
-   *  chamber r_idx 是 ray r_idx 右邻 chamber (interval [rays[r_idx], rays[r_idx+1]) 包含 c.d).
-   *  monodromyTransforms 把它从 c.d 推到 τ_closest, 自动算 M30' lift.
+   *  ⚠ baseline 不能用 chambers[pair_ray_idx].value_block — 那是 wall-crossing 累积值,
+   *  不是直线段 ρ-值. 必须用 **base chamber** (v5 d_reg 所在 chamber) 的 value_block.
+   *  sage v5 算 base chamber 时, 每对 (I, J) 用的 tau 是
+   *    tau_lift = θ_IJ + 2π·m_ref, m_ref = round((d_reg - θ_IJ)/2π),
+   *  即 -arg(u_J-u_I) 取距 d_reg 最近的 2π 分支. base_chamber.value_block[I,J] 就是
+   *  (S_[tau_lift])_{IJ} 的直线段值.
    *
-   *  ⚠ baseline 不是 (S_{d_ref})_{IJ} — 后者经过若干 wall-crossing, 与直线段 ρ-值 一般不等. */
+   *  从 baseline (in tau_lift) 平移到 τ_closest (in 距 currentD 最近的 lift):
+   *    Δm = m_d - m_ref
+   *    (S_d^eg)_{IJ} = e^{-2πi·Δm·A_II} · base_chamber.value_block[I,J] · e^{2πi·Δm·A_JJ}
+   *  即 monodromyTransforms(τ_closest, tau_lift, A_II, A_JJ) 自动给出 Δm = round((τ_closest-tau_lift)/2π).
+   *
+   *  历史 bug (修于 2026-05-14): 之前 baseline 错用 chambers[pairToRayIdx(I,J)],
+   *  那是 wall-crossing 后的值, 导致 S_d^eg 错. base chamber 才对.
+   */
   function egBlock(I: number, J: number): ComplexNum[][] | null {
     const ps = state.punctureOverrides ?? dataset.punctures;
     const dx = ps[J].re - ps[I].re, dy = ps[J].im - ps[I].im;
@@ -895,16 +887,20 @@ async function main() {
     while (theta < -Math.PI) theta += 2 * Math.PI;
     const tp = 2 * Math.PI;
 
-    const c_idx = pairToRayIdx(I, J);
-    const c = dataset.chambers[c_idx];
-    const e = c.entries[`${I},${J}`];
+    const baseCh = dataset.chambers[baseChamberIndex] ?? dataset.chambers[0];
+    const e = baseCh.entries[`${I},${J}`];
     if (!e || e.error) return null;
     const raw = e.value_block ?? [[{ re: e.value_re ?? 0, im: e.value_im ?? 0 }]];
 
+    // tau_lift = θ + 2π·round((d_reg - θ)/2π) — sage 端 base chamber (I,J) 用的 tau.
+    const m_ref = Math.round((dRegLifted - theta) / tp);
+    const tau_lift = theta + m_ref * tp;
+    // τ_closest = θ + 2π·round((currentD - θ)/2π)
     const m_d = Math.round((currentD - theta) / tp);
     const tau_closest = theta + m_d * tp;
+
     const A_II = getABlock(I), A_JJ = getABlock(J);
-    const { left, right, m } = monodromyTransforms(tau_closest, c.d, A_II, A_JJ);
+    const { left, right, m } = monodromyTransforms(tau_closest, tau_lift, A_II, A_JJ);
     return (m === 0) ? raw : mmul(mmul(left, raw), right);
   }
 
