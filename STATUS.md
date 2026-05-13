@@ -1,6 +1,6 @@
 # sd-viz — Status & 维护手册
 
-Last updated: 2026-05-13 [Codex] — Codex + Claude 双家合作维护协议见 §7.
+Last updated: 2026-05-13 [Claude] — Codex + Claude 双家合作维护协议见 §7.
 
 ---
 
@@ -75,13 +75,13 @@ chamber cache, NotImplementedError 透明 fallback legacy.
 
 ```
 [左栏: Configuration (U, A, d)]              [右栏: Stokes matrix S_d]
-├ n input + m_k inputs (m = Σ m_k = N)       ├ N×N grid (点击 cell 选 entry)
-├ precision select (fast/low/medium/high)    ├ Selected entry display
-├ Leading term U = diag(...)                 └ Path info γ_ij^(d)
-│  └ table: two-line complex u_k + m_k
-├ Residue matrix A
-│  └ N×N table: two-line complex entries, Im row has separate i cell
-├ [Recompute Stokes] [Reset]
+├ n input + m_k inputs (m = Σ m_k = N)       ├ N×N grid 带行/列 label
+├ Leading term U = diag(...)                 │  ├ 第一列 sticky, 横滚冻结
+│  └ table (横滚 + 第一列 sticky)            │  ├ 点击 sub-cell 选 entry
+├ Residue matrix A                           │  └ always-visible 横向滚动条
+│  └ N×N table (横滚 + 第一列 sticky)        ├ Selected entry display
+├ precision select (fast/low/medium/high)    └ Path info γ_ij^(d)
+├ [Compute Stokes Matrices]
 │  └ progress: 4 阶段 checkbox + ETA
 └ Direction d ∈ [(2k-1)π, (2k+1)π) (k 跟用户输入)
    ├ d input (units of π)
@@ -90,7 +90,14 @@ chamber cache, NotImplementedError 透明 fallback legacy.
 
 **关键 invariants**:
 - 默认 d = `_v5.d_reg`, k=0 branch `[-π, π)`. 输入 d=2.3 → k=1 branch `[π, 3π)`
-- A 虚部输入框尾巴有 `i` 标记 (`.im-unit` class, 正体 serif font)
+- **Compute 按钮永远 enabled** (用户反馈: "锁就是不对, 按一下就该算一遍"). Reset 按钮已删. 文本固定 "Compute Stokes Matrices". Computing 期间变 Cancel.
+- **输入支持分式**: `parseRational` 接受 "1/2", "-3/4", "1.5/-2.3" 等. U/A 表的 re/im input 都用它. 分母 0 / 格式非法标 `invalid` class.
+- **输入框动态宽度** (`field-sizing: content` + `width: max-content` + `min-width: 5ch`): "3/4" → 27px, 长内容 → 撑到 ~68px. Chrome 123+/Safari 18.2+. table-layout 必须 `auto` 否则列宽锁死.
+- **复数 a+bi 自然写法**: 实部正不带 +, 虚部正显示 +. `fmtInputNum(x, axis)` 是 SSOT 入口.
+- **虚数单位 i 用 IM_UNIT 常量** (`<span class="im-unit">i</span>` 正体 serif). 输入 cx-pair + 输出 cs-grid 都用同一份, **不要在别处写字面量**.
+- **精度档影响显示位数**: `precisionToDigits('medium') = 7` 等. `splitBySigDigits` 按有效数字 (非小数位) 算 fracDigits, 前导 0 不算有效. precision-select 切档立刻 refresh Stokes matrix + selected entry panel, 不重算后端.
+- A/U 表 row-label + Stokes matrix `.sm-row-header` 都 `position: sticky; left: 0`, 水平滚冻结. 左上 corner 双向 sticky (z-index 更高).
+- 横向滚动条 always-visible (`-webkit-appearance: none + height: 8px`); mac webkit 默认 trackpad 才显形会让用户察觉不到能滚.
 - 改 m_k 触发 `applyBlockResize`: A 维度跟 N=sum(m) 同步, 变小取左上子矩阵, 变大补 0
 - Computing 进行中所有 input 锁定 (`setComputingLock(true)`), puncture drag + path-vertex drag 不响应
 - UI 全英文, 不出现 sage / backend / tunnel / tq Richardson / PL push 等技术 jargon. 数学家词汇 (chamber, wall-crossing, anti-Stokes ray, entry, residue matrix, Stokes matrix, direction) 保留.
@@ -103,7 +110,7 @@ chamber cache, NotImplementedError 透明 fallback legacy.
 - 算法层: v5_full 跟 oracle 一致到 chamber data 精度地板 (`tests/diag_*` 全 PASS)
 - Wall-crossing: braid + commutation reduced-word independence 验证到 1e-15
 - Tunnel 链路: GH Pages 跨源 fetch → cloudflared → push_server → recompute_runner → sage runner
-- e2e 10/10 PASS (含 v5_full null-path fixture + 部署 SSOT 检查)
+- e2e 12/12 PASS (含 v5_full null-path fixture + 部署 SSOT 检查 + Compute 按钮策略 + 分式输入防回归)
 - launchd crash recovery 测过
 
 ## 5. 路线图 (按优先级)
