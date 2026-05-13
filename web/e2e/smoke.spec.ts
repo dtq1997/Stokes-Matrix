@@ -274,4 +274,26 @@ test.describe('Sd-viz smoke tests', () => {
     await u00re.press('Tab');
     await expect(btn).toBeEnabled();
   });
+
+  // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
+  test('U/A input 接受分式 a/b 输入', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    const u0re = page.locator('#u-table input[data-k="0"][data-axis="re"]').first();
+    // 1/2 → 0.5
+    await u0re.fill('1/2');
+    await u0re.press('Tab');
+    await expect(u0re).not.toHaveClass(/invalid/);
+    await u0re.evaluate((el: HTMLInputElement) => el.dispatchEvent(new Event('change', {bubbles:true})));
+    // 负分母 → 负数
+    const u0im = page.locator('#u-table input[data-k="0"][data-axis="im"]').first();
+    await u0im.fill('1.5/-3');
+    await u0im.press('Tab');
+    await expect(u0im).not.toHaveClass(/invalid/);
+    // 0 分母 → invalid
+    const u1re = page.locator('#u-table input[data-k="1"][data-axis="re"]').first();
+    await u1re.fill('1/0');
+    await u1re.press('Tab');
+    await expect(u1re).toHaveClass(/invalid/);
+  });
 });

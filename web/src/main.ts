@@ -5,7 +5,7 @@ import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js'
 import { Canvas } from './components/canvas.js';
 import { chamberOfDirection, monodromyTransforms } from './lib/geometry.js';
 import { mmul } from './lib/matexp.js';
-import { parsePiInput, formatPi } from './lib/pi-input.js';
+import { parsePiInput, parseRational, formatPi } from './lib/pi-input.js';
 
 function tex(s: string, displayMode = false): string {
   return katex.renderToString(s, { displayMode, throwOnError: false, strict: false });
@@ -622,11 +622,11 @@ async function main() {
       applyBlockResize(newU, newM);
       return;
     }
-    const v = Number(t.value);
-    if (!Number.isFinite(v)) { t.classList.add('invalid'); return; }
+    const parsed = parseRational(t.value);
+    if (parsed === null) { t.classList.add('invalid'); return; }
     t.classList.remove('invalid');
     const axis = t.dataset.axis as 're' | 'im';
-    state.punctureOverrides![k][axis] = v;
+    state.punctureOverrides![k][axis] = parsed;
     state.stokesStale = true;
     updateStaleBanner();
     canvas.setState(state);
@@ -690,13 +690,13 @@ async function main() {
   function onAEdit(e: Event) {
     const t = e.target as HTMLInputElement;
     if (!t.classList.contains('cx')) return;
-    const v = Number(t.value);
-    if (!Number.isFinite(v)) { t.classList.add('invalid'); return; }
+    const parsed = parseRational(t.value);
+    if (parsed === null) { t.classList.add('invalid'); return; }
     t.classList.remove('invalid');
     const i = Number(t.dataset.i!);
     const j = Number(t.dataset.j!);
     const axis = t.dataset.axis as 're' | 'im';
-    state.AOverrides![i][j][axis] = v;
+    state.AOverrides![i][j][axis] = parsed;
     state.stokesStale = true;
     updateStaleBanner();
   }
