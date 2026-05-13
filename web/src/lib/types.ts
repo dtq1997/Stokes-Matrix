@@ -73,5 +73,6 @@ export interface VizState {
  *  label[k] = rank descending of Im(u_k · e^{i·d}) (1-based). label 最小 = -d 方向最"左".
  *  对 i≠j: S_d^+_{ij} = S_d_{ij} 若 label[i]<label[j], 否则 0.
  *          S_d^-_{ij} = -S_d_{ij} 若 label[i]>label[j], 否则 0.
- *  对角块: S_d^+ = I_block, S_d^- = 0; 故 S_d = S_d^+ - S_d^- (formal grading 下 S_d 对角 = I). */
+ *  对角块: S_d^+ = S_d^- = I_block (displayed S_d 对角约定为 0, 故 0 = 1 - 1 自洽,
+ *  off-diag 逐 entry 也满足 S_d = S_d^+ - S_d^-). */
 export type SdView = 'std' | 'plus' | 'minus';

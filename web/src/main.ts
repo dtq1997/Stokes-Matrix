@@ -914,8 +914,10 @@ async function main() {
       const a = Number(cell.dataset.a!);
       const b = Number(cell.dataset.b!);
       if (I === J) {
-        // plus 模式对角块 = I_block: a==b → 1, a≠b → 0; std / minus → 0.
-        if (view === 'plus' && a === b) {
+        // plus / minus 模式对角块 = I_block: a==b → 1, a≠b → 0; std → 0.
+        // 用户约定: displayed S_d diag=0, 但 displayed S_d^± diag=I, 保 S_d=S_d^+−S_d^−
+        // 在 off-diag 逐 entry 等式 + 对角 (0 = 1−1) 全部成立.
+        if ((view === 'plus' || view === 'minus') && a === b) {
           cell.innerHTML = `<span class="cs-zero">${tex('1')}</span>`;
         } else {
           cell.innerHTML = `<span class="cs-zero">${tex('0')}</span>`;

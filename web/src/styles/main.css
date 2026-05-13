@@ -570,7 +570,11 @@ h3 {
   border: 1px solid transparent;
   cursor: pointer;
   line-height: 1.15;
-  min-height: 38px;
+  /* layout stability: 0/I cell 也要撑到跟最宽 cs-grid cell 同尺寸, 避免 S_d ↔ S_d^±
+     切换时列宽 / 行高塌缩. width: sign+gap+i+padding ≈ 4ch + 全局 int/frac;
+     height: cs-grid 实测 ~40px (2 行 × line-height + padding), 给固定 min-height. */
+  min-width: calc(var(--cs-int-w, 1ch) + var(--cs-frac-w, 0ch) + 4ch);
+  min-height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;

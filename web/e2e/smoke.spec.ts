@@ -419,6 +419,27 @@ test.describe('Sd-viz smoke tests', () => {
     await expect(page.locator('#sd-view-selector .sd-view-btn[data-view="std"]')).toHaveClass(/active/);
   });
 
+  // 防回归 (2026-05-14, layout stability): 切换 S_d / S_d^+ / S_d^- 时每个 cell 的
+  // 几何盒子大小不能变 (user-facing 原则: spatial stability / 反 CLS).
+  test('S_d ↔ S_d^± 切换时 cell 尺寸保持不变', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('#stokes-matrix .sm-cell');
+    const cellSizes = async () => page.$$eval(
+      '#stokes-matrix .sm-cell',
+      cells => cells.map(c => {
+        const r = c.getBoundingClientRect();
+        return `${c.getAttribute('data-i')}-${c.getAttribute('data-j')}-${c.getAttribute('data-a')}-${c.getAttribute('data-b')}:${Math.round(r.width)}x${Math.round(r.height)}`;
+      }),
+    );
+    const std = await cellSizes();
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="plus"]').click();
+    const plus = await cellSizes();
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="minus"]').click();
+    const minus = await cellSizes();
+    expect(plus).toEqual(std);
+    expect(minus).toEqual(std);
+  });
+
   // 防回归 (2026-05-14): 拖 d slider 时 S_d^+ 矩阵内容随 -d label 重新分类.
   test('S_d^+ 内容随 d 改变 (label 重排)', async ({ page }) => {
     await page.goto('/');
