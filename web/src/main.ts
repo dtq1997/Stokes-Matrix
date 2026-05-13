@@ -35,6 +35,31 @@ const fmtComplex = (re: number, im: number, digits = 4) => {
   return `<span class="complex-re">${r}</span> ${sign} <span class="complex-im">${Math.abs(im).toFixed(digits)}</span>${IM_UNIT}`;
 };
 
+function precisionToDigits(p: string): number {
+  switch (p) {
+    case 'fast': return 4;
+    case 'low': return 5;
+    case 'medium': return 7;
+    case 'high': return 8;
+    default: return 7;
+  }
+}
+
+function selectedPrecisionDigits(): number {
+  const sel = document.getElementById('precision-select') as HTMLSelectElement | null;
+  return precisionToDigits(sel?.value ?? 'medium');
+}
+
+function splitBySigDigits(x: number, digits: number): [string, string] {
+  if (x === 0) return ['0', ''];
+  const ax = Math.abs(x);
+  const mag = Math.floor(Math.log10(ax));
+  const fracDigits = Math.max(0, digits - mag - 1);
+  const s = ax.toFixed(fracDigits);
+  const dot = s.indexOf('.');
+  return dot < 0 ? [s, ''] : [s.slice(0, dot), s.slice(dot)];
+}
+
 async function main() {
   const dataset = await loadDataset();
 
@@ -312,6 +337,11 @@ async function main() {
   buildStokesMatrix();
   updateDimInfo();
   setupResizeHandles();
+  const precisionSelect = document.getElementById('precision-select') as HTMLSelectElement;
+  precisionSelect.addEventListener('change', () => {
+    refreshStokesMatrix();
+    updateStokesPanel();
+  });
   // Compute 按钮: 始终可点 (用户反馈 "锁就是不对, 按一下就该算一遍").
   // stokesStale 仅用于驱动 stale-banner 文案; 不再控制按钮 disabled.
   // computing 期间按钮变成 Cancel (click handler 内分支), 仍然 enabled.
@@ -766,19 +796,15 @@ async function main() {
    * 改用 HTML 完全可控. 字体用 KaTeX_Main 保持数学风格.
    * 模长 ≈ 0 → 单行 '0'.
    */
-  function renderComplex(v: { re: number; im: number }, precision = 2): string {
+  function renderComplex(v: { re: number; im: number }, digits = 7): string {
     const mag = Math.hypot(v.re, v.im);
-    if (mag < 5 * 10 ** -(precision + 1)) return `<span class="cs-zero">${tex('0')}</span>`;
-    const split = (x: number) => {
-      const s = Math.abs(x).toFixed(precision);
-      const dot = s.indexOf('.');
-      return dot < 0 ? [s, ''] : [s.slice(0, dot), s.slice(dot)];
-    };
+    const tinyThreshold = 10 ** -(digits + 2);
+    if (mag < tinyThreshold) return `<span class="cs-zero">${tex('0')}</span>`;
     // a+bi 自然写法: 实部正不带 +, 负数 '−'; 虚部正显示 +, 负 '−'. (U+2212 minus, 视觉比 '-' 宽)
     const reSign = v.re < 0 ? '−' : '';
     const imSign = v.im >= 0 ? '+' : '−';
-    const [reInt, reFrac] = split(v.re);
-    const [imInt, imFrac] = split(v.im);
+    const [reInt, reFrac] = splitBySigDigits(v.re, digits);
+    const [imInt, imFrac] = splitBySigDigits(v.im, digits);
     return `<div class="cs-grid">
       <span class="cs-sign">${reSign}</span><span class="cs-int">${reInt}</span><span class="cs-frac">${reFrac}</span><span class="cs-i"></span>
       <span class="cs-sign">${imSign}</span><span class="cs-int">${imInt}</span><span class="cs-frac">${imFrac}</span><span class="cs-i">${IM_UNIT}</span>
@@ -788,6 +814,7 @@ async function main() {
   function refreshStokesMatrix() {
     const sm = document.getElementById('stokes-matrix')!;
     const ch = dataset.chambers[state.selectedChamber];
+    const digits = selectedPrecisionDigits();
     // 预算所有 (I, J) modified block (paper monodromy 块版修正一次, sub-cell 共享).
     const blockCache = new Map<string, ComplexNum[][]>();
     for (const key of Object.keys(ch.entries)) {
@@ -817,7 +844,7 @@ async function main() {
       } else {
         const mod = blockCache.get(`${I},${J}`);
         const v = mod?.[a]?.[b] ?? { re: 0, im: 0 };
-        cell.innerHTML = renderComplex(v);
+        cell.innerHTML = renderComplex(v, digits);
       }
     }
   }
@@ -868,15 +895,16 @@ async function main() {
     // 块版: 列出整个 m_i × m_j sub-block. 用 modifiedBlock (paper monodromy 块版修正).
     const mod = modifiedBlock(e, ch.d, i, j);
     const m_i = mod.length, m_j = mod[0]?.length ?? 1;
+    const digits = selectedPrecisionDigits();
     let inner = '';
     if (m_i === 1 && m_j === 1) {
-      inner = renderComplex(mod[0][0], 5);
+      inner = renderComplex(mod[0][0], digits);
     } else {
       inner = '<div class="block-grid" style="display:grid;'
         + `grid-template-columns:repeat(${m_j}, 1fr);gap:6px">`;
       for (let a = 0; a < m_i; a++) {
         for (let b = 0; b < m_j; b++) {
-          inner += `<div class="block-sub-cell">${renderComplex(mod[a][b], 4)}</div>`;
+          inner += `<div class="block-sub-cell">${renderComplex(mod[a][b], digits)}</div>`;
         }
       }
       inner += '</div>';
