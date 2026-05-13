@@ -469,13 +469,18 @@ test.describe('Sd-viz smoke tests', () => {
   });
 
   // 防回归 (2026-05-14): S_d^eg view 语义.
-  //   (S_d^eg)_{ij} = (S_[τ_closest])_{ij}, 与 std (S_d)_{ij} 一般不等
-  //   (std 经过若干 wall-crossing 累积; eg 是 (i,j) 直线段紧邻 chamber 的值 + M30' lift).
-  // 默认 dataset 下 (1,3) entry 应被验证为 std ≠ eg @ d_ref (manual check via python sage data).
-  test('S_d^eg: per-pair branch lookup, std/eg 在大部分 pair 上不等', async ({ page }) => {
+  //   (S_d^eg)_{ij} uses the exported raw v5 straight-entry anchor, not any S_d chamber value.
+  test('S_d^eg: raw v5 anchor baseline + per-pair 2π shift', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('#stokes-matrix .sm-cell');
     const cellText = async (sel: string) => (await page.locator(sel).first().textContent() ?? '').replace(/\s+/g, '');
+    const raw02 = await page.evaluate(async () => {
+      const r = await fetch('/data/n4_block.json');
+      const data = await r.json();
+      return data._v5_eg_entries['0,2'].value_block[0][0];
+    });
+    expect(raw02.re).toBeCloseTo(-1.277590307, 5);
+    expect(raw02.im).toBeCloseTo(0.122106265, 5);
     // 全表 std 快照
     const collect = async () => page.$$eval(
       '#stokes-matrix .sm-cell:not(.diag)',
@@ -488,14 +493,17 @@ test.describe('Sd-viz smoke tests', () => {
     // 至少有一个 off-diag entry 在 std 和 eg 之间值不同 (默认 dataset 必然如此).
     const diffs = stdSnap.filter((s, k) => s !== egSnap[k]);
     expect(diffs.length).toBeGreaterThan(0);
-    // (1,3) 在默认 dataset 下 std ≠ eg (manually verified): 8.186+2.237i vs 0.069+1.525i.
-    const std13 = await (async () => {
+    // (0,2)[0,0] at d_reg is the raw anchor, not the all-minus base chamber value.
+    const std02 = await (async () => {
       await page.locator('#sd-view-selector .sd-view-btn[data-view="std"]').click();
-      return cellText('#stokes-matrix .sm-cell[data-i="1"][data-j="3"]');
+      return cellText('#stokes-matrix .sm-cell[data-i="0"][data-j="2"][data-a="0"][data-b="0"]');
     })();
     await page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]').click();
-    const eg13 = await cellText('#stokes-matrix .sm-cell[data-i="1"][data-j="3"]');
-    expect(eg13).not.toBe(std13);
+    const eg02 = await cellText('#stokes-matrix .sm-cell[data-i="0"][data-j="2"][data-a="0"][data-b="0"]');
+    expect(eg02).not.toBe(std02);
+    expect(eg02).toContain('1.277');
+    expect(eg02).toContain('0.122');
+    expect(eg02).not.toContain('2.634');
     // 拖 d 远离 d_ref 后, eg 仍按 per-pair branch lookup 变 — 至少一个 cell 文本变了.
     const slider = page.locator('#d-slider-wrap input[type="range"]');
     await slider.evaluate((el: HTMLInputElement) => {

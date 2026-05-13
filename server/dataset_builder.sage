@@ -195,6 +195,31 @@ def _entry_from_block(block, m_i, m_j, provenance, extra=None):
     return entry
 
 
+def _pack_v5_eg_entries(info_v5, m_sizes):
+    raw = info_v5.get('d_reg_info', {}).get('eg_entries', {})
+    out = {}
+    for key in sorted(raw.keys()):
+        i, j = key
+        rec = raw[key]
+        block = rec['value_block']
+        mi, mj = int(m_sizes[i]), int(m_sizes[j])
+        entry = _entry_from_block(
+            block, mi, mj, 'v5_raw_anchor',
+            {
+                'tau_lift': float(rec['tau_lift']),
+                'v5_labels': [_py_int(x) for x in rec.get('v5_labels', [])],
+                'sigma_geom': rec.get('sigma_geom'),
+                'word_string': rec.get('word_string'),
+            },
+        )
+        if rec.get('confidence') is not None:
+            entry['confidence'] = float(rec['confidence'])
+        if rec.get('romberg_increment_rel') is not None:
+            entry['romberg_increment_rel'] = float(rec['romberg_increment_rel'])
+        out[f'{_py_int(i)},{_py_int(j)}'] = entry
+    return out
+
+
 def _v5_metadata_for_dataset(info_v5, kwargs, precompute_seconds):
     return {
         'd_reg': float(info_v5['d_reg_info']['d_reg']),
@@ -325,6 +350,7 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
         'miss': _py_int(n * (n - 1) * len(chamber_ds)),
         'algorithm': 'v5_full',
         'v5': _v5_metadata_for_dataset(info_v5, kwargs, precompute_seconds),
+        'v5_eg_entries': _pack_v5_eg_entries(info_v5, m_sizes),
     }
 
 

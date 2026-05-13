@@ -93,9 +93,11 @@ chambers_out, _stats = build_chambers(
 )
 results['chambers'] = chambers_out
 results['_algorithm'] = _stats.get('algorithm', ALGORITHM)
-results['_cache_stats'] = _stats
+results['_cache_stats'] = {k: v for k, v in _stats.items() if k != 'v5_eg_entries'}
 if 'v5' in _stats:
     results['_v5'] = _stats['v5']
+if 'v5_eg_entries' in _stats:
+    results['_v5_eg_entries'] = _stats['v5_eg_entries']
 # 最终保存
 with open(OUT, 'w') as f:
     json.dump(results, f, indent=2)

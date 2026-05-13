@@ -25,6 +25,10 @@
 7. `server/dataset_builder.sage` 对 `_v5` metadata 是白名单打包. 新增
    `compute_sd_v5_full.sage` 的 info key 后, 若要进入 dataset, 必须同步改
    `_v5_metadata_for_dataset`; 只改 exporter 或 compute info 不够.
+8. `chambers[*].entries` 只表示当前 chamber 的 `S_d` 值, 不是 v5 初始直线
+   entry. `S_d^eg` 的 baseline 必须从 top-level `_v5_eg_entries` 读 raw
+   anchor (`value_block` + `tau_lift`), 不要从 `base_chamber` 或 ray-adjacent
+   chamber 取 `value_block`.
 
 ### 改后端 (server/)
 

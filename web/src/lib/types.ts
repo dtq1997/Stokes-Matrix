@@ -27,6 +27,16 @@ export interface SdEntryData {
   error?: string;
 }
 
+export interface V5EgEntryData extends SdEntryData {
+  value_block: ComplexNum[][];
+  tau_lift: number;
+  v5_labels?: number[];
+  sigma_geom?: string;
+  word_string?: string | null;
+  confidence?: number | null;
+  romberg_increment_rel?: number | null;
+}
+
 export interface ChamberData {
   d: number;                     // chamber sample d (rad). SSOT: 在 ℝ 上单调递增, 落在
                                  // (rays[0], rays[0]+2π) 内. 不 mod 2π. viz 显示用
@@ -44,6 +54,7 @@ export interface SimpleDataset {
   chambers: ChamberData[];
   _algorithm?: string;
   _v5?: unknown;
+  _v5_eg_entries?: { [key: string]: V5EgEntryData };
   _cache_stats?: unknown;
 }
 

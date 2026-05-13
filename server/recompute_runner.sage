@@ -75,10 +75,12 @@ def recompute(inp):
         'rays': [float(x) for x in rays],
         'chambers': chambers_out,
         '_algorithm': stats.get('algorithm', algorithm),
-        '_cache_stats': stats,
+        '_cache_stats': {k: v for k, v in stats.items() if k != 'v5_eg_entries'},
     }
     if 'v5' in stats:
         out['_v5'] = stats['v5']
+    if 'v5_eg_entries' in stats:
+        out['_v5_eg_entries'] = stats['v5_eg_entries']
     return out
 
 

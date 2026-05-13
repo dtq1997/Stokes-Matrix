@@ -141,8 +141,6 @@ async function main() {
   // 默认 d: 优先用 dataset 里的 d_reg (v5 的 reference direction, 落在 [-π, π) 内);
   // 没有时 fallback -π/2.
   let initialD = -Math.PI / 2;
-  let dRegLifted = -Math.PI / 2;  // d_reg, S_d^eg 公式里用 (per-pair tau_lift 参考方向)
-  let baseChamberIndex = 0;       // d_reg 所在 chamber 索引; S_d^eg baseline = chambers[baseChamberIndex].value_block
   try {
     const meta = (dataset as any)._v5;
     const dReg = meta && typeof meta.d_reg === 'number' ? meta.d_reg : null;
@@ -152,10 +150,6 @@ async function main() {
       while (normalized >= Math.PI) normalized -= 2 * Math.PI;
       while (normalized < -Math.PI) normalized += 2 * Math.PI;
       initialD = normalized;
-      dRegLifted = dReg;  // 原值 (不 normalize), 用来算 per-pair tau_lift = θ + 2π·round((d_reg-θ)/2π)
-    }
-    if (meta && typeof meta.base_chamber_index === 'number') {
-      baseChamberIndex = meta.base_chamber_index;
     }
   } catch { /* ignore, use fallback */ }
   let currentD = initialD;
@@ -861,46 +855,27 @@ async function main() {
     return mmul(mmul(left, block), right);
   }
 
-  /** S_d^eg 的 (I, J) 块: (S_d^eg)_{IJ} := (S_[τ_closest])_{IJ},
-   *  其中 τ_closest = θ_IJ + 2π·m_d, m_d = round((currentD - θ_IJ)/2π).
-   *
-   *  ⚠ baseline 不能用 chambers[pair_ray_idx].value_block — 那是 wall-crossing 累积值,
-   *  不是直线段 ρ-值. 必须用 **base chamber** (v5 d_reg 所在 chamber) 的 value_block.
-   *  sage v5 算 base chamber 时, 每对 (I, J) 用的 tau 是
-   *    tau_lift = θ_IJ + 2π·m_ref, m_ref = round((d_reg - θ_IJ)/2π),
-   *  即 -arg(u_J-u_I) 取距 d_reg 最近的 2π 分支. base_chamber.value_block[I,J] 就是
-   *  (S_[tau_lift])_{IJ} 的直线段值.
-   *
-   *  从 baseline (in tau_lift) 平移到 τ_closest (in 距 currentD 最近的 lift):
-   *    Δm = m_d - m_ref
-   *    (S_d^eg)_{IJ} = e^{-2πi·Δm·A_II} · base_chamber.value_block[I,J] · e^{2πi·Δm·A_JJ}
-   *  即 monodromyTransforms(τ_closest, tau_lift, A_II, A_JJ) 自动给出 Δm = round((τ_closest-tau_lift)/2π).
-   *
-   *  历史 bug (修于 2026-05-14): 之前 baseline 错用 chambers[pairToRayIdx(I,J)],
-   *  那是 wall-crossing 后的值, 导致 S_d^eg 错. base chamber 才对.
-   */
+  /** S_d^eg 的 (I, J) 块: raw v5 straight-entry anchor at tau_lift,
+   *  shifted to the closest 2π lift of -arg(u_J-u_I) near currentD. */
   function egBlock(I: number, J: number): ComplexNum[][] | null {
+    const rawEntry = dataset._v5_eg_entries?.[`${I},${J}`];
+    if (!rawEntry?.value_block || typeof rawEntry.tau_lift !== 'number') return null;
+    const raw = rawEntry.value_block;
+
+    /* tau_closest = θ_IJ + 2π·round((currentD - θ_IJ)/2π).
+     * The baseline tau_lift is exported by sage from the raw v5 anchor, not
+     * inferred from any S_d chamber value. */
     const ps = state.punctureOverrides ?? dataset.punctures;
     const dx = ps[J].re - ps[I].re, dy = ps[J].im - ps[I].im;
     let theta = -Math.atan2(dy, dx);
     while (theta >= Math.PI) theta -= 2 * Math.PI;
     while (theta < -Math.PI) theta += 2 * Math.PI;
     const tp = 2 * Math.PI;
-
-    const baseCh = dataset.chambers[baseChamberIndex] ?? dataset.chambers[0];
-    const e = baseCh.entries[`${I},${J}`];
-    if (!e || e.error) return null;
-    const raw = e.value_block ?? [[{ re: e.value_re ?? 0, im: e.value_im ?? 0 }]];
-
-    // tau_lift = θ + 2π·round((d_reg - θ)/2π) — sage 端 base chamber (I,J) 用的 tau.
-    const m_ref = Math.round((dRegLifted - theta) / tp);
-    const tau_lift = theta + m_ref * tp;
-    // τ_closest = θ + 2π·round((currentD - θ)/2π)
     const m_d = Math.round((currentD - theta) / tp);
     const tau_closest = theta + m_d * tp;
 
     const A_II = getABlock(I), A_JJ = getABlock(J);
-    const { left, right, m } = monodromyTransforms(tau_closest, tau_lift, A_II, A_JJ);
+    const { left, right, m } = monodromyTransforms(tau_closest, rawEntry.tau_lift, A_II, A_JJ);
     return (m === 0) ? raw : mmul(mmul(left, raw), right);
   }
 
@@ -932,7 +907,7 @@ async function main() {
     const valuesFresh = stokesValuesFresh();
     const view = state.sdView;
     // 预算所有 (I, J) modified block (paper monodromy 块版修正一次, sub-cell 共享).
-    // eg 模式: baseline + per-pair Δm sandwich (egBlock).
+    // eg 模式: raw straight-entry anchor + per-pair Δm sandwich (egBlock).
     const blockCache = new Map<string, ComplexNum[][]>();
     if (valuesFresh) {
       const n_ch = state.mOverrides ? state.mOverrides.length : dataset.m_sizes.length;
@@ -1014,6 +989,10 @@ async function main() {
         cell.innerHTML = `<span class="cs-zero">${tex('0')}</span>`;
       } else {
         const mod = blockCache.get(`${I},${J}`);
+        if (!mod && view === 'eg') {
+          cell.innerHTML = '<span class="cs-zero" title="straight-entry data unavailable">—</span>';
+          continue;
+        }
         const v = mod?.[a]?.[b] ?? { re: 0, im: 0 };
         const w = sign === 1 ? v : { re: -v.re, im: -v.im };
         cell.innerHTML = renderComplex(w, digits);
@@ -1260,7 +1239,13 @@ async function main() {
     // 块版: 列出整个 m_i × m_j sub-block. std/plus/minus 用 modifiedBlock; eg 用 egBlock.
     let mod: ComplexNum[][];
     if (state.sdView === 'eg' && i !== j) {
-      mod = egBlock(i, j) ?? modifiedBlock(e, ch.d, i, j);
+      const eg = egBlock(i, j);
+      if (!eg) {
+        el.innerHTML = `<div class="label">${tex(labelTex)}</div>`
+          + '<div class="value dim">straight-entry data unavailable</div>';
+        return;
+      }
+      mod = eg;
     } else {
       mod = modifiedBlock(e, ch.d, i, j);
     }

@@ -62,6 +62,13 @@ single wall-crossing rule          由 S_{d_reg} 算所有 chamber 的 S_d
 chamber cache + 2π lift            任意 d → S_d
 ```
 
+`S_d^eg` display does **not** read `chambers[*].entries`: those entries are
+already `S_d` chamber values (raw v5 anchor → all-minus BFS → wall-crossing).
+The raw straight-entry anchors are exported separately as top-level
+`_v5_eg_entries["i,j"] = { value_block, tau_lift, ... }`, and the frontend only
+applies the 2π monodromy sandwich from `tau_lift` to the closest lift of
+`-arg(u_j-u_i)`.
+
 **详细文档** (上层 academic-formula-workbench 主仓库):
 - `90-meta/Sd-v5-pipeline-report.md` — 算法栈 + 验证证据 + 接口
 - `90-meta/conventions.md` §2.8-§2.11 — 数学约定
@@ -141,6 +148,9 @@ chamber cache, NotImplementedError 透明 fallback legacy.
 3. **TypeScript typecheck 不抓 runtime TDZ / hoisting**. 必须靠 e2e (e.g. 在 d3-drag setup 引用未初始化的 `currentK` → page crash, typecheck PASS).
 4. **build 用 `VITE_BACKEND_URL` env var** 把 tunnel URL 编进 JS bundle. CI 已配, 本地 dev 也用同样 env (`env VITE_BACKEND_URL=https://sd-viz.dtq1997.org npm run dev`).
 5. **当前 dataset metadata 在 `._v5.*`, 不是 `.metadata.*`**. live/static/tunnel residual 查 `._v5.residual_max`; 旧 spec 里的 `.metadata.residual` 会返回 `null`.
+5a. **`chambers[*].entries` 不是 raw v5 anchor**. 它们是 `S_d` chamber values.
+    `S_d^eg` 必须读 top-level `_v5_eg_entries`; 不要用 `base_chamber.value_block`
+    或 `pair ray` 所在 chamber 反猜 straight-entry baseline.
 6. **本机 launchd backend label 是 `org.dtq1997.sd-viz-backend`**. plist 路径是 `~/Library/LaunchAgents/org.dtq1997.sd-viz-backend.plist`; 旧 `sd-viz.push_server.plist` 名称已过时.
 7. **本地 e2e 若 10/10 全部 `ERR_CONNECTION_REFUSED`**, 先手动 `cd web && npm run dev` 确认 `localhost:5174` ready, 再跑 `npm run test:e2e`; 这不是前端逻辑十连回归.
 
