@@ -1040,122 +1040,185 @@ async function main() {
 
   type CutCoord = { x: number; y: number };
 
+  /** cut-coord: 旋转 plane 让所有 cut 沿 +y 方向 ("上"). cut 在 plane 里是
+   *  { u_k + t·e^{-id}, t ≥ 0 } (canvas.renderCuts dirVec = expI(-d)).
+   *  新坐标系 basis:
+   *    new_y_hat = e^{-id} = (cos d, -sin d)   ← cut 方向
+   *    new_x_hat = e^{-id}·(-i) = (-sin d, -cos d)   ← new_y_hat 顺时针 90°
+   *  投影:
+   *    new_x = -(re·sin d + im·cos d)
+   *    new_y = re·cos d - im·sin d
+   *  cut 在新坐标系下是 { (cut.x_new, cut.y_new + t), t ≥ 0 }, 即垂直射线向 +y. */
   function toCutCoord(p: ComplexNum, d: number): CutCoord {
     const c = Math.cos(d), s = Math.sin(d);
-    return { x: p.re * c - p.im * s, y: p.re * s + p.im * c };
+    return { x: -(p.re * s + p.im * c), y: p.re * c - p.im * s };
   }
-
   function fromCutCoord(p: CutCoord, d: number): ComplexNum {
+    // inverse: re = -x·sin d + y·cos d, im = -x·cos d - y·sin d
     const c = Math.cos(d), s = Math.sin(d);
-    return { re: p.x * c + p.y * s, im: p.y * c - p.x * s };
+    return { re: -p.x * s + p.y * c, im: -p.x * c - p.y * s };
   }
 
-  function segmentHitsCut(a: CutCoord, b: CutCoord, cut: CutCoord): boolean {
+  /** 判 ray { (cut.x, y) : y ≥ cut.y } 是否被线段 [a, b] 穿过.
+   *  方法: 看线段在 x=cut.x 处的 y 值是否 ≥ cut.y. 线段 x 范围必须跨过 cut.x.
+   *  padX: ray 视觉余量, cut.x ± padX 之内也算撞. */
+  function segmentHitsCut(a: CutCoord, b: CutCoord, cut: CutCoord, padX = 0): boolean {
     const eps = 1e-9;
-    const dy = b.y - a.y;
-    if (Math.abs(dy) < eps) {
-      if (Math.abs(a.y - cut.y) > eps) return false;
-      return Math.max(a.x, b.x) >= cut.x - eps;
+    const xmin = Math.min(a.x, b.x), xmax = Math.max(a.x, b.x);
+    // 线段 x 区间不覆盖 cut.x (含 padX) → 不交
+    if (xmax < cut.x - padX - eps || xmin > cut.x + padX + eps) return false;
+    const dx = b.x - a.x;
+    if (Math.abs(dx) < eps) {
+      // 线段几乎竖直: x 跟 cut.x 相近 (前面没过滤掉), 看 y 范围跟 ray 是否重叠.
+      return Math.max(a.y, b.y) >= cut.y - eps;
     }
-    const t = (cut.y - a.y) / dy;
-    if (t <= eps || t >= 1 - eps) return false;
-    const x = a.x + t * (b.x - a.x);
-    return x >= cut.x - eps;
+    // 在线段上找 x = cut.x 那点; padX 区间内取最不利 (y 最大) 的撞测试
+    // 简化: 检查 [cut.x - padX, cut.x + padX] 内线段上 y 的最大值 ≥ cut.y.
+    const sample = [cut.x - padX, cut.x, cut.x + padX];
+    let maxY = -Infinity;
+    for (const sx of sample) {
+      if (sx < xmin - eps || sx > xmax + eps) continue;
+      const t = (sx - a.x) / dx;
+      const y = a.y + t * (b.y - a.y);
+      maxY = Math.max(maxY, y);
+    }
+    return maxY >= cut.y - eps;
   }
 
-  function pathHitsCuts(path: CutCoord[], cuts: CutCoord[]): boolean {
-    for (let p = 0; p < path.length - 1; p++) {
+  /** Sample cubic Bezier 密集采样 + 测每段是否撞 cut. n=64 足够，d 变时重算便宜. */
+  function bezierHitsAnyCut(a: CutCoord, c1: CutCoord, c2: CutCoord, b: CutCoord, cuts: CutCoord[], padX = 0): boolean {
+    const n = 64;
+    let prev = a;
+    for (let k = 1; k <= n; k++) {
+      const t = k / n, u = 1 - t, uu = u * u, tt = t * t;
+      const cur = {
+        x: uu * u * a.x + 3 * uu * t * c1.x + 3 * u * tt * c2.x + tt * t * b.x,
+        y: uu * u * a.y + 3 * uu * t * c1.y + 3 * u * tt * c2.y + tt * t * b.y,
+      };
       for (const cut of cuts) {
-        if (segmentHitsCut(path[p], path[p + 1], cut)) return true;
+        if (segmentHitsCut(prev, cur, cut, padX)) return true;
       }
+      prev = cur;
     }
     return false;
   }
 
-  function cubicPoint(a: CutCoord, c1: CutCoord, c2: CutCoord, b: CutCoord, t: number): CutCoord {
-    const u = 1 - t;
-    const uu = u * u, tt = t * t;
-    return {
-      x: uu * u * a.x + 3 * uu * t * c1.x + 3 * u * tt * c2.x + tt * t * b.x,
-      y: uu * u * a.y + 3 * uu * t * c1.y + 3 * u * tt * c2.y + tt * t * b.y,
-    };
-  }
-
-  function sampleCubic(a: CutCoord, c1: CutCoord, c2: CutCoord, b: CutCoord): CutCoord[] {
-    const pts: CutCoord[] = [];
-    for (let k = 0; k <= 28; k++) pts.push(cubicPoint(a, c1, c2, b, k / 28));
-    return pts;
-  }
-
-  function polylineLength(path: CutCoord[]): number {
-    let total = 0;
-    for (let k = 0; k < path.length - 1; k++) {
-      total += Math.hypot(path[k + 1].x - path[k].x, path[k + 1].y - path[k].y);
+  /** Upper-hull of 2D points. y 朝上时, upper hull 沿"右拐"走 (cross < 0).
+   *  即 cross >= 0 时把中间点 pop 掉 (Andrew monotone chain 标准实现). */
+  function upperHull(pts: CutCoord[]): CutCoord[] {
+    const sorted = [...pts].sort((p, q) => p.x - q.x || p.y - q.y);
+    const hull: CutCoord[] = [];
+    const cross = (o: CutCoord, a: CutCoord, b: CutCoord) =>
+      (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    for (const p of sorted) {
+      while (hull.length >= 2 && cross(hull[hull.length - 2], hull[hull.length - 1], p) >= 0) {
+        hull.pop();
+      }
+      hull.push(p);
     }
-    return total;
+    return hull;
   }
 
+  /** Catmull-Rom (alpha=0.5, centripetal) → cubic Bezier 段. 用于把多顶点折线
+   *  转成平滑曲线. 端点重复一次 ("clamped" 边界). 返 SVG path "d" 字符串里
+   *  M / C 命令的顶点数组 (a, c1, c2, b)*N-1. */
+  function catmullRomToBeziers(pts: CutCoord[]): Array<[CutCoord, CutCoord, CutCoord, CutCoord]> {
+    if (pts.length < 2) return [];
+    const out: Array<[CutCoord, CutCoord, CutCoord, CutCoord]> = [];
+    const get = (k: number) => pts[Math.max(0, Math.min(pts.length - 1, k))];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = get(i - 1), p1 = get(i), p2 = get(i + 1), p3 = get(i + 2);
+      const tension = 1 / 6;  // 标准 Catmull-Rom uniform → Bezier 系数
+      const c1 = {
+        x: p1.x + (p2.x - p0.x) * tension,
+        y: p1.y + (p2.y - p0.y) * tension,
+      };
+      const c2 = {
+        x: p2.x - (p3.x - p1.x) * tension,
+        y: p2.y - (p3.y - p1.y) * tension,
+      };
+      out.push([p1, c1, c2, p2]);
+    }
+    return out;
+  }
+
+  /** S_d view 自然路径 (凸包绕障版):
+   *  1. 把 cuts 中 "挡道" 的 (cut.x 介于 a.x, b.x 之间) 提取出来.
+   *  2. 用 a, b, 挡道 cut 起点 (略上抬 padY) 取上凸包.
+   *  3. Catmull-Rom 平滑.
+   *
+   *  Rationale: 上凸包 = a → b 之间在 cuts (向上无穷射线) 的"屋顶上方"绕过去的最短折线.
+   *  在 cut-coord 下 cuts 都竖直向 +y, 上凸包绕过它们的起点天然不撞 cut.
+   *  小幅 padY 上抬让 Bezier 平滑曲线也安全地高于 cut 起点.
+   */
   function computeNaturalPath(i: number, j: number, punctures: ComplexNum[], d: number): {
     vertices: ComplexNum[];
-    kind: 'line' | 'cubic' | 'poly';
+    kind: 'line' | 'cubic';
   } {
     const start = punctures[i], end = punctures[j];
-    const a = toCutCoord(start, d);
-    const b = toCutCoord(end, d);
-    const cuts = punctures
-      .map((p, k) => ({ k, p: toCutCoord(p, d) }))
-      .filter(x => x.k !== i && x.k !== j)
-      .map(x => x.p);
+    const a = toCutCoord(start, d), b = toCutCoord(end, d);
+    const cuts = punctures.map((p, k) => ({ k, p: toCutCoord(p, d) }))
+      .filter(x => x.k !== i && x.k !== j).map(x => x.p);
+    const chord = Math.hypot(b.x - a.x, b.y - a.y);
+    const padX = Math.max(0.05, 0.04 * chord);
+    const padY = Math.max(0.10, 0.10 * chord);
 
-    if (cuts.length === 0 || !pathHitsCuts([a, b], cuts)) {
+    if (cuts.length === 0) {
+      return { vertices: [{ ...start }, { ...end }], kind: 'line' };
+    }
+    if (!cuts.some(cut => segmentHitsCut(a, b, cut, padX))) {
       return { vertices: [{ ...start }, { ...end }], kind: 'line' };
     }
 
-    const all = [a, b, ...cuts];
-    const xSpan = Math.max(1e-6, Math.max(...all.map(p => p.x)) - Math.min(...all.map(p => p.x)));
-    const ySpan = Math.max(1e-6, Math.max(...all.map(p => p.y)) - Math.min(...all.map(p => p.y)));
-    const scale = Math.max(1, xSpan, ySpan, Math.hypot(b.x - a.x, b.y - a.y));
-    const chord = Math.hypot(b.x - a.x, b.y - a.y);
-    const ux = chord > 1e-9 ? (b.x - a.x) / chord : 1;
-    const uy = chord > 1e-9 ? (b.y - a.y) / chord : 0;
-    const nx = -uy, ny = ux;
-    const base = Math.max(0.18 * chord, 0.10 * scale);
-    const candidates: Array<{ c1: CutCoord; c2: CutCoord; score: number }> = [];
+    // 挡道 cuts: cut.x 在 (min(a.x,b.x), max(a.x,b.x)) 之内 (含 padX 余量), 且
+    // cut.y ≤ max(a.y, b.y) + padY (cut 起点没远在 a/b 上方, 否则不影响 a→b 通道).
+    const xLo = Math.min(a.x, b.x) - padX;
+    const xHi = Math.max(a.x, b.x) + padX;
+    const yCap = Math.max(a.y, b.y) + padY;
+    const blockers = cuts.filter(c => c.x > xLo && c.x < xHi && c.y < yCap);
 
-    for (const side of [1, -1]) {
-      for (const mult of [1, 1.6, 2.4, 3.5, 5]) {
-        const off = base * mult;
-        const c1 = { x: a.x + (b.x - a.x) * 0.34 + side * nx * off, y: a.y + (b.y - a.y) * 0.34 + side * ny * off };
-        const c2 = { x: a.x + (b.x - a.x) * 0.66 + side * nx * off, y: a.y + (b.y - a.y) * 0.66 + side * ny * off };
-        const sample = sampleCubic(a, c1, c2, b);
-        if (!pathHitsCuts(sample, cuts)) candidates.push({ c1, c2, score: polylineLength(sample) + off * 0.35 });
-      }
+    if (blockers.length === 0) {
+      return { vertices: [{ ...start }, { ...end }], kind: 'line' };
     }
 
-    const minX = Math.min(...all.map(p => p.x));
-    for (const side of [1, -1]) {
-      for (const mult of [1, 1.8, 3]) {
-        const laneX = minX - (0.22 * scale * mult);
-        const yKick = side * 0.12 * scale;
-        const c1 = { x: laneX, y: a.y + yKick };
-        const c2 = { x: laneX, y: b.y + yKick };
-        const sample = sampleCubic(a, c1, c2, b);
-        if (!pathHitsCuts(sample, cuts)) candidates.push({ c1, c2, score: polylineLength(sample) + scale * mult });
-      }
+    // 凸包顶点: a, b, blockers 起点上抬 padY (让 Bezier 不贴 cut 起点).
+    const hullInput: CutCoord[] = [
+      a, b,
+      ...blockers.map(c => ({ x: c.x, y: c.y - padY })),  // 注: cut 朝 +y, blocker 上方是 y < cut.y
+    ];
+    // 注释订正: cuts 沿 +y 向上, 我们要绕 "底" (y 小那一侧), 取 *下* 凸包 (y 小那条外壳).
+    // 但实现里 upperHull 取的是 y 大的外壳, 所以 a, b 和 blockers 都先 y 取反, hull 后再取回.
+    const flipped = hullInput.map(p => ({ x: p.x, y: -p.y }));
+    const hullFlipped = upperHull(flipped);
+    const hull = hullFlipped.map(p => ({ x: p.x, y: -p.y }));
+    // hull 是按 x 升序的折线. 取 a, b 之间的那段; 若 a.x > b.x 反向取.
+    const ai = hull.findIndex(p => Math.hypot(p.x - a.x, p.y - a.y) < 1e-9);
+    const bi = hull.findIndex(p => Math.hypot(p.x - b.x, p.y - b.y) < 1e-9);
+    let polyline: CutCoord[];
+    if (ai < 0 || bi < 0) {
+      // a 或 b 没在 hull 上 (理论上不该, 但保险): 用 a-b 直线
+      polyline = [a, b];
+    } else if (ai <= bi) {
+      polyline = hull.slice(ai, bi + 1);
+    } else {
+      polyline = hull.slice(bi, ai + 1).reverse();
     }
 
-    candidates.sort((p, q) => p.score - q.score);
-    if (candidates.length > 0) {
-      const best = candidates[0];
-      return {
-        vertices: [a, best.c1, best.c2, b].map(p => fromCutCoord(p, d)),
-        kind: 'cubic',
-      };
+    // 退化 (a-b 直接相邻 in hull = 没绕)
+    if (polyline.length === 2) {
+      return { vertices: [{ ...start }, { ...end }], kind: 'line' };
     }
 
-    const laneX = minX - 0.25 * scale;
-    const poly = [a, { x: laneX, y: a.y }, { x: laneX, y: b.y }, b];
-    return { vertices: poly.map(p => fromCutCoord(p, d)), kind: 'poly' };
+    // Catmull-Rom 平滑. 输出: 多段 cubic Bezier 拼起来.
+    const beziers = catmullRomToBeziers(polyline);
+    // path 序列: M a, C c1 c2 p2, C c1 c2 p3, ... — vertices 顺序: [a, c1_1, c2_1, p2, c1_2, c2_2, p3, ...]
+    // canvas 端用 homotopyId 含 'std-natural-spline' 来识别多段 Bezier 路径.
+    const vertices: ComplexNum[] = [];
+    vertices.push(fromCutCoord(polyline[0], d));
+    for (const [, c1, c2, b2] of beziers) {
+      vertices.push(fromCutCoord(c1, d), fromCutCoord(c2, d), fromCutCoord(b2, d));
+    }
+    return { vertices, kind: 'cubic' };
   }
 
   function refreshAllPaths() {

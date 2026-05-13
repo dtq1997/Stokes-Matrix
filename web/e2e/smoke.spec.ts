@@ -536,6 +536,21 @@ test.describe('Sd-viz smoke tests', () => {
     expect(pl.signIsChildOfInt).toBe(true);
   });
 
+  // 防回归 (2026-05-14): std view natural path 凸包算法. 默认 dataset 下 (0,2) 直线
+  // 撞 punc[3] 的 -d cut, 必须绕一下 → path 含至少 1 段 cubic Bezier "C" 命令.
+  test('S_d std natural path avoids cuts (hull-based)', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="2"]').first().click();
+    const d = await page.locator('.path-line').first().getAttribute('d');
+    expect(d).toContain('C');  // 必须有 cubic 命令, 不是直线
+    // S_d^eg 模式下应是直线
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]').click();
+    const d_eg = await page.locator('.path-line').first().getAttribute('d');
+    expect(d_eg).not.toContain('C');  // 直线 only
+    expect(d_eg).toContain('L');
+  });
+
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
   test('U/A input 接受分式 a/b 输入', async ({ page }) => {
     await page.goto('/');

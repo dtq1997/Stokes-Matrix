@@ -38,7 +38,7 @@ export class Canvas {
     this.state = state;
     this.onStateChange = onStateChange;
     this.dCurrent = state.dataset.chambers[state.selectedChamber]?.d ?? 0;
-    // SVG defs: arrow marker
+    // SVG defs: arrow marker. 用 --good (绿) 跟 --accent-3 (粉) line 形成对比, 更醒目.
     const defs = this.svg.append('defs');
     defs.append('marker')
       .attr('id', 'arrow-end')
@@ -50,7 +50,7 @@ export class Canvas {
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-3 L7,0 L0,3 z')
-      .attr('fill', 'var(--accent-3)');
+      .attr('fill', 'var(--good)');
 
     this.root = this.svg.append('g').attr('class', 'root');
     this.layers = {
@@ -233,20 +233,36 @@ export class Canvas {
         exit => exit.remove(),
       )
       .attr('d', p => {
-        // 让箭头落在 puncture 边缘外 ~10px (避免被 puncture circle 盖住)
+        // 让箭头落在 puncture 边缘外 ~18px (留出 puncture 半径 + 箭头自身长度 + 余量).
         const pts = p.vertices.map(v => this.toPx(v));
         if (pts.length < 2) return null;
-        const isNaturalCubic = p.homotopyId.includes(':std-natural-cubic') && pts.length === 4;
+        const isNatural = p.homotopyId.includes(':std-natural-');
+        // std-natural-cubic 多段 Bezier: vertices 长度 = 1 + 3·(N段), pattern: [a, c1, c2, b, c1', c2', b', ...]
+        // 直线 (eg-line / std-natural-line): vertices = [a, b]
+        // algo_wp 折线 (老 dataset.path): 任意长度 polyline
+        if (isNatural && (pts.length - 1) % 3 === 0 && pts.length > 2) {
+          // Bezier 多段: 取最后段 [c1, c2, b] 的 [c2, b] 算切线
+          const last = pts[pts.length - 1];
+          const c2 = pts[pts.length - 2];
+          const dx = last[0] - c2[0], dy = last[1] - c2[1];
+          const len = Math.hypot(dx, dy);
+          if (len > 24) {
+            pts[pts.length - 1] = [last[0] - dx / len * 18, last[1] - dy / len * 18];
+          }
+          // 拼 "M a C c1 c2 b C c1' c2' b' ..."
+          let svg = `M${pts[0][0]},${pts[0][1]}`;
+          for (let k = 1; k < pts.length; k += 3) {
+            svg += ` C${pts[k][0]},${pts[k][1]} ${pts[k + 1][0]},${pts[k + 1][1]} ${pts[k + 2][0]},${pts[k + 2][1]}`;
+          }
+          return svg;
+        }
+        // 直线段或 algo_wp 折线
         const last = pts[pts.length - 1];
-        const prev = isNaturalCubic ? pts[2] : pts[pts.length - 2];
+        const prev = pts[pts.length - 2];
         const dx = last[0] - prev[0], dy = last[1] - prev[1];
         const len = Math.hypot(dx, dy);
-        if (len > 12) {
-          pts[pts.length - 1] = [last[0] - dx / len * 10, last[1] - dy / len * 10];
-        }
-        if (isNaturalCubic) {
-          const [a, c1, c2, b] = pts;
-          return `M${a[0]},${a[1]} C${c1[0]},${c1[1]} ${c2[0]},${c2[1]} ${b[0]},${b[1]}`;
+        if (len > 24) {
+          pts[pts.length - 1] = [last[0] - dx / len * 18, last[1] - dy / len * 18];
         }
         return d3.line()(pts as any);
       });
@@ -266,6 +282,10 @@ export class Canvas {
     const arr = Array.from(this.state.paths.values());
     const verts: VertexData[] = [];
     arr.forEach(p => {
+      // std/eg view 的自然路径 (homotopyId 含 'natural' 或 'eg-line') 是几何渲染,
+      // vertices 是 Bezier 控制点不是同伦 waypoint, 不显示可拖 vertex.
+      // 只有 algo_wp 折线 (老 dataset.path 路径) 才允许拖.
+      if (p.homotopyId.includes('natural') || p.homotopyId.includes('eg-line')) return;
       for (let i = 1; i < p.vertices.length - 1; i++) {
         verts.push({ pathId: p.homotopyId, idx: i, v: p.vertices[i] });
       }
