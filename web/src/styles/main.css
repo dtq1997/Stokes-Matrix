@@ -281,6 +281,27 @@ h3 {
   max-width: 100%;
   margin-bottom: 6px;
 }
+
+/* always-visible 横向滚动条 (mac webkit 默认 trackpad 才显示, 用户察觉不到能滚) */
+.state-table-wrap::-webkit-scrollbar,
+#stokes-matrix::-webkit-scrollbar {
+  -webkit-appearance: none;
+  height: 8px;
+}
+.state-table-wrap::-webkit-scrollbar-thumb,
+#stokes-matrix::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+.state-table-wrap::-webkit-scrollbar-thumb:hover,
+#stokes-matrix::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-dim);
+}
+.state-table-wrap::-webkit-scrollbar-track,
+#stokes-matrix::-webkit-scrollbar-track {
+  background: transparent;
+}
+.state-table-wrap, #stokes-matrix { scrollbar-width: thin; }  /* Firefox */
 .state-table {
   width: auto;             /* 不强制填满 panel, 让 cell 保持自然宽度 (panel 横向滚) */
   border-collapse: separate;
@@ -495,8 +516,14 @@ h3 {
 .cs-sign { color: var(--fg); }
 .cs-int { justify-self: end; }
 .cs-frac { justify-self: start; }
-.cs-i { font-style: italic; justify-self: start; }
-.cs-zero { color: var(--fg-muted); font-style: italic; }
+.cs-i {
+  justify-self: start;
+  margin-left: 3px;       /* i 跟数字间距, 对齐 A 表 cx-pair i 距 input 视觉 (~4-5px) */
+  /* 不设 font-style; 让内层 IM_UNIT (.im-unit) 决定字体 (SSOT: 跟 A 表 i 同正体) */
+}
+/* cs-zero: 淡灰色, 让 KaTeX 自带数学体 (不要叠 italic 否则字符歪) */
+.cs-zero { color: var(--fg-muted); }
+.cs-zero .katex { font-size: inherit; color: inherit; }
 #stokes-matrix .sm-cell:hover { background: #232932; }
 #stokes-matrix .sm-cell.diag {
   background: transparent;

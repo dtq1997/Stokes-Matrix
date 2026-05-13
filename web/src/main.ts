@@ -768,7 +768,7 @@ async function main() {
    */
   function renderComplex(v: { re: number; im: number }, precision = 2): string {
     const mag = Math.hypot(v.re, v.im);
-    if (mag < 5 * 10 ** -(precision + 1)) return '<span class="cs-zero">0</span>';
+    if (mag < 5 * 10 ** -(precision + 1)) return `<span class="cs-zero">${tex('0')}</span>`;
     const split = (x: number) => {
       const s = Math.abs(x).toFixed(precision);
       const dot = s.indexOf('.');
@@ -781,7 +781,7 @@ async function main() {
     const [imInt, imFrac] = split(v.im);
     return `<div class="cs-grid">
       <span class="cs-sign">${reSign}</span><span class="cs-int">${reInt}</span><span class="cs-frac">${reFrac}</span><span class="cs-i"></span>
-      <span class="cs-sign">${imSign}</span><span class="cs-int">${imInt}</span><span class="cs-frac">${imFrac}</span><span class="cs-i">i</span>
+      <span class="cs-sign">${imSign}</span><span class="cs-int">${imInt}</span><span class="cs-frac">${imFrac}</span><span class="cs-i">${IM_UNIT}</span>
     </div>`;
   }
 
@@ -805,7 +805,7 @@ async function main() {
       const a = Number(cell.dataset.a!);
       const b = Number(cell.dataset.b!);
       if (I === J) {
-        cell.innerHTML = '<span class="cs-zero">0</span>';
+        cell.innerHTML = `<span class="cs-zero">${tex('0')}</span>`;
         continue;
       }
       const e = ch.entries[`${I},${J}`];
