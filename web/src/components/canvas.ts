@@ -41,19 +41,22 @@ export class Canvas {
     this.state = state;
     this.onStateChange = onStateChange;
     this.dCurrent = state.dataset.chambers[state.selectedChamber]?.d ?? 0;
-    // SVG defs: arrow marker. 用 --good (绿) 跟 --accent-3 (粉) line 形成对比, 更醒目.
+    // SVG defs: arrow marker. orient='auto' 让箭头切线跟 path 末端对齐;
+    // 颜色用 context-stroke (跟 path stroke 同色), 不再硬编码绿. markerUnits='userSpaceOnUse'
+    // 让箭头大小不随 stroke-width 缩放, 避免视觉过大.
     const defs = this.svg.append('defs');
     defs.append('marker')
       .attr('id', 'arrow-end')
-      .attr('viewBox', '0 -4 8 8')
-      .attr('refX', 7)
+      .attr('viewBox', '0 -3 6 6')
+      .attr('refX', 5.5)
       .attr('refY', 0)
-      .attr('markerWidth', 8)
-      .attr('markerHeight', 8)
-      .attr('orient', 'auto')
+      .attr('markerWidth', 6)
+      .attr('markerHeight', 6)
+      .attr('orient', 'auto-start-reverse')
+      .attr('markerUnits', 'userSpaceOnUse')
       .append('path')
-      .attr('d', 'M0,-3 L7,0 L0,3 z')
-      .attr('fill', 'var(--good)');
+      .attr('d', 'M0,-2.5 L5.5,0 L0,2.5 z')
+      .attr('fill', 'var(--accent-3)');
 
     this.root = this.svg.append('g').attr('class', 'root');
     this.layers = {
