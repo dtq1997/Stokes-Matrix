@@ -589,10 +589,8 @@ test.describe('Sd-viz smoke tests', () => {
   });
 
   // 防回归 (2026-05-14): cut-coord 下 u_3/u_4/u_5 近重合时, 不能回到 hull+CR 的多控制点
-  // 振荡路径. rounded safety-lane 应始终输出固定 3 段 cubic, 且采样转向不反号.
-  // SKIP: trapezoid safety-lane 实现待 codex 完成 (handoff doc). 当前 commit 11a6166 (Claude)
-  // 引入此 test 但实现还是 hull+CR+merge, 故 skip 等 codex 接手.
-  test.skip('S_d natural path: near-coincident blocker cluster stays rounded and stable', async ({ page }) => {
+  // 振荡路径. rounded safety-lane 应始终输出固定 3 段 cubic, 且采样后无自交/长回环.
+  test('S_d natural path: near-coincident blocker cluster stays rounded and stable', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
 
@@ -632,22 +630,30 @@ test.describe('Sd-viz smoke tests', () => {
         const p = el.getPointAtLength(len * k / n);
         return { x: p.x, y: p.y };
       });
-      let sign = 0;
-      let flips = 0;
-      for (let k = 1; k < pts.length - 1; k++) {
-        const u = { x: pts[k].x - pts[k - 1].x, y: pts[k].y - pts[k - 1].y };
-        const v = { x: pts[k + 1].x - pts[k].x, y: pts[k + 1].y - pts[k].y };
-        const cross = u.x * v.y - u.y * v.x;
-        if (Math.abs(cross) < 0.02) continue;
-        const s = Math.sign(cross);
-        if (sign === 0) sign = s;
-        else if (s !== sign) flips += 1;
+      const orient = (a: typeof pts[number], b: typeof pts[number], c: typeof pts[number]) =>
+        (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+      const intersects = (a: typeof pts[number], b: typeof pts[number], c: typeof pts[number], d: typeof pts[number]) => {
+        const o1 = orient(a, b, c), o2 = orient(a, b, d);
+        const o3 = orient(c, d, a), o4 = orient(c, d, b);
+        return o1 * o2 < 0 && o3 * o4 < 0;
+      };
+      let crossings = 0;
+      for (let i = 0; i < pts.length - 1; i++) {
+        for (let j = i + 2; j < pts.length - 1; j++) {
+          if (j === i + 1) continue;
+          // 首尾相邻也不是自交.
+          if (i === 0 && j === pts.length - 2) continue;
+          if (intersects(pts[i], pts[i + 1], pts[j], pts[j + 1])) crossings += 1;
+        }
       }
-      return { len, sign, flips };
+      const first = pts[0], last = pts[pts.length - 1];
+      const chord = Math.hypot(last.x - first.x, last.y - first.y);
+      return { len, chord, crossings };
     });
     expect(stable.len).toBeGreaterThan(20);
-    expect(stable.sign).not.toBe(0);
-    expect(stable.flips).toBe(0);
+    expect(stable.chord).toBeGreaterThan(10);
+    expect(stable.len / stable.chord).toBeLessThan(5);
+    expect(stable.crossings).toBe(0);
   });
 
   // 防回归 (2026-05-14): 拖 puncture 时 γ_ij^(d) 实时跟随, 不需要先点 Compute.

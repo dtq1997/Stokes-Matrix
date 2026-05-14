@@ -350,24 +350,24 @@ h3 {
 
 /* always-visible 横向滚动条 (mac webkit 默认 trackpad 才显示, 用户察觉不到能滚) */
 .state-table-wrap::-webkit-scrollbar,
-#stokes-matrix::-webkit-scrollbar {
+.matrix-grid::-webkit-scrollbar {
   -webkit-appearance: none;
   height: 8px;
 }
 .state-table-wrap::-webkit-scrollbar-thumb,
-#stokes-matrix::-webkit-scrollbar-thumb {
+.matrix-grid::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 4px;
 }
 .state-table-wrap::-webkit-scrollbar-thumb:hover,
-#stokes-matrix::-webkit-scrollbar-thumb:hover {
+.matrix-grid::-webkit-scrollbar-thumb:hover {
   background: var(--fg-dim);
 }
 .state-table-wrap::-webkit-scrollbar-track,
-#stokes-matrix::-webkit-scrollbar-track {
+.matrix-grid::-webkit-scrollbar-track {
   background: transparent;
 }
-.state-table-wrap, #stokes-matrix { scrollbar-width: thin; }  /* Firefox */
+.state-table-wrap, .matrix-grid { scrollbar-width: thin; }  /* Firefox */
 .state-table {
   width: auto;             /* 不强制填满 panel, 让 cell 保持自然宽度 (panel 横向滚) */
   border-collapse: separate;
@@ -567,7 +567,7 @@ h3 {
 }
 
 /* ---------- Stokes matrix grid (right panel) ---------- */
-#stokes-matrix {
+.matrix-grid {
   display: grid;
   gap: 2px;
   font-family: var(--font-mono);
@@ -577,7 +577,7 @@ h3 {
   max-width: 100%;
 }
 /* 行/列 label 跟 A 表 thead/row-label 同视觉 (SSOT) */
-#stokes-matrix .sm-header {
+.matrix-grid .sm-header {
   background: var(--bg-panel);
   color: var(--fg-muted);
   font-family: 'KaTeX_Main', 'Times New Roman', serif;
@@ -587,7 +587,7 @@ h3 {
   justify-content: center;
   padding: 4px 6px;
 }
-#stokes-matrix .sm-row-header {
+.matrix-grid .sm-row-header {
   position: sticky;
   left: 0;
   z-index: 2;
@@ -595,13 +595,13 @@ h3 {
   padding-right: 8px;
   min-width: 28px;
 }
-#stokes-matrix .sm-corner {
+.matrix-grid .sm-corner {
   position: sticky;
   left: 0;
   z-index: 3;
   background: var(--bg-panel);
 }
-#stokes-matrix .sm-cell {
+.matrix-grid .sm-cell {
   background: var(--bg-elev);
   padding: 4px 6px;
   border-radius: 2px;
@@ -662,8 +662,8 @@ h3 {
 /* cs-zero: 淡灰色, 让 KaTeX 自带数学体 (不要叠 italic 否则字符歪) */
 .cs-zero { color: var(--fg-muted); }
 .cs-zero .katex { font-size: inherit; color: inherit; }
-#stokes-matrix .sm-cell:hover { background: #232932; }
-#stokes-matrix .sm-cell.diag {
+.matrix-grid .sm-cell:hover { background: #232932; }
+.matrix-grid .sm-cell.diag {
   background: transparent;
   cursor: default;
   color: var(--fg-muted);
@@ -673,8 +673,8 @@ h3 {
 }
 
 /* 块结构分隔: block-top/left 加粗边框 (块边界视觉分隔, 区分 m_k>1 的子块) */
-#stokes-matrix .sm-cell.block-top { border-top: 2px solid var(--accent); border-top-color: rgba(92, 200, 255, 0.4); }
-#stokes-matrix .sm-cell.block-left { border-left: 2px solid var(--accent); border-left-color: rgba(92, 200, 255, 0.4); }
+.matrix-grid .sm-cell.block-top { border-top: 2px solid var(--accent); border-top-color: rgba(92, 200, 255, 0.4); }
+.matrix-grid .sm-cell.block-left { border-left: 2px solid var(--accent); border-left-color: rgba(92, 200, 255, 0.4); }
 
 /* A 表块分隔 */
 .a-table td.block-left, .a-table th.block-left { border-left: 2px solid rgba(92, 200, 255, 0.4); }
@@ -688,16 +688,16 @@ h3 {
   font-family: 'KaTeX_Main', 'Times New Roman', serif;
   font-size: 11px;
 }
-#stokes-matrix .sm-cell.selected {
+.matrix-grid .sm-cell.selected {
   border-color: var(--accent);
   background: rgba(92, 200, 255, 0.1);
 }
-#stokes-matrix .sm-mag {
+.matrix-grid .sm-mag {
   color: var(--accent);
   font-size: 11px;
   font-weight: 500;
 }
-#stokes-matrix .sm-arg {
+.matrix-grid .sm-arg {
   color: var(--fg-muted);
   font-size: 9px;
 }
