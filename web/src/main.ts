@@ -1368,8 +1368,37 @@ async function main() {
       return { vertices: [{ ...start }, { ...end }], kind: 'line' };
     }
 
+    // 去重簇: 多个 cut 近重合时 (例如 u_3≈u_4≈u_5), hull 折线上有连续近重合点,
+    // Catmull-Rom 在这种密集点上控制点鼓出来 → 曲线打圈. 阈值取 chord 5%, 下界 0.01.
+    // 合并规则: 簇内保留 y 最低的代表 (cut-coord 下 y 小 = 离 cut 远 = 路径更"绕过去"),
+    // 端点 a (索引 0) 和 b (索引 last) 必保留, 不被合并掉.
+    const minGap = Math.max(0.01, 0.05 * chord);
+    const compacted: CutCoord[] = [polyline[0]];
+    for (let k = 1; k < polyline.length - 1; k++) {
+      const last = compacted[compacted.length - 1];
+      const dist = Math.hypot(polyline[k].x - last.x, polyline[k].y - last.y);
+      if (dist < minGap) {
+        if (polyline[k].y < last.y) last.y = polyline[k].y;
+      } else {
+        compacted.push(polyline[k]);
+      }
+    }
+    // 末点 b 单独处理: 若离 compacted 末尾过近, 替换之 (b 必须是真正端点)
+    const tail = compacted[compacted.length - 1];
+    const bEnd = polyline[polyline.length - 1];
+    const dTail = Math.hypot(bEnd.x - tail.x, bEnd.y - tail.y);
+    if (compacted.length > 1 && dTail < minGap) {
+      compacted[compacted.length - 1] = bEnd;
+    } else {
+      compacted.push(bEnd);
+    }
+
+    if (compacted.length === 2) {
+      return { vertices: [{ ...start }, { ...end }], kind: 'line' };
+    }
+
     // Catmull-Rom 平滑. 输出: 多段 cubic Bezier 拼起来.
-    const beziers = catmullRomToBeziers(polyline);
+    const beziers = catmullRomToBeziers(compacted);
     // path 序列: M a, C c1 c2 p2, C c1 c2 p3, ... — vertices 顺序: [a, c1_1, c2_1, p2, c1_2, c2_2, p3, ...]
     // canvas 端用 homotopyId 含 'std-natural-spline' 来识别多段 Bezier 路径.
     const vertices: ComplexNum[] = [];
