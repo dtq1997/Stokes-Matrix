@@ -1807,8 +1807,9 @@ async function main() {
   /** 全局库查询: 浮点 v 是否匹配某登记值 (或其负数). 返回 form 字符串或 null. */
   function lookupIscLibrary(v: number): string | null {
     if (Math.abs(v) < 1e-12) return null;
+    // 容差 1e-6 — entry 在 chamber 间常带 ~5e-7 噪声, 同一闭式值的不同 cell 浮点不全等.
     for (const entry of iscLibrary) {
-      const tol = 1e-9 * Math.max(1, Math.abs(v));
+      const tol = 1e-6 * Math.max(1, Math.abs(v), Math.abs(entry.value));
       if (Math.abs(v - entry.value) < tol) return entry.form;
       if (Math.abs(v + entry.value) < tol) return negateForm(entry.form);
     }
@@ -1850,8 +1851,9 @@ async function main() {
     if (!expr) return null;
     const parsed = parseComplexExpr(expr);
     if (!parsed) return null;
-    const tolRe = Math.max(1, Math.abs(v.re)) * 1e-8;
-    const tolIm = Math.max(1, Math.abs(v.im)) * 1e-8;
+    // 容差 1e-6 跟 simpleIdentifyValue 保持一致 — precomputed dataset entry 噪声 ~5e-7.
+    const tolRe = Math.max(1, Math.abs(v.re)) * 1e-6;
+    const tolIm = Math.max(1, Math.abs(v.im)) * 1e-6;
     if (Math.abs(parsed.re - v.re) > tolRe || Math.abs(parsed.im - v.im) > tolIm) return null;
     return { latex: exprToLatex(expr), tooltip };
   }
@@ -1963,8 +1965,9 @@ async function main() {
     // 用户原话: "ISC 初始 chamber 的计算结果, 然后传递到一些相关的数".
     const todo: Array<{ chamberIdx: number; i: number; j: number; v: ComplexNum }> = [];
     const seen: Array<ComplexNum> = [];
+    // 容差 1e-6 — precomputed dataset entry chamber 间常累积 ~5e-7 噪声.
     const numEq = (a: ComplexNum, b: ComplexNum) => {
-      const tol = 1e-9 * Math.max(1, Math.abs(a.re), Math.abs(a.im), Math.abs(b.re), Math.abs(b.im));
+      const tol = 1e-6 * Math.max(1, Math.abs(a.re), Math.abs(a.im), Math.abs(b.re), Math.abs(b.im));
       return Math.abs(a.re - b.re) < tol && Math.abs(a.im - b.im) < tol;
     };
     // Step 0: 收集所有矩阵的所有 (chamber, view, cell) 浮点 → local simple-identify 入库.

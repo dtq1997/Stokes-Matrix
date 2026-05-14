@@ -48,24 +48,26 @@ export function approxFrac(x: number, maxDenom: number): { n: number; d: number 
   return { n: sign * h1, d: k1 };
 }
 
-/** 试图识别浮点 v 的简单闭式. 返回值表达式字符串 (能喂给 expr-parser) 或 null. */
-export function simpleIdentifyValue(v: number, maxDenom = 1000): string | null {
+/** 试图识别浮点 v 的简单闭式. 返回值表达式字符串 (能喂给 expr-parser) 或 null.
+ *  tol 默认 1e-6: precomputed dataset (CP^n medium 精度) 经 chamber 间传播后
+ *  entry 噪声达 ~5e-7, 严容差识别不到整数. 调用方可显式压低 tol 防误识别. */
+export function simpleIdentifyValue(v: number, maxDenom = 1000, tol = 1e-6): string | null {
   if (!Number.isFinite(v)) return null;
   const av = Math.abs(v);
-  const tol = 1e-10 * Math.max(av, 1);
+  const tol_abs = tol * Math.max(av, 1);
   // 1) integer
   const n = Math.round(v);
-  if (Math.abs(v - n) < tol) return String(n);
+  if (Math.abs(v - n) < tol_abs) return String(n);
   // 2) rational p/q
   const r = approxFrac(v, maxDenom);
-  if (r && Math.abs(v - r.n / r.d) < tol) {
+  if (r && Math.abs(v - r.n / r.d) < tol_abs) {
     return `${r.n}/${r.d}`;
   }
   // 3) sqrt of rational: v^2 = p/q  →  v = ±sqrt(p/q)
   if (av > 0) {
     const sq = v * v;
     const rsq = approxFrac(sq, maxDenom);
-    if (rsq && rsq.n > 0 && Math.abs(sq - rsq.n / rsq.d) < 1e-10 * Math.max(sq, 1)) {
+    if (rsq && rsq.n > 0 && Math.abs(sq - rsq.n / rsq.d) < tol_abs * Math.max(sq, 1)) {
       const sign = v < 0 ? '-' : '';
       const numTok = sqrtToken(rsq.n);
       const denTok = sqrtToken(rsq.d);
@@ -81,7 +83,7 @@ export function simpleIdentifyValue(v: number, maxDenom = 1000): string | null {
   }
   // 4) π · rational
   const rp = approxFrac(v / Math.PI, maxDenom);
-  if (rp && rp.n !== 0 && Math.abs(v - (rp.n / rp.d) * Math.PI) < tol) {
+  if (rp && rp.n !== 0 && Math.abs(v - (rp.n / rp.d) * Math.PI) < tol_abs) {
     const p = rp.n, q = rp.d;
     if (Math.abs(p) === 1 && q === 1) return p < 0 ? '-pi' : 'pi';
     if (q === 1) return `${p}*pi`;
