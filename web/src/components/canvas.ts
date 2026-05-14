@@ -255,26 +255,57 @@ export class Canvas {
         exit => exit.remove(),
       )
       .attr('d', p => {
-        // 让箭头落在 puncture 边缘外 ~18px (留出 puncture 半径 + 箭头自身长度 + 余量).
         const pts = p.vertices.map(v => this.toPx(v));
         if (pts.length < 2) return null;
         const isNatural = p.homotopyId.includes(':std-natural-');
-        // std-natural-cubic 多段 Bezier: vertices 长度 = 1 + 3·(N段), pattern: [a, c1, c2, b, c1', c2', b', ...]
-        // 直线 (eg-line / std-natural-line): vertices = [a, b]
-        // algo_wp 折线 (老 dataset.path): 任意长度 polyline
+        const ARROW_GAP = 14;  // puncture 边缘到箭头尖的距离 (px)
         let tipX: number, tipY: number, angle: number;
+
+        // 在 cubic Bezier 上找 t*, 使从 t* 到 1 的 sample-arc-length ≈ ARROW_GAP.
+        // 反向从 t=1 走, 直到累积长度 ≥ ARROW_GAP. dense sample (n=80) 够精确.
+        const bezierBackoff = (P0: [number, number], P1: [number, number], P2: [number, number], P3: [number, number], gap: number) => {
+          const eval_ = (t: number): [number, number] => {
+            const u = 1 - t, uu = u * u, tt = t * t;
+            return [
+              uu * u * P0[0] + 3 * uu * t * P1[0] + 3 * u * tt * P2[0] + tt * t * P3[0],
+              uu * u * P0[1] + 3 * uu * t * P1[1] + 3 * u * tt * P2[1] + tt * t * P3[1],
+            ];
+          };
+          const n = 80;
+          let acc = 0;
+          let prev = eval_(1);
+          for (let k = n - 1; k >= 0; k--) {
+            const t = k / n;
+            const cur = eval_(t);
+            const dx = prev[0] - cur[0], dy = prev[1] - cur[1];
+            acc += Math.hypot(dx, dy);
+            if (acc >= gap) return cur;
+            prev = cur;
+          }
+          return P0;  // 整段都不够长, 退回起点 (退化)
+        };
+
         if (isNatural && (pts.length - 1) % 3 === 0 && pts.length > 2) {
-          // Bezier 多段: 取最后段 [c1, c2, b] 的 [c2, b] 算切线
+          // Bezier 多段: 最后段是 [P0=pts[N-4], P1=pts[N-3]=c1, P2=pts[N-2]=c2, P3=pts[N-1]=b].
           const last = pts[pts.length - 1];
           const c2 = pts[pts.length - 2];
-          const dx = last[0] - c2[0], dy = last[1] - c2[1];
-          const len = Math.hypot(dx, dy);
-          if (len > 24) {
-            pts[pts.length - 1] = [last[0] - dx / len * 14, last[1] - dy / len * 14];
+          const c1 = pts[pts.length - 3];
+          const p0 = pts[pts.length - 4];
+          // 沿 Bezier 反向找 tip 位置 (累积弧长 = ARROW_GAP), 不再依赖 |b-c2|.
+          const tip = bezierBackoff(p0, c1, c2, last, ARROW_GAP);
+          tipX = tip[0]; tipY = tip[1];
+          // 箭头方向: 从 tip 指向原终点 b. 语义直接 ("正在朝目的地 b 走"),
+          // 而且永远跟 path 在 tip 处的真切线非常接近 (gap=14px 远小于 path 总长).
+          let ax = last[0] - tipX, ay = last[1] - tipY;
+          const al = Math.hypot(ax, ay);
+          if (al < 1e-6) {
+            // tip 退化到 b: fallback 用 (b - c2)
+            ax = last[0] - c2[0]; ay = last[1] - c2[1];
+            if (Math.hypot(ax, ay) < 1e-6) { ax = last[0] - c1[0]; ay = last[1] - c1[1]; }
           }
-          tipX = pts[pts.length - 1][0];
-          tipY = pts[pts.length - 1][1];
-          angle = Math.atan2(dy, dx);  // 切线方向用 *原始* (b - c2), 跟 puncture shorten 无关
+          angle = Math.atan2(ay, ax);
+          // path 也截断到 tip
+          pts[pts.length - 1] = [tipX, tipY];
           let svg = `M${pts[0][0]},${pts[0][1]}`;
           for (let k = 1; k < pts.length; k += 3) {
             svg += ` C${pts[k][0]},${pts[k][1]} ${pts[k + 1][0]},${pts[k + 1][1]} ${pts[k + 2][0]},${pts[k + 2][1]}`;
@@ -282,17 +313,33 @@ export class Canvas {
           arrows.push({ key: p.homotopyId, tipX, tipY, angle });
           return svg;
         }
-        // 直线段或 algo_wp 折线
-        const last = pts[pts.length - 1];
-        const prev = pts[pts.length - 2];
-        const dx = last[0] - prev[0], dy = last[1] - prev[1];
-        const len = Math.hypot(dx, dy);
-        if (len > 24) {
-          pts[pts.length - 1] = [last[0] - dx / len * 14, last[1] - dy / len * 14];
+
+        // 直线段 / 折线: 沿 polyline 反向走 ARROW_GAP px 找 tip. 跨段累积长度.
+        let remaining = ARROW_GAP;
+        let tip: [number, number] = pts[pts.length - 1];
+        let tanX = 0, tanY = 0;
+        for (let k = pts.length - 1; k > 0; k--) {
+          const a = pts[k - 1], b = pts[k];
+          const sdx = b[0] - a[0], sdy = b[1] - a[1];
+          const slen = Math.hypot(sdx, sdy);
+          if (slen >= remaining) {
+            tip = [b[0] - sdx / slen * remaining, b[1] - sdy / slen * remaining];
+            tanX = sdx; tanY = sdy;
+            // 截断 pts: 把第 k 个点替换成 tip, 后面的点不要
+            pts.splice(k);
+            pts.push(tip);
+            break;
+          }
+          remaining -= slen;
         }
-        tipX = pts[pts.length - 1][0];
-        tipY = pts[pts.length - 1][1];
-        angle = Math.atan2(dy, dx);
+        if (tanX === 0 && tanY === 0) {
+          // path 总长 < gap, 退化
+          const last = pts[pts.length - 1], prev = pts[pts.length - 2];
+          tanX = last[0] - prev[0]; tanY = last[1] - prev[1];
+          tip = last;
+        }
+        tipX = tip[0]; tipY = tip[1];
+        angle = Math.atan2(tanY, tanX);
         arrows.push({ key: p.homotopyId, tipX, tipY, angle });
         return d3.line()(pts as any);
       });
