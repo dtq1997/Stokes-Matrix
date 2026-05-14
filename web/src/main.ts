@@ -11,7 +11,7 @@ import { chamberOfDirection, monodromyTransforms, antiStokesRays } from './lib/g
 import { mmul } from './lib/matexp.js';
 import { parsePiInput, parseRational, formatPi } from './lib/pi-input.js';
 import { parseComplexExpr, exprToLatex, complexToExpr } from './lib/expr-parser.js';
-// (parseComplexExpr / exprToLatex 上面已 import, ISC 段共享)
+import { simpleIdentifyValue, buildComplexExprFromForms as buildLocalComplexExpr } from './lib/local-isc.js';
 
 function tex(s: string, displayMode = false): string {
   return katex.renderToString(s, { displayMode, throwOnError: false, strict: false });
@@ -1290,13 +1290,21 @@ async function main() {
       renderComplex,
       // 跨 view 同尺寸: 永远扫 std view 所有 off-diag block 当宽度上界,
       // plus/minus/eg 即使 sign-zero 也不让列宽缩.
+      // 例外: m=1 cell 能 symbolic 化 (本地 simple-identify 或 cache 命中) 时, 它的
+      // 闭式宽度跟浮点完全无关, 不参与浮点小数点对齐计算 — 否则即使所有 cell 都
+      // symbolic, 列宽还是被原浮点宽度撑住, 看着拖泥带水.
       widthReferenceBlocks: function*() {
         if (!valuesFresh) return;
         for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
           if (I === J) continue;
           const e = ch.entries[`${I},${J}`];
           if (!e || e.error || !e.value_block) continue;
-          yield modifiedBlock(e, ch.d, I, J);
+          const mod = modifiedBlock(e, ch.d, I, J);
+          if (ms[I] === 1 && ms[J] === 1) {
+            const sym = getSymbolicCellExpr(I, J, mod[0][0]);
+            if (sym) continue;
+          }
+          yield mod;
         }
       },
       getCellContent: (I, J, _a, _b): CellContent => {
@@ -1319,10 +1327,15 @@ async function main() {
         if (!mod) {
           return { kind: 'unavailable', tooltip: view === 'eg' ? 'straight-entry data unavailable' : 'entry data unavailable' };
         }
-        // ISC symbolic: 仅 std view + m=1 cell + cache 命中 + 表达式数值跟原浮点核对一致.
-        if (view === 'std' && sign === 1 && ms[I] === 1 && ms[J] === 1) {
+        // ISC symbolic: std / plus / minus 都支持 (eg view 数值不同, 暂用浮点).
+        // m=1 cell + getSymbolicCellExpr 命中 → 直接闭式. minus / plus(=-1 不存在) 时
+        // 给 latex 加 leading "-" 实现整块取负 (m=1 即标量, 取负 = 表达式前置负号).
+        if (view !== 'eg' && ms[I] === 1 && ms[J] === 1) {
           const sym = getSymbolicCellExpr(I, J, mod[0][0]);
-          if (sym) return { kind: 'symbolic', latex: sym.latex, tooltip: sym.tooltip };
+          if (sym) {
+            const latex = sign === -1 ? `-(${sym.latex})` : sym.latex;
+            return { kind: 'symbolic', latex, tooltip: sym.tooltip };
+          }
         }
         if (sign === -1) {
           // 整块取负
@@ -1752,40 +1765,48 @@ async function main() {
     });
     return matches[0].form;
   }
-  /** 把 re/im 各自的值表达式合并成单个复数表达式 (供 expr-parser 渲染). */
-  function buildComplexExprFromForms(reForm: string | null, imForm: string | null): string | null {
-    const r = reForm ?? '0';
-    const im = imForm ?? '0';
-    const reZero = r === '0' || r === '+0' || r === '-0';
-    const imZero = im === '0' || im === '+0' || im === '-0';
-    if (reZero && imZero) return '0';
-    if (imZero) return r;
-    let imPart: string;
-    if (im === '1' || im === '+1') imPart = 'i';
-    else if (im === '-1') imPart = '-i';
-    else imPart = `(${im})*i`;
-    if (reZero) return imPart;
-    return imPart.startsWith('-') ? `${r}${imPart}` : `${r}+${imPart}`;
-  }
-  /** 给 (I, J) 当前 chamber 的 cell 找 ISC-derived 闭式 LaTeX.
-   *  null 表示没 cache 命中或表达式数值跟原浮点不匹配. */
+  /** 给浮点复数 v 找闭式 LaTeX:
+   *    1. 本地 simple-identify (整数/有理/√有理/π·有理) — 秒级, 无视 cache 跨 chamber 自动复用
+   *    2. fallback 到 iscCache (后端 RIES/WA, 用户主动 ISC 才存)
+   *  null = 都没匹配, 调用方回退浮点显示.
+   *  SSOT: Stokes / Omega / 未来其他矩阵 cell 渲染都用这个入口. */
   function getSymbolicCellExpr(I: number, J: number, v: ComplexNum): { latex: string; tooltip: string } | null {
-    const cands = iscCache.get(iscKey(state.selectedChamber, I, J));
-    if (!cands) return null;
-    const reForm = pickBestValueForm(cands, 'Re');
-    const imForm = pickBestValueForm(cands, 'Im');
-    if (reForm === null && imForm === null) return null;
-    const expr = buildComplexExprFromForms(reForm, imForm);
-    if (!expr) return null;
-    const parsed = parseComplexExpr(expr);
-    if (!parsed) return null;
-    const tolRe = Math.max(1, Math.abs(v.re)) * 1e-8;
-    const tolIm = Math.max(1, Math.abs(v.im)) * 1e-8;
-    if (Math.abs(parsed.re - v.re) > tolRe || Math.abs(parsed.im - v.im) > tolIm) return null;
-    const latex = exprToLatex(expr);
-    const sign = v.im >= 0 ? '+' : '−';
-    const tooltip = `${v.re.toPrecision(8)} ${sign} ${Math.abs(v.im).toPrecision(8)}i`;
-    return { latex, tooltip };
+    // tooltip 统一: 原浮点 (re ± im·i)
+    const tipSign = v.im >= 0 ? '+' : '−';
+    const tooltip = `${v.re.toPrecision(8)} ${tipSign} ${Math.abs(v.im).toPrecision(8)}i`;
+    // 1) 本地 simple-identify
+    const localExpr = (() => {
+      const r = simpleIdentifyValue(v.re);
+      const im = simpleIdentifyValue(v.im);
+      if (r === null && im === null) return null;
+      // 缺哪个用浮点 (转字符串) 兜底, 不然不平衡的 cell 就完全 fallback
+      const reForm = r ?? (Math.abs(v.re) < 1e-12 ? '0' : null);
+      const imForm = im ?? (Math.abs(v.im) < 1e-12 ? '0' : null);
+      if (reForm === null && imForm === null) return null;
+      // 只有一边 simple 成功且另一边非平凡 → 放弃 (避免半 closed-form 半浮点的 ugly 表达)
+      if ((reForm === null && Math.abs(v.re) > 1e-12) ||
+          (imForm === null && Math.abs(v.im) > 1e-12)) return null;
+      return buildLocalComplexExpr(reForm, imForm);
+    })();
+    const cacheExpr = (() => {
+      const cands = iscCache.get(iscKey(state.selectedChamber, I, J));
+      if (!cands) return null;
+      const reForm = pickBestValueForm(cands, 'Re');
+      const imForm = pickBestValueForm(cands, 'Im');
+      if (reForm === null && imForm === null) return null;
+      return buildLocalComplexExpr(reForm, imForm);
+    })();
+    // 本地优先, cache fallback. 都尝试 parse + 数值核对.
+    for (const expr of [localExpr, cacheExpr]) {
+      if (!expr) continue;
+      const parsed = parseComplexExpr(expr);
+      if (!parsed) continue;
+      const tolRe = Math.max(1, Math.abs(v.re)) * 1e-8;
+      const tolIm = Math.max(1, Math.abs(v.im)) * 1e-8;
+      if (Math.abs(parsed.re - v.re) > tolRe || Math.abs(parsed.im - v.im) > tolIm) continue;
+      return { latex: exprToLatex(expr), tooltip };
+    }
+    return null;
   }
   /** 拿当前 chamber 的 (i, j) entry 的 std view 标量值 (m_i=m_j=1 假设, block 取 [0,0]). */
   function getStdEntryValue(i: number, j: number): ComplexNum | null {
