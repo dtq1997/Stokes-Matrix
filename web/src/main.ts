@@ -1921,38 +1921,57 @@ async function main() {
   async function runIscMatrix() {
     const panel = document.getElementById('isc-results')!;
     if (!stokesValuesFresh()) { panel.hidden = false; panel.innerHTML = `<div class="isc-hint">Compute Stokes matrices first.</div>`; return; }
-    const ch = dataset.chambers[state.selectedChamber];
-    if (!ch) return;
-    // 收集当前 chamber 所有 off-diag 非 trivial entries
-    const todo: Array<[number, number, ComplexNum]> = [];
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        if (i === j) continue;
-        if (iscCache.has(iscKey(state.selectedChamber, i, j))) continue;
-        const v = getStdEntryValue(i, j);
-        if (!v) continue;
-        if (Math.abs(v.re) < 1e-12 && Math.abs(v.im) < 1e-12) continue;
-        todo.push([i, j, v]);
+    // 扫所有 chamber 所有 off-diag entry; 按数值去重 (chamber 间常出现重复值,
+    // 一次 RIES 入库后其他 cell 走 library 命中); 跳过 local-identify 已接住的.
+    // 用户原话: "ISC 初始 chamber 的计算结果, 然后传递到一些相关的数".
+    const todo: Array<{ chamberIdx: number; i: number; j: number; v: ComplexNum }> = [];
+    const seen: Array<ComplexNum> = [];
+    const numEq = (a: ComplexNum, b: ComplexNum) => {
+      const tol = 1e-9 * Math.max(1, Math.abs(a.re), Math.abs(a.im), Math.abs(b.re), Math.abs(b.im));
+      return Math.abs(a.re - b.re) < tol && Math.abs(a.im - b.im) < tol;
+    };
+    const savedChamber = state.selectedChamber;
+    for (let chIdx = 0; chIdx < dataset.chambers.length; chIdx++) {
+      const ch = dataset.chambers[chIdx];
+      if (!ch || !ch.entries) continue;
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          if (i === j) continue;
+          const e = ch.entries[`${i},${j}`];
+          if (!e || e.error || !e.value_block) continue;
+          const blk = modifiedBlock(e, ch.d, i, j);
+          const v = blk[0]?.[0];
+          if (!v) continue;
+          if (Math.abs(v.re) < 1e-12 && Math.abs(v.im) < 1e-12) continue;
+          // local 已经能闭式化 → 不烧 RIES
+          state.selectedChamber = chIdx;  // getSymbolicCellExpr 用 selectedChamber 查 cache
+          if (getSymbolicCellExpr(i, j, v)) continue;
+          // 全局数值去重: chamber 间重复值只 RIES 一次, 通过 iscLibrary 传播.
+          if (seen.some(s => numEq(s, v) || numEq(s, { re: -v.re, im: -v.im }))) continue;
+          seen.push(v);
+          todo.push({ chamberIdx: chIdx, i, j, v });
+        }
       }
     }
+    state.selectedChamber = savedChamber;
     if (todo.length === 0) {
       panel.hidden = false;
-      panel.innerHTML = `<div class="isc-hint">All entries already cached or trivial. Select one to view candidates.</div>`;
+      panel.innerHTML = `<div class="isc-hint">All entries already identified (local simple-identify + library). Nothing for RIES to do.</div>`;
       return;
     }
     iscRunning = true; refreshIscLauncher();
     panel.hidden = false;
     let done = 0;
-    const progress = () => `<div class="isc-loading">Running ISC: <span class="dim">${done}/${todo.length} entries (chamber ${state.selectedChamber+1})</span></div>`;
+    const progress = () => `<div class="isc-loading">Running ISC over all chambers: <span class="dim">${done}/${todo.length} distinct values (dedup'd across ${dataset.chambers.length} chambers)</span></div>`;
     panel.innerHTML = progress();
     try {
-      for (const [i, j, v] of todo) {
-        const resp = await iscQuery(v.re, v.im, undefined, ['ries']);
-        iscCache.set(iscKey(state.selectedChamber, i, j), resp.candidates);
+      for (const t of todo) {
+        const resp = await iscQuery(t.v.re, t.v.im, undefined, ['ries']);
+        iscCache.set(iscKey(t.chamberIdx, t.i, t.j), resp.candidates);
         registerIscLibrary(resp.candidates);
         done++;
         panel.innerHTML = progress();
-        refreshStokesMatrix();  // 增量刷新, 用户看到 cell 一个个变闭式
+        refreshStokesMatrix();
       }
       renderIscResults();
     } catch (e) {
