@@ -2105,9 +2105,14 @@ async function main() {
       }
     }
     // 尝试从 base chamber 抽整数矩阵: 每个 entry 必须 (re ≈ integer, im ≈ 0).
+    // 容差用 relative-to-magnitude: CP^n n=5 base 含 ±95 这种大整数, backend 中
+    // 精度 rel err 1e-4 时 abs err ~9.5e-3 已经超过老的 1e-3 绝对容差, 导致 gate
+    // 误判 fail (2026-05-15 回归). 改成 max(1e-3, 1e-4·|v|) 给大整数留余地;
+    // 失配也不污染 — 后续 lookupIscLibrary 用 1e-6 tol 兜底, false-positive 自然
+    // 过滤掉.
     const baseM: IntMatrix = Array.from({ length: n }, () => Array(n).fill(0));
     let baseAllInteger = allBlocksSize1 && aDiagAllZero;
-    const snapTol = 1e-3;  // 容差: medium 精度数据噪声远低于此
+    let worstOffender: { i: number; j: number; v: ComplexNum; err: number; tol: number } | null = null;
     for (let i = 0; i < n && baseAllInteger; i++) {
       for (let j = 0; j < n; j++) {
         if (i === j) continue;
@@ -2115,11 +2120,27 @@ async function main() {
         if (!e || !e.value_block) { baseAllInteger = false; break; }
         const v = e.value_block[0][0];
         const nRound = Math.round(v.re);
-        if (Math.abs(v.re - nRound) > snapTol || Math.abs(v.im) > snapTol) {
+        const reErr = Math.abs(v.re - nRound);
+        const imErr = Math.abs(v.im);
+        const tol = Math.max(1e-3, 1e-4 * Math.abs(v.re));
+        const err = Math.max(reErr, imErr);
+        if (!worstOffender || err > worstOffender.err) worstOffender = { i, j, v, err, tol };
+        if (reErr > tol || imErr > tol) {
           baseAllInteger = false; break;
         }
         baseM[i][j] = nRound;
       }
+    }
+    // Gate fail 时 console.warn 写清原因, 用户/我能直接看 devtools 知道是哪个 entry 卡住.
+    if (!baseAllInteger) {
+      const reasons: string[] = [];
+      if (!allBlocksSize1) reasons.push(`m_sizes not all 1: ${JSON.stringify(msEff)}`);
+      if (!aDiagAllZero) reasons.push('A_diag not all zero (>1e-12)');
+      if (allBlocksSize1 && aDiagAllZero && worstOffender) {
+        const w = worstOffender;
+        reasons.push(`base S_d entry (${w.i},${w.j}) = ${w.v.re.toPrecision(6)}+${w.v.im.toPrecision(2)}i, err=${w.err.toExponential(2)} > tol=${w.tol.toExponential(2)}`);
+      }
+      console.warn('[ISC] fast propagation gate failed → RIES fallback. Reasons:', reasons);
     }
     if (baseAllInteger) {
       iscRunning = true; refreshIscLauncher();
@@ -2143,27 +2164,33 @@ async function main() {
       // md view 平行传播 (A_diag=0 gate 内): 每 chamber 用整数 S_d_int 闭算
       // md_int = (S^-)^{-1}·S^+, 存 exactMdByChamber. 用前端 md view 同款 -d
       // DESCENDING-rank label (跟 main.ts dLabels() 完全一致).
-      exactMdByChamber.clear();
-      const labelsAt = (d: number): number[] => {
-        const sd = Math.sin(d), cd = Math.cos(d);
-        const proj = ps.map((u, k) => ({ k, v: u.re * sd + u.im * cd }));
-        proj.sort((a, b) => b.v - a.v);
-        const lab = new Array<number>(ps.length);
-        proj.forEach((p, idx) => { lab[p.k] = idx + 1; });
-        return lab;
-      };
-      for (const [chIdx, M] of propagated) {
-        const dCh = dataset.chambers[chIdx].d;
-        try {
-          const mdInt = monodromyFactorInt(M, labelsAt(dCh));
-          exactMdByChamber.set(chIdx, mdInt);
-          // md 整数 entry (含对角 — md diag 通常 ≠ 1) 入库, 兜底 library lookup.
-          for (let i = 0; i < mdInt.length; i++) for (let j = 0; j < mdInt.length; j++) {
-            tryLocalRegister(mdInt[i][j]);
+      // 整段 sandbox try/catch — md 推导任何异常都不能让快路径失效回退 RIES.
+      try {
+        exactMdByChamber.clear();
+        const labelsAt = (d: number): number[] => {
+          const sd = Math.sin(d), cd = Math.cos(d);
+          const proj = ps.map((u, k) => ({ k, v: u.re * sd + u.im * cd }));
+          proj.sort((a, b) => b.v - a.v);
+          const lab = new Array<number>(ps.length);
+          proj.forEach((p, idx) => { lab[p.k] = idx + 1; });
+          return lab;
+        };
+        for (const [chIdx, M] of propagated) {
+          try {
+            const chamber = dataset.chambers?.[chIdx];
+            if (!chamber) continue;
+            const mdInt = monodromyFactorInt(M, labelsAt(chamber.d));
+            exactMdByChamber.set(chIdx, mdInt);
+            // md 整数 entry (含对角 — md diag 通常 ≠ 1) 入库, 兜底 library lookup.
+            for (let i = 0; i < mdInt.length; i++) for (let j = 0; j < mdInt.length; j++) {
+              tryLocalRegister(mdInt[i][j]);
+            }
+          } catch (e) {
+            console.warn(`[ISC] md propagation skipped for chamber ${chIdx}:`, e);
           }
-        } catch {
-          // unipotent gate failed (不该发生, gate 已经保证 S^- 是 unipotent 三角)
         }
+      } catch (e) {
+        console.warn('[ISC] md propagation disabled due to error:', e);
       }
       // 防御性: 直接把 raw v5 eg 值也入库, 万一不在 chamber std 范围内
       if ((dataset as any)._v5_eg_entries) {
