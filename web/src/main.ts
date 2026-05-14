@@ -1809,8 +1809,12 @@ async function main() {
   function getSymbolicCellExpr(_I: number, _J: number, v: ComplexNum): { latex: string; tooltip: string } | null {
     const tipSign = v.im >= 0 ? '+' : '−';
     const tooltip = `${v.re.toPrecision(8)} ${tipSign} ${Math.abs(v.im).toPrecision(8)}i`;
-    const reTrivial = Math.abs(v.re) < 1e-12;
-    const imTrivial = Math.abs(v.im) < 1e-12;
+    // "视为 0" 阈值: 相对 cell 模长 ~7 位有效数字以下 (匹配 medium 精度数值噪声层).
+    // 不能用绝对 1e-12 — Stokes 数值噪声常在 1e-10 量级.
+    const mag = Math.max(Math.abs(v.re), Math.abs(v.im), 1);
+    const zeroTol = mag * 1e-7;
+    const reTrivial = Math.abs(v.re) < zeroTol;
+    const imTrivial = Math.abs(v.im) < zeroTol;
     const reForm = reTrivial ? '0' : identifyValue(v.re);
     const imForm = imTrivial ? '0' : identifyValue(v.im);
     if (reForm === null || imForm === null) return null;
