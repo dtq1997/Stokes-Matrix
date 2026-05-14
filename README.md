@@ -5,7 +5,9 @@
 An interactive visualizer for the Stokes matrices, central connection matrices,
 and path-algebroid structure of the meromorphic connection
 
-$$\nabla \,=\, d \,-\, \Bigl(U + \frac{A}{z}\Bigr)\,dz$$
+```math
+\nabla \,=\, d \,-\, \Bigl(U + \frac{A}{z}\Bigr)\,dz
+```
 
 on the trivial rank $N$ bundle over $\mathbb{P}^{1}$, with a regular
 singularity at $z=0$ and an irregular singularity of Poincaré rank one at
@@ -48,11 +50,15 @@ Primary references:
 
 Fix a *leading term*
 
-$$U \,=\, \mathrm{diag}\bigl(u_{1} I_{m_{1}},\,\dots,\,u_{n} I_{m_{n}}\bigr),\qquad u_{i}\in\mathbb{C},\ u_{i}\neq u_{j}\ (i\neq j),\ m_{i}\in\mathbb{Z}_{\geq 1},$$
+```math
+U \,=\, \mathrm{diag}\bigl(u_{1} I_{m_{1}},\,\dots,\,u_{n} I_{m_{n}}\bigr),\qquad u_{i}\in\mathbb{C},\ u_{i}\neq u_{j}\ (i\neq j),\ m_{i}\in\mathbb{Z}_{\geq 1},
+```
 
 and a *residue matrix* $A\in\mathrm{Mat}_{N}(\mathbb{C})$, arbitrary, with
 
-$$N \,=\, m_{1}+\dots+m_{n}.$$
+```math
+N \,=\, m_{1}+\dots+m_{n}.
+```
 
 Here $n$ is the number of distinct eigenvalues of $U$ and $N$ is the size of
 the system. Write $[A]$ for the block-diagonal part of $A$ adapted to the
@@ -62,7 +68,9 @@ of $U$.
 At $z=\infty$ the system $\nabla F=0$ has a unique formal fundamental
 solution
 
-$$F^{[\infty]}(z)\,=\,\hat F(z)\,z^{[A]}\,e^{U z},\qquad \hat F(z)\,\in\,I+z^{-1}\mathrm{Mat}_{N}(\mathbb{C})[\![z^{-1}]\!],$$
+```math
+F^{[\infty]}(z)\,=\,\hat F(z)\,z^{[A]}\,e^{U z},\qquad \hat F(z)\,\in\,I+z^{-1}\mathrm{Mat}_{N}(\mathbb{C})[\![z^{-1}]\!],
+```
 
 generically divergent. The Balser–Jurkat–Lutz / Malgrange theorem asserts
 that for every direction $d\in\mathbb{R}\setminus\mathrm{aS}(u)$ there is a
@@ -71,7 +79,9 @@ the sectorial region $\mathrm{Sect}_{d}$ of opening greater than $\pi$
 around $\arg z=d$ and asymptotic there to $F^{[\infty]}(z)$. The set of
 *anti-Stokes directions* is
 
-$$\mathrm{aS}(u)\,=\,\bigcup_{i\neq j}\bigl(-\arg(u_{j}-u_{i})+2\pi\mathbb{Z}\bigr)\,\subset\,\mathbb{R};$$
+```math
+\mathrm{aS}(u)\,=\,\bigcup_{i\neq j}\bigl(-\arg(u_{j}-u_{i})+2\pi\mathbb{Z}\bigr)\,\subset\,\mathbb{R};
+```
 
 at $\tau=-\arg(u_{j}-u_{i})$, the exponential $e^{(u_{j}-u_{i})z}$ attains
 its maximum rate of growth on the ray $\arg z=\tau$.
@@ -79,28 +89,43 @@ its maximum rate of growth on the ray $\arg z=\tau$.
 At $z=0$ the system has a regular singularity. When $A$ is non-resonant,
 there is a unique convergent fundamental solution
 
-$$F^{[0]}(z)\,=\,H^{[0]}(z)\,z^{A},\qquad H^{[0]}(z)\,\in\,I+z\,\mathrm{Mat}_{N}(\mathbb{C})\{z\},\quad H^{[0]}(0)=I.$$
+```math
+F^{[0]}(z)\,=\,H^{[0]}(z)\,z^{A},\qquad H^{[0]}(z)\,\in\,I+z\,\mathrm{Mat}_{N}(\mathbb{C})\{z\},\quad H^{[0]}(0)=I.
+```
 
-The **monodromy data** of $\nabla$ are (cf. Tang–Xu, Definition of monodromy
-data):
+The **monodromy data** of $\nabla$ (cf. Tang–Xu, definition of monodromy
+data) are the following matrix-valued invariants.
 
-- the *elementary Stokes matrix* attached to each anti-Stokes direction
-  $\tau\in\mathrm{aS}(u)$,
-  $$S_{[\tau]}(u,A)\,:=\,F_{\tau+\varepsilon}(z)^{-1}\,F_{\tau-\varepsilon}(z),\qquad 0<\varepsilon\ll 1;$$
-- the *sectorial Stokes matrices*
-  $$S_{d}^{\pm}(u,A)\,:=\,F_{d\pm\pi}(z)^{-1}\,F_{d}(z),\qquad d\notin\mathrm{aS}(u),$$
-  and the *normalized Stokes matrix*
-  $$S_{d}(u,A)\,:=\,S_{d}^{+}(u,A)\,-\,S_{d}^{-}(u,A);$$
-- the *central connection matrix*
-  $$C_{d}(u,A)\,:=\,F_{d}(z)^{-1}\,F^{[0]}(z),$$
-  which expresses the canonical solution at $z=\infty$ in the basis of the
-  canonical solution at $z=0$ (the visualizer displays this as $\Omega_{d}$);
-- the *monodromy factor* at $z=\infty$, $e^{2\pi\mathrm{i}M_{d}(u,A)}$, with
-  $M_{d}=C_{d}AC_{d}^{-1}$.
+**Elementary Stokes matrix.** For each anti-Stokes direction
+$\tau\in\mathrm{aS}(u)$,
+
+```math
+S_{[\tau]}(u,A) := F_{\tau+\varepsilon}(z)^{-1}\,F_{\tau-\varepsilon}(z), \qquad 0<\varepsilon\ll 1.
+```
+
+**Sectorial and normalized Stokes matrices.** For $d\notin\mathrm{aS}(u)$,
+
+```math
+S_{d}^{\pm}(u,A) := F_{d\pm\pi}(z)^{-1}\,F_{d}(z), \qquad S_{d}(u,A) := S_{d}^{+}(u,A) - S_{d}^{-}(u,A).
+```
+
+**Central connection matrix.**
+
+```math
+C_{d}(u,A) := F_{d}(z)^{-1}\,F^{[0]}(z),
+```
+
+expressing the canonical solution at $z=\infty$ in the basis of the
+canonical solution at $z=0$. The visualizer displays this as $\Omega_{d}$.
+
+**Monodromy factor at $z=\infty$.** $\;e^{2\pi\mathrm{i}M_{d}(u,A)}$ with
+$M_{d}=C_{d}AC_{d}^{-1}$.
 
 These are related by
 
-$$e^{2\pi\mathrm{i}M_{d}}\,=\,(S_{d}^{-})^{-1}\,e^{2\pi\mathrm{i}[A]}\,S_{d}^{+},\qquad C_{d\pm\pi}\,=\,S_{d}^{\pm}\,C_{d}.$$
+```math
+e^{2\pi\mathrm{i}M_{d}}\,=\,(S_{d}^{-})^{-1}\,e^{2\pi\mathrm{i}[A]}\,S_{d}^{+},\qquad C_{d\pm\pi}\,=\,S_{d}^{\pm}\,C_{d}.
+```
 
 ---
 
@@ -110,7 +135,9 @@ For each $k=1,\dots,n$, Tang–Xu attach to the system $\nabla F=0$ a
 $(n-1)\times(n-1)$-block linear difference equation in a discrete variable
 $m$:
 
-$$\Psi(m+1)\,=\,L_{k}(m)\,\Psi(m),\qquad L_{k}(m)\,=\,\frac{1}{u_{k}I-u_{\hat k\hat k}}\Bigl((mI+A_{\hat k\hat k})\,-\,A_{\hat k k}\,\frac{1}{mI+A_{kk}}\,A_{k\hat k}\Bigr),$$
+```math
+\Psi(m+1)\,=\,L_{k}(m)\,\Psi(m),\qquad L_{k}(m)\,=\,\frac{1}{u_{k}I-u_{\hat k\hat k}}\Bigl((mI+A_{\hat k\hat k})\,-\,A_{\hat k k}\,\frac{1}{mI+A_{kk}}\,A_{k\hat k}\Bigr),
+```
 
 where the hat removes the $k$th block row/column, $A_{kk}$ is the
 $m_{k}\times m_{k}$ diagonal block of $A$, and so on. The matrix $L_{k}(m)$
@@ -120,17 +147,21 @@ companion of $\nabla$ along the coalescence direction $k$.
 The classical asymptotic theory of linear difference equations
 (Birkhoff–Trjitzinsky, Braaksma; in the blocked case, the formulation used
 in Tang–Xu) constructs from $L_{k}$ a pair of *canonical analytic
-solutions* $\mathscr{L}_{k}^{+}(z)$ and $\mathscr{L}_{k}^{-}(z)$ on
+solutions* $\mathcal{L}_{k}^{+}(z)$ and $\mathcal{L}_{k}^{-}(z)$ on
 half-planes in the discrete variable, given as one-sided convergent infinite
 products:
 
-$$\mathscr{L}_{k}^{+}(1+z)^{-1}\,=\,(u_{k}I-u_{\hat k\hat k})^{1+z}\,\lim_{p\to\infty}\,p^{-zI-[L_{k}]_{ss}}\,\frac{(u_{k}I-u_{\hat k\hat k})^{p}}{p!}\,\overleftarrow{\prod_{m=1}^{p}}L_{k}(m+z),$$
+```math
+\mathcal{L}_{k}^{+}(1+z)^{-1}\,=\,(u_{k}I-u_{\hat k\hat k})^{1+z}\,\lim_{p\to\infty}\,p^{-zI-[L_{k}]_{ss}}\,\frac{(u_{k}I-u_{\hat k\hat k})^{p}}{p!}\,\overleftarrow{\prod_{m=1}^{p}}L_{k}(m+z),
+```
 
-and an analogous formula for $\mathscr{L}_{k}^{-}$ as $p\to-\infty$. These
+and an analogous formula for $\mathcal{L}_{k}^{-}$ as $p\to-\infty$. These
 limits exist under explicit non-resonance and dominance hypotheses, and the
 tail of the product
 
-$$\Bigl|\Bigl(\overleftarrow{\prod_{m=K}^{p}}L_{k}(m+z)\Bigr)\,-\,\bigl(\text{leading asymptotic}\bigr)\Bigr|$$
+```math
+\Bigl|\Bigl(\overleftarrow{\prod_{m=K}^{p}}L_{k}(m+z)\Bigr)\,-\,\bigl(\text{leading asymptotic}\bigr)\Bigr|
+```
 
 is bounded uniformly in $p$ by a function of $K$ that can be made smaller
 than any prescribed tolerance. This is the technical input that allows
@@ -146,7 +177,9 @@ a block.
 
 Vary $u=(u_{1},\dots,u_{n})$ in the regular configuration space
 
-$$(\mathbb{C}^{n})_{\mathrm{reg}}\,=\,\{u_{i}\neq u_{j}\}\,\subset\,\mathbb{C}^{n}.$$
+```math
+(\mathbb{C}^{n})_{\mathrm{reg}}\,=\,\{u_{i}\neq u_{j}\}\,\subset\,\mathbb{C}^{n}.
+```
 
 By the theorem of Jimbo–Miwa–Ueno (1981), there is a unique flat connection
 on the trivial $\mathrm{Mat}_{N}(\mathbb{C})$-bundle over
@@ -154,13 +187,17 @@ $(\mathbb{C}^{n})_{\mathrm{reg}}$ whose parallel transport preserves all
 monodromy data $\{S_{[\tau]},\,C_{d},\,e^{2\pi\mathrm{i}M_{d}}\}$. Its
 horizontal sections solve the explicit nonlinear system, for $k=1,\dots,n$,
 
-$$\frac{\partial A}{\partial u_{k}}\,=\,\bigl[\,\mathrm{ad}_{u}^{-1}\mathrm{ad}_{\mathcal{E}_{k}}A,\,A\,\bigr],$$
+```math
+\frac{\partial A}{\partial u_{k}}\,=\,\bigl[\,\mathrm{ad}_{u}^{-1}\mathrm{ad}_{\mathcal{E}_{k}}A,\,A\,\bigr],
+```
 
 where $\mathcal{E}_{k}=\mathrm{diag}(0,\dots,I_{m_{k}},\dots,0)$ is the
 block projector for the $k$th eigenvalue and $\mathrm{ad}_{u}^{-1}$ acts on a block matrix
 $X=(X_{ij})_{n\times n}$ by
 
-$$(\mathrm{ad}_{u}^{-1}X)_{ij}\,=\,\begin{cases}\dfrac{1}{u_{i}-u_{j}}X_{ij},&i\neq j,\\[4pt]0,&i=j.\end{cases}$$
+```math
+(\mathrm{ad}_{u}^{-1}X)_{ij}\,=\,\begin{cases}\dfrac{1}{u_{i}-u_{j}}X_{ij},&i\neq j,\\[4pt]0,&i=j.\end{cases}
+```
 
 The off-block-diagonal matrix $X_{k}:=\mathrm{ad}_{u}^{-1}\mathrm{ad}_{\mathcal{E}_{k}}A$
 plays the role of the auxiliary connection of Schlesinger / Jimbo–Miwa–Ueno
@@ -191,7 +228,9 @@ segment $[u_{i},u_{j}]$. The first main result of Tang–Xu expresses the
 non-trivial $(i,j)$ block of the elementary Stokes matrix $S_{[\tau]}$ as a
 limit of explicit one-sided products of $L_{j}$:
 
-$$(u_{j}-u_{i})^{A_{ii}}\,\frac{(S_{[\tau]})_{ij}}{2\pi\mathrm{i}}\,(u_{j}-u_{i})^{-A_{jj}}\,=\,\lim_{p\to\infty}\frac{(u_{j}-u_{i})^{p+1}}{p!}\,p^{[A_{ii}-A_{jj}-I]}\,\Bigl(\overleftarrow{\prod_{m=1}^{p}}L_{j}(m)\Bigr)_{i\hat{\jmath}}\,\Bigl(-\frac{1}{u_{j}I-u_{\hat{\jmath}\hat{\jmath}}}A_{\hat{\jmath}j}\Bigr),$$
+```math
+(u_{j}-u_{i})^{A_{ii}}\,\frac{(S_{[\tau]})_{ij}}{2\pi\mathrm{i}}\,(u_{j}-u_{i})^{-A_{jj}}\,=\,\lim_{p\to\infty}\frac{(u_{j}-u_{i})^{p+1}}{p!}\,p^{[A_{ii}-A_{jj}-I]}\,\Bigl(\overleftarrow{\prod_{m=1}^{p}}L_{j}(m)\Bigr)_{i\hat{\jmath}}\,\Bigl(-\frac{1}{u_{j}I-u_{\hat{\jmath}\hat{\jmath}}}A_{\hat{\jmath}j}\Bigr),
+```
 
 with $\overleftarrow{\prod}_{m=1}^{p}L_{j}(m)=L_{j}(p)L_{j}(p-1)\cdots L_{j}(1)$
 and $\hat{\jmath}$ the deletion of the $j$th block row/column. Tang–Xu
@@ -205,7 +244,7 @@ generators — the construction descends to the *r*-matrix Poisson structure
 on $U(\mathfrak{gl}_{n})$ studied in Tang–Xu's JGP paper.
 
 The truncation parameter $p$ is the **precision** exposed to the user:
-$\mathscr{L}_{j}^{+}$ of Section 2 controls the tail uniformly, so $p$ may
+$\mathcal{L}_{j}^{+}$ of Section 2 controls the tail uniformly, so $p$ may
 be increased to drive the residual to any prescribed level, even when
 $A$ has non-trivial Jordan structure on the diagonal blocks (the case
 $m_{k}>1$).
@@ -224,7 +263,9 @@ check used internally by the visualizer.
 To each configuration $u=(u_{1},\dots,u_{n})$ Tang–Xu attach a
 $\mathbb{C}$-linear algebroid
 
-$$\mathfrak{S}(u_{1},\dots,u_{n},\infty)$$
+```math
+\mathfrak{S}(u_{1},\dots,u_{n},\infty)
+```
 
 with $n+1$ objects $u_{1},\dots,u_{n},u_{\infty}:=\infty$. For each pair
 $(u_{s},u_{t})$ the hom-space $\mathrm{Hom}(u_{s},u_{t})$ is the
@@ -237,7 +278,9 @@ The composition rule is *not* mere concatenation of paths. For path
 classes $\boldsymbol{\gamma}_{sm}$, $\boldsymbol{\gamma}_{mt}$ meeting at
 the intermediate object $u_{m}$, set
 
-$$\boldsymbol{\gamma}_{sm}\,\boldsymbol{\gamma}_{mt}\,:=\,\boldsymbol{\gamma}_{sm}\overset{r}{\circ}\boldsymbol{\gamma}_{mt}\,-\,\boldsymbol{\gamma}_{sm}\overset{l}{\circ}\boldsymbol{\gamma}_{mt},$$
+```math
+\boldsymbol{\gamma}_{sm}\,\boldsymbol{\gamma}_{mt}\,:=\,\boldsymbol{\gamma}_{sm}\overset{r}{\circ}\boldsymbol{\gamma}_{mt}\,-\,\boldsymbol{\gamma}_{sm}\overset{l}{\circ}\boldsymbol{\gamma}_{mt},
+```
 
 where $\overset{r}{\circ}$ and $\overset{l}{\circ}$ are the
 concatenations obtained by *deforming the joined path to the right* and *to
@@ -259,7 +302,9 @@ respecting the right-minus-left multiplication.
 Tang–Xu construct a canonical representation $\rho_{U,A}$ with
 $V_{i}=\mathbb{C}^{m_{i}}$, characterized by
 
-$$(S_{d})_{ij}\,=\,\rho_{U,A}\bigl(\boldsymbol{\gamma}_{ij}^{(d)}\bigr),\qquad i\neq j,\ d\notin\mathrm{aS}(u),$$
+```math
+(S_{d})_{ij}\,=\,\rho_{U,A}\bigl(\boldsymbol{\gamma}_{ij}^{(d)}\bigr),\qquad i\neq j,\ d\notin\mathrm{aS}(u),
+```
 
 where $\boldsymbol{\gamma}_{ij}^{(d)}\in\mathrm{Hom}(u_{i},u_{j})$ is the
 *Stokes path* assigned to the pair $(i,j)$ in direction $d$: concretely,
@@ -275,7 +320,9 @@ without intermediate punctures on it), $\rho_{U,A}$ is the value of the
 one-sided infinite product. The right-minus-left multiplication then
 *propagates* this value to every other path class:
 
-$$\rho\bigl([i]\,\alpha\,[m]\bigr)\,\cdot\,\rho\bigl([m]\,\beta\,[j]\bigr)\,=\,\rho\bigl([i]\,\alpha{-}\beta\,[j]\bigr)\,-\,\rho\bigl([i]\,\alpha{+}\beta\,[j]\bigr),$$
+```math
+\rho\bigl([i]\,\alpha\,[m]\bigr)\,\cdot\,\rho\bigl([m]\,\beta\,[j]\bigr)\,=\,\rho\bigl([i]\,\alpha{-}\beta\,[j]\bigr)\,-\,\rho\bigl([i]\,\alpha{+}\beta\,[j]\bigr),
+```
 
 where $[i]\,\alpha\,[m]$ denotes a path from $u_{i}$ to $u_{m}$ together
 with the sign string $\alpha\in\{+,-\}^{\bullet}$ recording, in order, which
@@ -292,7 +339,9 @@ Adjacent chambers differ by an anti-Stokes ray, and the corresponding
 elementary Stokes matrix $S_{[\tau]}$ effects the transition: from
 Section 1,
 
-$$S_{d}^{\pm}\,=\,\prod_{\tau\,\in\,\mathrm{aS}(u)\cap (d,d\pm\pi)} S_{[\tau]}\quad(\text{ordered along the half-circle}),\qquad S_{d}\,=\,S_{d}^{+}-S_{d}^{-}.$$
+```math
+S_{d}^{\pm}\,=\,\prod_{\tau\,\in\,\mathrm{aS}(u)\cap (d,d\pm\pi)} S_{[\tau]}\quad(\text{ordered along the half-circle}),\qquad S_{d}\,=\,S_{d}^{+}-S_{d}^{-}.
+```
 
 In the path-algebroid picture this is exactly the propagation of $\rho_{U,A}$
 over the **sign hypercube** of chamber labels: for fixed $(i,j)$ with
@@ -308,13 +357,17 @@ hypercube once.
 Concretely, the entry of the normalized Stokes matrix at a reference
 chamber $d_{\mathrm{reg}}$ has the all-minus form
 
-$$(S_{d_{\mathrm{reg}}})_{kt}\,=\,\rho_{U,A}\bigl([\text{label}(u_{k})]\,\underbrace{{-}{-}\cdots{-}}_{L-1}\,[\text{label}(u_{t})]\bigr),$$
+```math
+(S_{d_{\mathrm{reg}}})_{kt}\,=\,\rho_{U,A}\bigl([\text{label}(u_{k})]\,\underbrace{{-}{-}\cdots{-}}_{L-1}\,[\text{label}(u_{t})]\bigr),
+```
 
 and crossing a single anti-Stokes ray $\tau=-\arg(u_{j}-u_{i})$ between two
 chambers (swapping the adjacent labels $i,j$ in the angular order) sends a
 matrix $S$ on one side to a matrix $S'$ on the other given block-wise by
 
-$$S'_{ij}=S_{ij},\quad S'_{ji}=e^{-2\pi\mathrm{i}A_{jj}}\,S_{ji}\,e^{2\pi\mathrm{i}A_{ii}},\quad S'_{kj}=S_{kj}-S_{ki}S_{ij}\ (k\neq i,j),$$
+```math
+S'_{ij}=S_{ij},\quad S'_{ji}=e^{-2\pi\mathrm{i}A_{jj}}\,S_{ji}\,e^{2\pi\mathrm{i}A_{ii}},\quad S'_{kj}=S_{kj}-S_{ki}S_{ij}\ (k\neq i,j),
+```
 
 with all other blocks unchanged. Cycling $d\mapsto d+2\pi$ composes to the
 formal monodromy $e^{2\pi\mathrm{i}[A]}$.
