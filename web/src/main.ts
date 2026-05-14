@@ -853,6 +853,7 @@ async function main() {
       updateStokesPanel();
       updatePathInfo();
       updateStaleBanner();
+      refreshIscLauncher();
       const elapsed = (newDs as any)._compute_seconds?.toFixed(1) ?? '?';
       recomputeStatus.innerHTML = `<span style="color: var(--good)">✓ finished in ${elapsed}s</span>`;
     } catch (e) {
