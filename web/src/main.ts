@@ -2077,10 +2077,13 @@ async function main() {
       .map((ch, idx) => ({ d: ch.d, originalIdx: idx, ch }))
       .sort((a, b) => a.d - b.d);
     const baseSorted = sortedChambers[0];
-    // Hard gate: wall-crossing.ts 公式 S'_{ji}=S_{ji} 显式依赖 A_diag=0, 且
-    // 退化同 wall 多 pair 的 commute 假设只在 CP^n 对称 case 验证过.
-    // 仅"base 全整数"不够 — 非 CP 数据偶尔也能凑出整数 base 但 propagation 不适用.
+    // Hard gate: wall-crossing.ts 公式 S'_{ji}=S_{ji} 显式依赖 A_diag=0.
+    // 仅"base 全整数"不够 — 非 CP 数据偶尔也能凑出整数 base 但单 pair 公式不适用.
     // 结构条件: m_sizes 全 1 (无 Jordan / 无 multiplicity) ∧ A 对角全 0.
+    // 退化 ray 多 pair commute: A_diag=0 下 pairwise disjoint ⇒ commute 是数学
+    // 事实 (代数逐 entry 验证 + CP^2/3/4 all-base bit-exact 实测 2026-05-15),
+    // 由 propagateExactMatrices 内 hasIndexOverlap runtime guard 捕获, 不依赖
+    // CP^n 对称结构.
     const msEff = state.mOverrides ?? dataset.m_sizes;
     const allBlocksSize1 = msEff.every(m => m === 1);
     let aDiagAllZero = allBlocksSize1;

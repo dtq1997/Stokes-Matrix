@@ -1,8 +1,9 @@
-// CP^n 整数 Stokes 矩阵的 wall-crossing 精确传播 — A_diag = 0 退化版.
+// Wall-crossing 精确传播 — A_diag=0 退化版 (前端 ISC symbolic display 捷径).
 //
 // ⚠️ Scope hard-locked: 本文件公式只在以下条件下成立, caller (main.ts
-// runIscMatrix) 必须用 (m_sizes 全 1) ∧ (A_diag 全 0) ∧ (base 全整数) 三重 gate
-// 收窄到该范围. 不要把这里的公式当一般 wall-crossing 规则推广 — 主算法在
+// runIscMatrix) 必须用 (m_sizes 全 1) ∧ (A_diag 全 0) ∧ (base 全整数) ∧
+// (pairwise-disjoint degenerate walls, runtime-checked) 四重 gate 收窄到该范围.
+// 不要把这里的公式当一般 wall-crossing 规则推广 — 主算法在
 // 50-computation/compute_sd_v5_full.sage 里, 那边有一般 sandwich 公式和
 // reduced-word adjacent-swap sequence.
 //
@@ -13,10 +14,14 @@
 //   - S'_{kj} = S_{kj} - S_{ki} · S_{ij}     k ≠ i, j (column j)
 //   - S'_{jk} = S_{jk} + S_{ji} · S_{ik}     A_diag=0 下两 case 公式相同 (k 在 i,j 前/后)
 //
-// Degenerate ray (单 wall 多 swap pair): 当前实现假定 pair 索引互不重叠,
-// 故 sequential apply 顺序无关 (CP^2/3/4 实测 holds, 见 Codex audit 2026-05-15).
-// 一般退化 ray 需要 reduced-word adjacent-swap sequence (sage 端 compute_sd_v5_full.sage:796
-// 是参考实现). 索引重叠的 case 当前会跑错, 故 caller gate 必须挡住非 CP 数据.
+// Degenerate ray (单 wall 多 swap pair): A_diag=0 下 pairwise-disjoint
+// (即 ∀ pair1 ≠ pair2, {i1,j1} ∩ {i2,j2} = ∅) ⇒ sequential apply commute
+// 是 update 公式的局部代数性质 (read/write set 解耦 + (j1,j2) (j2,j1) 唯一
+// 重叠 entry 逐项展开等式成立), 不依赖 CP^n 对称性也不依赖整数性. 代数验证
+// 跟 CP^2/3/4 all-base bit-exact 实测一致 (Codex audit 2026-05-15).
+// pairwise-disjoint 由 propagateExactMatrices 内 hasIndexOverlap runtime guard
+// 捕获; 索引重叠 case 当前会 short-circuit, 该 chamber 落回 RIES fallback.
+// 一般退化 ray (索引重叠) 走 sage compute_sd_v5_full.sage:796 reduced-word 实现.
 
 export type IntMatrix = number[][];  // off-diag 用整数; 对角约定 0 (paper convention)
 
@@ -74,11 +79,10 @@ export function detectWallPair(dA: number, dB: number, punctures: { re: number; 
  *
  *  返回的 (i, j) 满足 paper 降序 d-order 约定: i = high-proj 排前面, j = low-proj 紧后.
  *
- *  ⚠️ 退化 ray 多 pair sequential apply 一般 NOT commutative — pair 2 公式读
- *  S[k'][i2] 等 entry, 若 k'∈{i1, j1} 则会拿到 pair 1 已写入的更新. 当前实现
- *  依赖 "CP^n A_diag=0 对称 case 经验性 commute" (CP^2/3/4 实测验证, Codex audit
- *  2026-05-15). 不要把本函数当一般 wall-crossing 多 pair 规则推广 — 一般 case
- *  需要 reduced-word adjacent-swap sequence, 见 sage compute_sd_v5_full.sage:796. */
+ *  Sequential apply commutativity: A_diag=0 下 pairwise-disjoint ⇒ commute 是
+ *  update 公式的局部代数性质 (见文件头说明), 不依赖 CP^n 对称性. caller 通过
+ *  propagateExactMatrices 的 hasIndexOverlap guard 保证此前置. 索引重叠 case
+ *  走 sage compute_sd_v5_full.sage 的 reduced-word adjacent-swap sequence. */
 export function detectAllWallPairs(dA: number, dB: number, punctures: { re: number; im: number }[]): Array<[number, number]> {
   const labelsA = ascendingProjectionOrderAt(dA, punctures);
   const labelsB = ascendingProjectionOrderAt(dB, punctures);
