@@ -534,6 +534,10 @@ async function main() {
   buildOmegaMatrix();
   buildOmegaViewSelector();
   updateDimInfo();
+  // ISC 状态 (cache + running flag) 必须在 setupIscLauncher() 调用前声明 — 否则 TDZ.
+  // 实际使用见后面的 ISC 段; 这里只是 hoisted 占位.
+  const iscCache = new Map<string, IscCandidate[]>();
+  let iscRunning = false;
   setupResizeHandles();
   setupInputModeToggles();
   setupIscLauncher();
@@ -1720,8 +1724,7 @@ async function main() {
 
   // ---------- ISC (Inverse Symbolic Computation) ----------
   // 缓存按 (chamber, i, j) 索引. 切 chamber/d 时如果命中 → 复用; 不命中 → 用户主动触发.
-  const iscCache = new Map<string, IscCandidate[]>();
-  let iscRunning = false;
+  // 注意: iscCache / iscRunning 实际声明在文件前面 (hoisted before setupIscLauncher()) 防 TDZ.
   function iscKey(chamber: number, i: number, j: number): string {
     return `${chamber}_${i}_${j}`;
   }
