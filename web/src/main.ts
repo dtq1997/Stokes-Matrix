@@ -1215,13 +1215,14 @@ async function main() {
   }
 
   /** S_d^eg 的 (I, J) 块: raw v5 straight-entry anchor at tau_lift,
-   *  shifted to the closest 2π lift of -arg(u_J-u_I) near currentD. */
-  function egBlock(I: number, J: number): ComplexNum[][] | null {
+   *  shifted to the closest 2π lift of -arg(u_J-u_I) near 给定方向 d (默认 currentD). */
+  function egBlock(I: number, J: number, atD?: number): ComplexNum[][] | null {
     const rawEntry = dataset._v5_eg_entries?.[`${I},${J}`];
     if (!rawEntry?.value_block || typeof rawEntry.tau_lift !== 'number') return null;
     const raw = rawEntry.value_block;
+    const d = atD ?? currentD;
 
-    /* tau_closest = θ_IJ + 2π·round((currentD - θ_IJ)/2π).
+    /* tau_closest = θ_IJ + 2π·round((d - θ_IJ)/2π).
      * The baseline tau_lift is exported by sage from the raw v5 anchor, not
      * inferred from any S_d chamber value. */
     const ps = state.punctureOverrides ?? dataset.punctures;
@@ -1230,7 +1231,7 @@ async function main() {
     while (theta >= Math.PI) theta -= 2 * Math.PI;
     while (theta < -Math.PI) theta += 2 * Math.PI;
     const tp = 2 * Math.PI;
-    const m_d = Math.round((currentD - theta) / tp);
+    const m_d = Math.round((d - theta) / tp);
     const tau_closest = theta + m_d * tp;
 
     const A_II = getABlock(I), A_JJ = getABlock(J);
@@ -1302,14 +1303,19 @@ async function main() {
         if (!valuesFresh) return;
         for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
           if (I === J) continue;
+          // 同时考虑 std 跟 eg 的浮点宽度 — 哪边 symbolic 化都不参与对齐.
           const e = ch.entries[`${I},${J}`];
-          if (!e || e.error || !e.value_block) continue;
-          const mod = modifiedBlock(e, ch.d, I, J);
-          if (ms[I] === 1 && ms[J] === 1) {
-            const sym = getSymbolicCellExpr(I, J, mod[0][0]);
-            if (sym) continue;
+          if (e && !e.error && e.value_block) {
+            const mod = modifiedBlock(e, ch.d, I, J);
+            if (!(ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, mod[0][0]))) {
+              yield mod;
+            }
           }
-          yield mod;
+          // eg 也单独看一眼 (用户可能在 eg view 下查看)
+          const eg = egBlock(I, J);
+          if (eg && !(ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, eg[0][0]))) {
+            yield eg;
+          }
         }
       },
       getCellContent: (I, J, _a, _b): CellContent => {
@@ -1332,15 +1338,15 @@ async function main() {
         if (!mod) {
           return { kind: 'unavailable', tooltip: view === 'eg' ? 'straight-entry data unavailable' : 'entry data unavailable' };
         }
-        // ISC symbolic: std / plus / minus 都支持 (eg view 数值不同, 暂用浮点).
-        // m=1 cell + getSymbolicCellExpr 命中 → 直接闭式. minus / plus(=-1 不存在) 时
-        // 给 latex 加 leading "-" 实现整块取负 (m=1 即标量, 取负 = 表达式前置负号).
-        if (view !== 'eg' && ms[I] === 1 && ms[J] === 1) {
-          const sym = getSymbolicCellExpr(I, J, mod[0][0]);
-          if (sym) {
-            const latex = sign === -1 ? `-(${sym.latex})` : sym.latex;
-            return { kind: 'symbolic', latex, tooltip: sym.tooltip };
-          }
+        // ISC symbolic 入口: 所有 view (std / plus / minus / eg) 共用同一查询.
+        // 关键不变量: 不管 view, cell 渲染只 ask "这个浮点对应哪个闭式" — library 不感知 view.
+        // minus 时把 value 取负再 lookup — 让 library + negateForm 给干净负形式 (避 -(-3)).
+        // SSOT: 未来加新矩阵 (从 S_d 派生的 Ω 等) 一样走 getSymbolicCellExpr(I, J, displayedValue).
+        if (ms[I] === 1 && ms[J] === 1) {
+          const baseV = mod[0][0];
+          const displayV = sign === -1 ? { re: -baseV.re, im: -baseV.im } : baseV;
+          const sym = getSymbolicCellExpr(I, J, displayV);
+          if (sym) return { kind: 'symbolic', latex: sym.latex, tooltip: sym.tooltip };
         }
         if (sign === -1) {
           // 整块取负
@@ -1781,18 +1787,30 @@ async function main() {
       }
     }
   }
+  /** 把 form 取负, 智能避免 -(-N), -(N/M), -(-N/M) 等套娃. */
+  function negateForm(f: string): string {
+    if (f === '0') return '0';
+    // 已是负号开头 → 去掉
+    if (f.startsWith('-')) return f.slice(1);
+    // 简单 token (整数 / 浮点 / 标识符 / 有理 p/q / sqrt(...) / pi*... 等): 直接前加 "-"
+    // 复杂表达式 (含 + 或顶层 -) → 括号包
+    const simple = /^[0-9]+(\.[0-9]+)?$/.test(f)              // 整数 / 小数
+                || /^[a-zA-Z_][a-zA-Z_0-9]*$/.test(f)          // identifier (pi, e, i)
+                || /^[0-9]+\/[0-9]+$/.test(f)                  // p/q
+                || /^sqrt\([^()]*\)$/.test(f)                  // sqrt(n)
+                || /^[0-9]+\*sqrt\([^()]*\)$/.test(f)          // n*sqrt(m)
+                || /^[0-9]+\*pi(\/[0-9]+)?$/.test(f)           // n*pi or n*pi/m
+                || /^pi(\/[0-9]+)?$/.test(f)                   // pi or pi/n
+                || /^1\/sqrt\([^()]*\)$/.test(f);              // 1/sqrt(n)
+    return simple ? `-${f}` : `-(${f})`;
+  }
   /** 全局库查询: 浮点 v 是否匹配某登记值 (或其负数). 返回 form 字符串或 null. */
   function lookupIscLibrary(v: number): string | null {
     if (Math.abs(v) < 1e-12) return null;
     for (const entry of iscLibrary) {
       const tol = 1e-9 * Math.max(1, Math.abs(v));
       if (Math.abs(v - entry.value) < tol) return entry.form;
-      if (Math.abs(v + entry.value) < tol) {
-        // 取负: 单字符负号合并, 否则包 -(form)
-        const f = entry.form;
-        if (f.startsWith('-')) return f.slice(1);
-        return `-(${f})`;
-      }
+      if (Math.abs(v + entry.value) < tol) return negateForm(entry.form);
     }
     return null;
   }
@@ -1949,22 +1967,47 @@ async function main() {
       const tol = 1e-9 * Math.max(1, Math.abs(a.re), Math.abs(a.im), Math.abs(b.re), Math.abs(b.im));
       return Math.abs(a.re - b.re) < tol && Math.abs(a.im - b.im) < tol;
     };
-    // Step 0: 先把所有 chamber 所有 cell 的 re/im 浮点跑一遍 local simple-identify
-    // (秒级, 直接登记进 iscLibrary). 这一步搞定 CP^n 整数 entry 等绝大多数情况.
-    let localHits = 0;
-    for (let chIdx = 0; chIdx < dataset.chambers.length; chIdx++) {
-      const ch = dataset.chambers[chIdx];
-      if (!ch || !ch.entries) continue;
-      for (let i = 0; i < n; i++) {
-        for (let j = 0; j < n; j++) {
-          if (i === j) continue;
-          const e = ch.entries[`${i},${j}`];
-          if (!e || e.error || !e.value_block) continue;
-          const v = modifiedBlock(e, ch.d, i, j)[0]?.[0];
-          if (!v) continue;
-          if (tryLocalRegister(v.re)) localHits++;
-          if (tryLocalRegister(v.im)) localHits++;
+    // Step 0: 收集所有矩阵的所有 (chamber, view, cell) 浮点 → local simple-identify 入库.
+    //
+    // SSOT 扩展点 (future-proof): 新加从 S_d 派生的矩阵 (Ω 等) 时,
+    // 在 valueProducers 里加一项 () => Iterable<ComplexNum> 即可.
+    // - cell 渲染端调 getSymbolicCellExpr 即可消费 library, 不用改 ISC 代码.
+    // - identifyValue / library 完全 view/matrix 无关.
+    const valueProducers: Array<() => Iterable<ComplexNum>> = [
+      // S_d std + 各 chamber. plus/minus 通过 library negation 自动覆盖, 不需独立列.
+      function*() {
+        for (let chIdx = 0; chIdx < dataset.chambers.length; chIdx++) {
+          const ch = dataset.chambers[chIdx];
+          if (!ch || !ch.entries) continue;
+          for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+            if (i === j) continue;
+            const e = ch.entries[`${i},${j}`];
+            if (!e || e.error || !e.value_block) continue;
+            const v = modifiedBlock(e, ch.d, i, j)[0]?.[0];
+            if (v) yield v;
+          }
         }
+      },
+      // S_d^eg: raw v5 anchor + per-pair 2π lift. 每个 chamber 的 d 都要扫一遍 lift.
+      function*() {
+        if (!dataset._v5_eg_entries) return;
+        for (let chIdx = 0; chIdx < dataset.chambers.length; chIdx++) {
+          const ch = dataset.chambers[chIdx];
+          for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+            if (i === j) continue;
+            const eg = egBlock(i, j, ch.d);
+            const v = eg?.[0]?.[0];
+            if (v) yield v;
+          }
+        }
+      },
+      // 未来从 S_d 派生的新矩阵: 在此追加 generator (yield 该矩阵每个 cell 的 ComplexNum).
+    ];
+    let localHits = 0;
+    for (const producer of valueProducers) {
+      for (const v of producer()) {
+        if (tryLocalRegister(v.re)) localHits++;
+        if (tryLocalRegister(v.im)) localHits++;
       }
     }
     refreshStokesMatrix();
