@@ -16,12 +16,75 @@ import sys
 import time
 import math
 import builtins
+import collections
 _py_int = builtins.int  # sage preparser 把 int() 换 Integer, 用 builtins 绕开
 
 _WS = "/Users/dtq1997/ai/workspace/academic-formula-workbench"
 sys.path.insert(0, os.path.join(_WS, "50-computation"))
 
 load(os.path.join(_WS, "50-computation/compute_sd_v5_full.sage"))
+
+
+# Phase 1b: 把 compute_Sd_chambers_v5() 算出的 (chambers_v5, info_v5) 缓存
+# 起来, 让"同参数二次 recompute"完全跳过 ~99% recompute 时间. 持久 worker
+# 配合, 一次会话内多次同输入 (e.g. iterating viz settings) 命中后秒回.
+#
+# 注意 SSOT: compute_Sd_entry.sage:38 已有 _V5_CHAMBER_CACHE 但仅在 legacy
+# 路径 (compute_Sd_entry 主入口) 触发; dataset_builder 走 compute_Sd_chambers_v5
+# 直接调用, 必须独立缓存. 两个 cache 共用 fingerprint 哲学 (content-based,
+# JSON 浮点序列化等价).
+_BUILD_CHAMBERS_V5_CACHE = collections.OrderedDict()
+_BUILD_CHAMBERS_V5_CACHE_MAX = 32  # 单条 ~1-5MB chambers, 32 条 < 200MB
+# 缓存命中/未命中累计计数 (供 /api/worker_stats 调试用)
+_BUILD_CHAMBERS_V5_HITS = 0
+_BUILD_CHAMBERS_V5_MISSES = 0
+
+
+def _fp_complex_tuple(c):
+    """Coerce sage / mpmath / python complex 到 (re, im) python float 对."""
+    cc = complex(c)
+    return (float(cc.real), float(cc.imag))
+
+
+def _fingerprint_v5_chambers(U_list, A_global, m_sizes, kwargs):
+    """Content-based key for v5 chambers cache.
+
+    Includes all caller-visible knobs that change compute output. Anything
+    not in this tuple MUST not affect numeric result.
+    """
+    u_tup = tuple(_fp_complex_tuple(u) for u in U_list)
+    if hasattr(A_global, 'nrows'):
+        N = _py_int(A_global.nrows())
+        a_tup = tuple(_fp_complex_tuple(A_global[r, c])
+                      for r in range(N) for c in range(N))
+    else:
+        a_tup = tuple(_fp_complex_tuple(v) for row in A_global for v in row)
+    m_tup = tuple(_py_int(m) for m in m_sizes)
+    # 必须包含每一个 affects-output 的 v5 kwarg.
+    relevant_keys = (
+        'backend', 'p1', 'p2', 'p_max',
+        'truncation_method', 'tail_order', 'chi_prec_bits',
+        'auto_tail_buffer', 'max_tail_order',
+        'use_richardson', 'adaptive_tol',
+    )
+    k_tup = tuple((k, kwargs.get(k)) for k in relevant_keys)
+    return (m_tup, u_tup, a_tup, k_tup)
+
+
+def clear_chambers_v5_cache():
+    global _BUILD_CHAMBERS_V5_HITS, _BUILD_CHAMBERS_V5_MISSES
+    _BUILD_CHAMBERS_V5_CACHE.clear()
+    _BUILD_CHAMBERS_V5_HITS = 0
+    _BUILD_CHAMBERS_V5_MISSES = 0
+
+
+def chambers_v5_cache_stats():
+    return {
+        'size': len(_BUILD_CHAMBERS_V5_CACHE),
+        'max': _BUILD_CHAMBERS_V5_CACHE_MAX,
+        'hits': _BUILD_CHAMBERS_V5_HITS,
+        'misses': _BUILD_CHAMBERS_V5_MISSES,
+    }
 
 
 def pack_path(waypoints):
@@ -287,6 +350,61 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
             except Exception:
                 pass
 
+    # Phase 1b: cache lookup. fingerprint 覆盖 (U, A, m_sizes, 所有 v5 kwargs).
+    # 命中 → 直接复用 chambers_v5/info_v5 + 跳过 base case / wall-crossing /
+    # 进度回调, 只跑 chamber-pack (毫秒级). 不动数学.
+    global _BUILD_CHAMBERS_V5_HITS, _BUILD_CHAMBERS_V5_MISSES
+    _cache_key = _fingerprint_v5_chambers(U_list, A_global, m_sizes, kwargs)
+    if _cache_key in _BUILD_CHAMBERS_V5_CACHE:
+        # LRU touch: move-to-end
+        _BUILD_CHAMBERS_V5_CACHE.move_to_end(_cache_key)
+        chambers_v5, info_v5 = _BUILD_CHAMBERS_V5_CACHE[_cache_key]
+        _BUILD_CHAMBERS_V5_HITS += 1
+        print(f"STAGE profile-cache-hit|v5 chambers reused|hits={_BUILD_CHAMBERS_V5_HITS}|misses={_BUILD_CHAMBERS_V5_MISSES}|size={len(_BUILD_CHAMBERS_V5_CACHE)}", flush=True)
+        precompute_seconds = 0.0
+        _base_case_wall_s = 0.0
+        _walls_wall_s = 0.0
+        # 单次进度信号让前端动起来
+        _emit_progress(0, 0.0)
+        n = len(U_list)
+        print(f"STAGE chamber-pack|packing {len(chamber_ds)} chambers with {n*(n-1)} entries each", flush=True)
+        _t_pack_start = time.time()
+        out_chambers = []
+        for ch_idx, d in enumerate(chamber_ds):
+            d = float(d)
+            Sd, sel = select_Sd_from_chambers(chambers_v5, info_v5, d)
+            chamber_data = {'d': d, 'entries': {}}
+            for i in range(n):
+                for j in range(n):
+                    if i == j:
+                        continue
+                    entry = _entry_from_block(
+                        Sd[(i, j)], int(m_sizes[i]), int(m_sizes[j]),
+                        'v5_full_wall_crossing',
+                        {
+                            'v5_chamber_index': _py_int(sel['chamber_index']),
+                            'v5_lift_m': _py_int(sel['lift_m']),
+                        },
+                    )
+                    chamber_data['entries'][f'{i},{j}'] = entry
+                    if on_entry is not None:
+                        on_entry(ch_idx, i, j, entry)
+            out_chambers.append(chamber_data)
+            if progress is not None:
+                progress(ch_idx, len(chamber_ds), d, out_chambers)
+        _pack_s = time.time() - _t_pack_start
+        print(f"STAGE profile-build|v5_total_s=0.00|base_case_s=0.00|walls_s=0.00|pack_s={_pack_s:.2f}|n_pairs=0|n_walls=0|backend={kwargs.get('backend','?')}|p1={kwargs.get('p1','?')}|cache=hit", flush=True)
+        return out_chambers, {
+            'hits': _py_int(0),
+            'miss': _py_int(n * (n - 1) * len(chamber_ds)),
+            'algorithm': 'v5_full',
+            'v5': _v5_metadata_for_dataset(info_v5, kwargs, precompute_seconds),
+            'v5_eg_entries': _pack_v5_eg_entries(info_v5, m_sizes),
+        }
+
+    # Cache miss → 真算. 后续进 LRU.
+    _BUILD_CHAMBERS_V5_MISSES += 1
+
     # Phase 0 profiling: 收集回调时戳推导 wall-clock 拆分.
     _prof = {'t_first_pair': None, 't_last_pair': None,
              't_first_wall': None, 't_last_wall': None,
@@ -332,6 +450,10 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
         **kwargs,
     )
     precompute_seconds = time.time() - t0
+    # Phase 1b: 存入 LRU 缓存. 同一 worker 进程内下次同 fingerprint 命中直接复用.
+    _BUILD_CHAMBERS_V5_CACHE[_cache_key] = (chambers_v5, info_v5)
+    while len(_BUILD_CHAMBERS_V5_CACHE) > _BUILD_CHAMBERS_V5_CACHE_MAX:
+        _BUILD_CHAMBERS_V5_CACHE.popitem(last=False)
 
     # Phase 0: 拆 base case / wall-crossing wall-clock. base = t0 → t_last_pair;
     # walls = t_first_wall → t_last_wall (若有). chamber_pack 在下面统计.
