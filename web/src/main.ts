@@ -1406,7 +1406,11 @@ async function main() {
         }
         if (mdFull) {
           for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
-            yield sliceFullBlock(mdFull, ms, I, J);
+            const block = sliceFullBlock(mdFull, ms, I, J);
+            // md cell symbolic 化时 (ISC 后所有整数 entry 走 cs-symbolic) 不参与
+            // 浮点宽度对齐, 否则 ISC 之后 expMd 列宽还被原浮点宽度撑住.
+            if (ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, block[0][0], 'md')) continue;
+            yield block;
           }
         }
       },
