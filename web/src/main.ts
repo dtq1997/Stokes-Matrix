@@ -1796,11 +1796,20 @@ async function main() {
     }
     return null;
   }
-  /** 浮点 → 值表达式. 入口顺序: 本地 simple-identify → ISC 全局库. null = 都失败. */
+  /** 浮点 → 值表达式. cell 渲染只读 iscLibrary; local-identify 仅由 ISC 按钮触发时
+   *  写库 (用户原话: ISC 必须手动). null = 库未命中, 调用方回退浮点. */
   function identifyValue(v: number): string | null {
-    const s = simpleIdentifyValue(v);
-    if (s !== null) return s;
     return lookupIscLibrary(v);
+  }
+  /** 把单浮点 v 通过 local simple-identify 算出的 form 写入 iscLibrary.
+   *  仅在 ISC 按钮触发的流程里调用. 返回是否登记了新条目. */
+  function tryLocalRegister(v: number): boolean {
+    if (Math.abs(v) < 1e-12) return false;
+    if (lookupIscLibrary(v) !== null) return false;
+    const f = simpleIdentifyValue(v);
+    if (f === null) return false;
+    iscLibrary.push({ value: v, form: f });
+    return true;
   }
 /** 给浮点复数 v 找闭式 LaTeX. 入口逻辑:
    *    每个 axis (re, im) 独立走 identifyValue (= 本地 simple → ISC 全局库),
@@ -1905,12 +1914,22 @@ async function main() {
     }
     iscRunning = true; refreshIscLauncher();
     panel.hidden = false;
-    panel.innerHTML = `<div class="isc-loading">Running ISC for (${i+1}, ${j+1})… <span class="dim">RIES, ~1–3s per channel</span></div>`;
+    panel.innerHTML = `<div class="isc-loading">Running ISC for (${i+1}, ${j+1})…</div>`;
     try {
-      const resp = await iscQuery(v.re, v.im, undefined, ['ries']);
-      iscCache.set(iscKey(state.selectedChamber, i, j), resp.candidates);
-      registerIscLibrary(resp.candidates);  // 入库 → 跨 chamber/view 自动复用
-      refreshStokesMatrix();  // 让 cell 立刻切到闭式渲染
+      // Step 1: local simple-identify (整数/有理/√/π) — 秒级, 大多 cell 这一步就完事
+      tryLocalRegister(v.re);
+      tryLocalRegister(v.im);
+      refreshStokesMatrix();
+      // Step 2: 仍未命中的 axis 才落 RIES (耗时, 调后端)
+      const needRies = (lookupIscLibrary(v.re) === null && Math.abs(v.re) > 1e-12)
+                    || (lookupIscLibrary(v.im) === null && Math.abs(v.im) > 1e-12);
+      if (needRies) {
+        panel.innerHTML = `<div class="isc-loading">Local identify done; calling RIES backend for residual…</div>`;
+        const resp = await iscQuery(v.re, v.im, undefined, ['ries']);
+        iscCache.set(iscKey(state.selectedChamber, i, j), resp.candidates);
+        registerIscLibrary(resp.candidates);
+        refreshStokesMatrix();
+      }
       renderIscResults();
     } catch (e) {
       panel.innerHTML = `<div class="isc-error">ISC failed: ${escapeHtml((e as Error).message)}</div>`;
@@ -1930,7 +1949,9 @@ async function main() {
       const tol = 1e-9 * Math.max(1, Math.abs(a.re), Math.abs(a.im), Math.abs(b.re), Math.abs(b.im));
       return Math.abs(a.re - b.re) < tol && Math.abs(a.im - b.im) < tol;
     };
-    const savedChamber = state.selectedChamber;
+    // Step 0: 先把所有 chamber 所有 cell 的 re/im 浮点跑一遍 local simple-identify
+    // (秒级, 直接登记进 iscLibrary). 这一步搞定 CP^n 整数 entry 等绝大多数情况.
+    let localHits = 0;
     for (let chIdx = 0; chIdx < dataset.chambers.length; chIdx++) {
       const ch = dataset.chambers[chIdx];
       if (!ch || !ch.entries) continue;
@@ -1939,24 +1960,40 @@ async function main() {
           if (i === j) continue;
           const e = ch.entries[`${i},${j}`];
           if (!e || e.error || !e.value_block) continue;
-          const blk = modifiedBlock(e, ch.d, i, j);
-          const v = blk[0]?.[0];
+          const v = modifiedBlock(e, ch.d, i, j)[0]?.[0];
+          if (!v) continue;
+          if (tryLocalRegister(v.re)) localHits++;
+          if (tryLocalRegister(v.im)) localHits++;
+        }
+      }
+    }
+    refreshStokesMatrix();
+    // Step 1: 收集 local 没接住、需要 RIES 的 cell. 按数值去重.
+    for (let chIdx = 0; chIdx < dataset.chambers.length; chIdx++) {
+      const ch = dataset.chambers[chIdx];
+      if (!ch || !ch.entries) continue;
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          if (i === j) continue;
+          const e = ch.entries[`${i},${j}`];
+          if (!e || e.error || !e.value_block) continue;
+          const v = modifiedBlock(e, ch.d, i, j)[0]?.[0];
           if (!v) continue;
           if (Math.abs(v.re) < 1e-12 && Math.abs(v.im) < 1e-12) continue;
-          // local 已经能闭式化 → 不烧 RIES
-          state.selectedChamber = chIdx;  // getSymbolicCellExpr 用 selectedChamber 查 cache
-          if (getSymbolicCellExpr(i, j, v)) continue;
-          // 全局数值去重: chamber 间重复值只 RIES 一次, 通过 iscLibrary 传播.
+          // 库命中 → 不需要 RIES
+          const reOk = Math.abs(v.re) < 1e-12 || lookupIscLibrary(v.re) !== null;
+          const imOk = Math.abs(v.im) < 1e-12 || lookupIscLibrary(v.im) !== null;
+          if (reOk && imOk) continue;
           if (seen.some(s => numEq(s, v) || numEq(s, { re: -v.re, im: -v.im }))) continue;
           seen.push(v);
           todo.push({ chamberIdx: chIdx, i, j, v });
         }
       }
     }
-    state.selectedChamber = savedChamber;
     if (todo.length === 0) {
       panel.hidden = false;
-      panel.innerHTML = `<div class="isc-hint">All entries already identified (local simple-identify + library). Nothing for RIES to do.</div>`;
+      panel.innerHTML = `<div class="isc-hint">Local simple-identify registered ${localHits} value(s). No residual cells need RIES.</div>`;
+      renderIscResults();
       return;
     }
     iscRunning = true; refreshIscLauncher();
