@@ -100,6 +100,10 @@ export async function loadDataset(): Promise<SimpleDataset> {
     const K = parseInt(cpMatch[1], 10) + 1;
     if (ds.m_sizes.every(m => m === 1) && ds.m_sizes.length === K && ds.punctures.length === K) {
       attachCpnExprs(K, ds.punctures, ds.A_off);
+      // sage export 出来的 A_diag 是 -3.7e-39 量级浮点 dust, 数学上恒为 0
+      // (μ_diag 求和为 0). UI 里直接零化, 避免 cell 显示 "-3.67342e-39" 这种值.
+      ds.A_diag = ds.A_diag.map(() => 0);
+      if (ds.A_diag_block) ds.A_diag_block = ds.A_diag_block.map(row => row.map(() => 0));
     }
   }
   return ds;

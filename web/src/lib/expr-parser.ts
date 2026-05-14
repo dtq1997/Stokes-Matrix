@@ -236,13 +236,15 @@ function fmtNum(x: number): string {
   return String(parseFloat(x.toPrecision(6)));
 }
 
+// 常数 e, i 用 \mathrm 渲染成正体 (ISO 80000-2 数学常数约定).
+// π 用 \pi: KaTeX 不原生支持 \uppi (要 upgreek 包扩展), 这里 fallback 到斜体 π.
 function nodeToLatex(n: Node, parentPrec = 0): string {
   switch (n.kind) {
     case 'num': return fmtNum(n.val);
     case 'const':
       if (n.name === 'pi') return '\\pi';
-      if (n.name === 'e') return 'e';
-      return 'i';
+      if (n.name === 'e') return '\\mathrm{e}';
+      return '\\mathrm{i}';
     case 'neg': {
       const s = '-' + nodeToLatex(n.v, 3);
       return parentPrec > 1 ? `\\left(${s}\\right)` : s;
@@ -250,7 +252,7 @@ function nodeToLatex(n: Node, parentPrec = 0): string {
     case 'fn': {
       const inner = nodeToLatex(n.arg, 0);
       if (n.name === 'sqrt') return `\\sqrt{${inner}}`;
-      if (n.name === 'exp') return `e^{${inner}}`;
+      if (n.name === 'exp') return `\\mathrm{e}^{${inner}}`;
       if (n.name === 'ln' || n.name === 'log') return `\\ln\\left(${inner}\\right)`;
       return `\\${n.name}\\left(${inner}\\right)`;
     }
@@ -265,9 +267,10 @@ function nodeToLatex(n: Node, parentPrec = 0): string {
       } else if (n.op === '*') {
         const lstr = nodeToLatex(n.l, p);
         const rstr = nodeToLatex(n.r, p);
-        // 右端是符号 (\pi / 单字母 const / 函数) 时用 juxtaposition; 否则 \cdot
+        // 右端是符号 (\pi / 单字母 const / 函数) 时用 juxtaposition; 否则 \cdot.
+        // 控制序列 (\pi 等) 后接字母会被解析成新命令 (e.g. \pii 无效) → 始终插入空格.
         const juxt = /^[\\a-zA-Z]/.test(rstr);
-        s = juxt ? `${lstr}${rstr}` : `${lstr}\\cdot ${rstr}`;
+        s = juxt ? `${lstr} ${rstr}` : `${lstr}\\cdot ${rstr}`;
       } else {
         // + 或 -: 左结合, 右子高一级以避免 a-(b-c) 输出无 paren
         s = `${nodeToLatex(n.l, p)} ${n.op} ${nodeToLatex(n.r, p + 1)}`;
