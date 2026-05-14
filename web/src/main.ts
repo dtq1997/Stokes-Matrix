@@ -120,7 +120,7 @@ async function main() {
     for (const e of dataset.A_off) {
       const sI = starts[e.i], sJ = starts[e.j];
       const a = e.a ?? 0, b = e.b ?? 0;
-      A[sI + a][sJ + b] = { re: e.re, im: e.im };
+      A[sI + a][sJ + b] = { re: e.re, im: e.im, ...(e.expr ? { expr: e.expr } : {}) };
     }
     return A;
   }
@@ -143,8 +143,11 @@ async function main() {
 
   // U/A 表输入模式. 'pair' = 现有 Re/Im 双框; 'expr' = 单行复数表达式 + KaTeX 预览.
   // 独立切换, 不进 snapshot/undo (纯 UI 状态; expr 原文存在 ComplexNum.expr 持久化).
-  let uInputMode: 'pair' | 'expr' = 'pair';
-  let aInputMode: 'pair' | 'expr' = 'pair';
+  // 默认按 dataset 决定: 任一 puncture / A_off 自带 expr 字段 ⇒ 'expr' 模式开局 (例: CP^n).
+  const datasetHasPunctureExpr = dataset.punctures.some(p => p.expr);
+  const datasetHasAExpr = dataset.A_off.some(e => e.expr);
+  let uInputMode: 'pair' | 'expr' = datasetHasPunctureExpr ? 'expr' : 'pair';
+  let aInputMode: 'pair' | 'expr' = datasetHasAExpr ? 'expr' : 'pair';
 
   function complexExprInputHtml(attrs: string, placeholder = 'a + bi'): string {
     return `<div class="cx-expr-cell">` +

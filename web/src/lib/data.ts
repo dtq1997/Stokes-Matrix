@@ -1,4 +1,5 @@
 import type { SimpleDataset } from './types.js';
+import { attachCpnExprs } from './cpn-formulas.js';
 
 // =====================================================================
 // Backend URL resolution (Phase: tunnel-via-cloudflared 2026-05-12).
@@ -67,13 +68,13 @@ function defaultHeaders(extra?: Record<string, string>): Record<string, string> 
 // Stokes 矩阵 cell 显示 "—", banner 提示点 Compute. 预计算值还在 JSON 里,
 // 但用户必须走后端重跑才能看到 (完整演示流程).
 export const DATASET_REGISTRY: { key: string; file: string; label: string; hideOnLoad?: boolean }[] = [
-  { key: 'block',  file: 'n4_block',  label: 'n=4, m=(2,2,2,2) blocks' },
-  { key: 'simple', file: 'n4_simple', label: 'n=4, m=(1,1,1,1) simple spectrum' },
   { key: 'cp2',    file: 'cp2',       label: 'QH^*(\\mathbb{CP}^2)', hideOnLoad: true },
   { key: 'cp3',    file: 'cp3',       label: 'QH^*(\\mathbb{CP}^3)', hideOnLoad: true },
   { key: 'cp4',    file: 'cp4',       label: 'QH^*(\\mathbb{CP}^4)', hideOnLoad: true },
+  { key: 'simple', file: 'n4_simple', label: 'n=4, m=(1,1,1,1) simple spectrum' },
+  { key: 'block',  file: 'n4_block',  label: 'n=4, m=(2,2,2,2) blocks' },
 ];
-const DEFAULT_DATASET_KEY = 'block';
+const DEFAULT_DATASET_KEY = 'cp2';
 
 export function getDatasetKey(): string {
   const params = new URLSearchParams(window.location.search);
@@ -91,7 +92,17 @@ export async function loadDataset(): Promise<SimpleDataset> {
   const url = `${import.meta.env.BASE_URL}data/${entry.file}.json?v=${Date.now()}`.replace(/([^:])\/+/g, '$1/');
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Failed to load dataset: ${r.status}`);
-  return r.json();
+  const ds: SimpleDataset = await r.json();
+  // CP^{K-1} 例子: 把 puncture / A_off 浮点 entry 套上精确表达式 (e^(i*pi/...) 等).
+  // m_sizes 全 1, 长度 K. 数据格式跟其他 simple dataset 一致, 只是多了 expr 字段.
+  const cpMatch = key.match(/^cp(\d+)$/);
+  if (cpMatch) {
+    const K = parseInt(cpMatch[1], 10) + 1;
+    if (ds.m_sizes.every(m => m === 1) && ds.m_sizes.length === K && ds.punctures.length === K) {
+      attachCpnExprs(K, ds.punctures, ds.A_off);
+    }
+  }
+  return ds;
 }
 
 /**

@@ -41,13 +41,13 @@ test.describe('Sd-viz smoke tests', () => {
       errors.push(t);
     });
     page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture', { timeout: 5000 });
     expect(errors).toEqual([]);
   });
 
   test('点 entry 出现 path/provenance + Stokes 数值', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     // 选 (0, 1) entry: 点 stokes-matrix 里 block (0,1) 的 sub-cell
     await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
@@ -56,7 +56,7 @@ test.describe('Sd-viz smoke tests', () => {
 
   test('v5_full null-path schema 显示 provenance + Stokes 数值', async ({ page }) => {
     await useNullPathV5Dataset(page);
-    await page.goto('/?algorithm=v5_full');
+    await page.goto('/?dataset=block&algorithm=v5_full');
     await page.waitForSelector('.puncture');
     await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
     await expect(page.locator('.path-line')).toHaveCount(1);
@@ -73,7 +73,7 @@ test.describe('Sd-viz smoke tests', () => {
   });
 
   test('拖动 path vertex 跟手 (像素级精确)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     // 先把 d 设到 0.025π (chamber 1, (0,2) path 段数 3 含中间 vertex)
     const dInput = page.locator('#d-input');
@@ -113,7 +113,7 @@ test.describe('Sd-viz smoke tests', () => {
   });
 
   test('拖动 puncture 跟手', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
 
     const pun = page.locator('.puncture').first();
@@ -137,7 +137,7 @@ test.describe('Sd-viz smoke tests', () => {
   });
 
   test('d slider 连续, cuts 跟着旋转', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.cut-line', { state: 'attached' });
 
     const getXY2 = async () => {
@@ -159,7 +159,7 @@ test.describe('Sd-viz smoke tests', () => {
     // center 在 3.55°, 下一 chamber center 36.73°. d=18° 在 (16.19, 57.26) 内
     // (chamber idx 跟 ray idx 对应), 但离 3.55° 比离 36.73° 更近 → 旧 nearest
     // 算法选错 chamber.
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     const dInput = page.locator('#d-input');
     // d = 0.1 π = 18°
@@ -175,7 +175,7 @@ test.describe('Sd-viz smoke tests', () => {
   });
 
   test('d 滑块默认 0-branch [-π, π) 起步 d_reg, 输入跨 branch 自动切', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     const dInput = page.locator('#d-input');
     const slider = page.locator('#d-slider-wrap input[type=range]');
@@ -218,7 +218,7 @@ test.describe('Sd-viz smoke tests', () => {
   // 必须实际渲染到 A 表对应位置, 不能被 rebuildInitialA 当对角覆盖.
   // 历史 bug: A_off 没 a/b 字段时 e.a??0 fallback 让 A[sI][sJ] 重复写, 块内 off-diag 丢失.
   test('A 表块内 off-diag 渲染 (块版 dataset 防 SSOT 漂移)', async ({ page }) => {
-    await page.goto('/');  // 默认是 n4_block (m=(2,2,2,2))
+    await page.goto('/?dataset=block');  // 默认是 n4_block (m=(2,2,2,2))
     await page.waitForSelector('.puncture');
     // 等 A 表渲染. flat (row=0, col=1) 是块 1 的 (a=0, b=1) sub-entry,
     // 默认 dataset 应有 (0.05, 0.02) 之类非零值 (不是 0).
@@ -237,7 +237,7 @@ test.describe('Sd-viz smoke tests', () => {
   // stale legacy_entry dataset. Default deployed dataset MUST be
   // v5_full + path:null + provenance.
   test('部署 SSOT: 默认 dataset 是 v5_full + path:null + provenance', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     const meta = await page.evaluate(async () => {
       const r = await fetch('/data/n4_block.json');
@@ -267,7 +267,7 @@ test.describe('Sd-viz smoke tests', () => {
   //   - Reset 按钮已删除
   //   - 文本: "Compute Stokes Matrices"
   test('Compute 按钮: 永远可点, 没有 Reset 按钮', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     const btn = page.locator('#state-recompute');
     await expect(btn).toBeEnabled();
@@ -293,7 +293,7 @@ test.describe('Sd-viz smoke tests', () => {
       errors.push(t);
     });
     page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     await expect(page.locator('#dim-info')).toContainText('8');
 
@@ -312,7 +312,7 @@ test.describe('Sd-viz smoke tests', () => {
   // 防回归 (2026-05-14): 编辑 U/A 也要让 Stokes 立刻变 stale (单一不变式驱动 — POLA).
   // 之前: 只 m_k 触发 cell 变 "—"; U/A 编辑只更新 banner, cell 用旧值, 行为不一致.
   test('编辑 U 立刻让 Stokes 变 stale (跟 m_k 行为一致)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     await expect(page.locator('#state-stale-banner')).toBeHidden();
     const u0re = page.locator('#u-table input.cx[data-k="0"][data-axis="re"]').first();
@@ -326,7 +326,7 @@ test.describe('Sd-viz smoke tests', () => {
 
   // 防回归 (2026-05-14): 矩阵行列指标字号跟 U 表 k 列行号走同一个 CSS SSOT.
   test('Stokes matrix 行列指标跟 U 行号同字号', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     const sizes = await page.evaluate(() => {
       const uCell = document.querySelector('#u-table .row-label') as HTMLElement;
@@ -348,7 +348,7 @@ test.describe('Sd-viz smoke tests', () => {
   // CSS var --cs-int-w / --cs-frac-w 在 refreshStokesMatrix 算全局 max int/frac 设到 stokes-matrix.
   // 所有 cs-grid 共用列宽 → cs-int 右边 (= 小数点 x) 跨 cell 一致.
   test('Stokes matrix 同列跨行小数点 x 一致 (跨 cell 对齐)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     const decXs = await page.$$eval('#stokes-matrix .sm-cell[data-j="1"][data-b="0"]:not(.diag)', els =>
       els.map(el => {
@@ -365,7 +365,7 @@ test.describe('Sd-viz smoke tests', () => {
   // 之前 width: max-content 让 re/im 各自按内容算宽, sign 长度差 1ch 导致小数点错位.
   // 修法: grid-template-columns: max-content + input width: 100% → re/im 同宽.
   test('cx-pair 内 re/im input 同宽 (小数点对齐)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     const widths = await page.$$eval('#a-table .cx-pair', els =>
       els.slice(0, 6).map(pair => {
@@ -381,7 +381,7 @@ test.describe('Sd-viz smoke tests', () => {
   // 防回归 (2026-05-14): S_d / S_d^+ / S_d^- selector. plus 模式对角块 = I_block,
   // off-diag 按 -d label 重组 (label[i]<label[j] 留 S_d 值, 否则 0).
   test('S_d^+ / S_d^- selector 切换矩阵内容, 尺寸不变', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('#stokes-matrix .sm-cell');
     const cellCountBefore = await page.locator('#stokes-matrix .sm-cell').count();
     // 默认 std: 对角 cell (I===J, a===b) 显示 0. KaTeX 渲染会有额外 mathml/whitespace,
@@ -428,7 +428,7 @@ test.describe('Sd-viz smoke tests', () => {
   // 防回归 (2026-05-14, layout stability): 切换 S_d / S_d^+ / S_d^- 时每个 cell 的
   // 几何盒子大小不能变 (user-facing 原则: spatial stability / 反 CLS).
   test('S_d ↔ S_d^± 切换时 cell 尺寸保持不变', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('#stokes-matrix .sm-cell');
     const cellSizes = async () => page.$$eval(
       '#stokes-matrix .sm-cell',
@@ -448,7 +448,7 @@ test.describe('Sd-viz smoke tests', () => {
 
   // 防回归 (2026-05-14): 拖 d slider 时 S_d^+ 矩阵内容随 -d label 重新分类.
   test('S_d^+ 内容随 d 改变 (label 重排)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('#stokes-matrix .sm-cell');
     await page.locator('#sd-view-selector .sd-view-btn[data-view="plus"]').click();
     // 取一个 off-diag cell 在初始 d 下的文本.
@@ -471,7 +471,7 @@ test.describe('Sd-viz smoke tests', () => {
   // 防回归 (2026-05-14): S_d^eg view 语义.
   //   (S_d^eg)_{ij} uses the exported raw v5 straight-entry anchor, not any S_d chamber value.
   test('S_d^eg: raw v5 anchor baseline + per-pair 2π shift', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('#stokes-matrix .sm-cell');
     const cellText = async (sel: string) => (await page.locator(sel).first().textContent() ?? '').replace(/\s+/g, '');
     const raw02 = await page.evaluate(async () => {
@@ -530,7 +530,7 @@ test.describe('Sd-viz smoke tests', () => {
   // 防回归 (2026-05-14): sign 跟 int 之间的视觉间距 SSOT — 不许随 view 切换变.
   // 之前 cs-sign 独立列 + cs-int 列宽随 maxInt 变 → eg (maxInt=1) / std (maxInt=2) 间距不同.
   test('cs-grid sign-int 间距跨 view 一致', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('#stokes-matrix .sm-cell');
     const probe = async () => page.$eval(
       '#stokes-matrix .sm-cell:not(.diag) .cs-grid',
@@ -560,7 +560,7 @@ test.describe('Sd-viz smoke tests', () => {
   // 防回归 (2026-05-14): std view natural path 3 段直线构造. 默认 dataset 下 (0,2) 直线
   // 撞 punc[3] 的 -d cut, 必须绕 → 3 段折线 (3 个 L), 长度 > chord.
   test('S_d std natural path avoids cuts (3-segment detour)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="2"]').first().click();
     const path = page.locator('.path-line').first();
@@ -583,7 +583,7 @@ test.describe('Sd-viz smoke tests', () => {
   // 防回归 (2026-05-14): cut-coord 下两 cut 挨得近时, 端点附近 cut 不能被误算成 blocker
   // 导致 fallback 给直线. n=4 block 默认 d=-0.0439π 时 entry (2,1) 仍应绕过 u_3 的 cut.
   test('S_d natural path: nearby cuts at endpoints do not collapse to line', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     const dInput = page.locator('#d-input');
     await dInput.fill('-0.0439');
@@ -604,7 +604,7 @@ test.describe('Sd-viz smoke tests', () => {
   // 防回归 (2026-05-14): 拖 puncture 时 γ_ij^(d) 实时跟随, 不需要先点 Compute.
   // anti-Stokes marker 同样实时更新 (slider 的 .d-mark.ray 子节点).
   test('live γ + anti-Stokes rays follow puncture drag (no recompute needed)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="2"]').first().click();
     const dBefore = await page.locator('.path-line').first().getAttribute('d');
@@ -632,7 +632,7 @@ test.describe('Sd-viz smoke tests', () => {
   // SSOT — 跟 Stokes 矩阵共享 matrix-panel.ts 渲染. 算法待实现, 全 cell "—".
   // 块结构: Ω (一行一行算) 列有块行无块; Ω^-1 (一列一列算) 行有块列无块.
   test('Ω_d central connection panel: shared renderer, two-view selector, view-dependent block structure', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('#omega-matrix .sm-cell');
     // grid 跟 Stokes 同样 N×N
     const stokesCells = await page.locator('#stokes-matrix .sm-cell').count();
@@ -668,7 +668,7 @@ test.describe('Sd-viz smoke tests', () => {
 
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
   test('U/A input 接受分式 a/b 输入', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?dataset=block');
     await page.waitForSelector('.puncture');
     const u0re = page.locator('#u-table input[data-k="0"][data-axis="re"]').first();
     // 1/2 → 0.5

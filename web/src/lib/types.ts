@@ -12,6 +12,7 @@ export interface AOff {
   i: number; j: number;
   a?: number; b?: number;
   re: number; im: number;
+  expr?: string;
 }
 
 export interface SdEntryData {
