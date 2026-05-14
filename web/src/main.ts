@@ -1884,8 +1884,8 @@ async function main() {
     if (!host) return;
     host.innerHTML =
       `<select class="isc-scope" id="sd-isc-scope" title="ISC range">` +
+        `<option value="matrix" selected>whole matrix</option>` +
         `<option value="entry">selected entry</option>` +
-        `<option value="matrix">whole matrix</option>` +
       `</select>` +
       `<button class="isc-btn" id="sd-isc-btn" type="button" title="Identify symbolic form">ISC</button>` +
       `<button class="isc-btn isc-clear" id="sd-isc-clear" type="button" title="Clear ISC cache" hidden>×</button>`;
@@ -2008,8 +2008,27 @@ async function main() {
       const propagated = propagateExactMatrices(baseSorted.originalIdx, baseM, sortedChambers, ps);
       exactByChamber.clear();
       for (const [chIdx, M] of propagated) exactByChamber.set(chIdx, M);
+      // 同时把所有 chamber 的整数 entry 登记进 iscLibrary, 让 eg view (以及未来
+      // 其他派生视图) 的 cell 也能通过 library 命中.
+      // eg 值 = raw v5 anchor (CP^n A_diag=0 时 chamber-independent), 通常等于
+      // 某个 chamber 的 std 整数, 所以把全 chamber 整数都入库就能覆盖.
+      for (const M of propagated.values()) {
+        for (let i = 0; i < M.length; i++) for (let j = 0; j < M.length; j++) {
+          if (i === j) continue;
+          tryLocalRegister(M[i][j]);
+        }
+      }
+      // 防御性: 直接把 raw v5 eg 值也入库, 万一不在 chamber std 范围内
+      if ((dataset as any)._v5_eg_entries) {
+        for (const e of Object.values((dataset as any)._v5_eg_entries) as any[]) {
+          const v = e?.value_block?.[0]?.[0];
+          if (!v) continue;
+          tryLocalRegister(v.re);
+          tryLocalRegister(v.im);
+        }
+      }
       refreshStokesMatrix();
-      panel.innerHTML = `<div class="isc-hint">Wall-crossing propagation: base chamber ${baseSorted.originalIdx} → ${propagated.size} chambers exact (integer matrix algebra, zero floating-point error).</div>`;
+      panel.innerHTML = `<div class="isc-hint">Wall-crossing propagation: base chamber ${baseSorted.originalIdx} → ${propagated.size} chambers exact (integer matrix algebra, zero floating-point error). iscLibrary populated with ${iscLibrary.length} distinct values so S_d^eg and derived views also display symbolically.</div>`;
       iscRunning = false; refreshIscLauncher();
       return;
     }
