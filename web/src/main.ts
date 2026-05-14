@@ -781,41 +781,40 @@ async function main() {
           const chamberStr = detailMap.chamber ?? '';
           const doneStr = detailMap.done ?? '';
 
-          // 四个 phase 的人类语言 + 完成态
-          // phase 顺序: starting sage → base-case → wall-crossing → chamber-pack → done
-          type StageKey = 'sage' | 'base' | 'wall' | 'pack';
+          // 重做 UI 进度: 合并 sage-start + base-case 成 "Initial entries", 合并
+          // wall-crossing + chamber-pack 成 "Wall-crossing". 短 phase 不再占独立 step.
+          // Sub-text 实时描述具体在算什么 (entry / chamber / 引擎启动等).
+          type StageKey = 'init' | 'cross';
           const stageOf: Record<string, StageKey> = {
-            'starting sage': 'sage',
-            'base-case': 'base',
-            'wall-crossing': 'wall',
-            'chamber-pack': 'pack',
+            'starting sage': 'init',
+            'base-case': 'init',
+            'wall-crossing': 'cross',
+            'chamber-pack': 'cross',
           };
-          const stageOrder: StageKey[] = ['sage', 'base', 'wall', 'pack'];
-          // 用户是数学家但不一定熟悉这套实现细节. UI 字串只用数学概念,
-          // 不出现 sage / PL push / tq Richardson / chamber-pack 等实现 jargon.
+          const stageOrder: StageKey[] = ['init', 'cross'];
           const stageLabel: Record<StageKey, string> = {
-            sage: 'Preparing',
-            base: 'Computing reference chamber',
-            wall: 'Propagating across walls',
-            pack: 'Finalizing',
+            init: 'Initial entries at d_reg',
+            cross: 'Wall-crossing across chambers',
           };
-          const stageHint: Record<StageKey, string> = {
-            sage: 'loading the computation engine',
-            base: 'computing the initial entries (i, j) at the reference direction d_reg',
-            wall: 'transporting the Stokes matrix from one chamber to the next by algebraic wall-crossing',
-            pack: 'assembling the Stokes data across all chambers',
-          };
-          const curStage: StageKey = stageOf[phase] ?? 'sage';
+          const curStage: StageKey = stageOf[phase] ?? 'init';
           const curIdx = stageOrder.indexOf(curStage);
 
-          // 主行: 阶段名 + 当前焦点 (数学家友好, 不带技术 jargon)
-          let focus = '';
-          if (curStage === 'base' && doneStr) {
-            focus = pairStr ? ` entry (i, j) = ${pairStr} · ${doneStr}` : ` · ${doneStr}`;
-          } else if (curStage === 'wall' && doneStr) {
-            focus = chamberStr ? ` chamber ${chamberStr} · ${doneStr}` : ` · ${doneStr}`;
-          } else if (curStage === 'pack' && s.chambers_total > 0) {
-            focus = ` · ${s.chambers_done} / ${s.chambers_total} chambers`;
+          // sub-text: 用户能看到当前在做哪件事 (entry 或 chamber)
+          let subText = '';
+          if (phase === 'starting sage') {
+            subText = 'starting Sage engine (cold start ~3–5s, then computing entries)';
+          } else if (phase === 'base-case') {
+            subText = pairStr
+              ? `entry (i, j) = ${pairStr}${doneStr ? ' · ' + doneStr : ''}`
+              : (doneStr || 'preparing entry sweep');
+          } else if (phase === 'wall-crossing') {
+            subText = chamberStr
+              ? `chamber ${chamberStr}${doneStr ? ' · ' + doneStr : ''}`
+              : (doneStr || 'crossing walls');
+          } else if (phase === 'chamber-pack') {
+            subText = s.chambers_total > 0
+              ? `assembling ${s.chambers_done}/${s.chambers_total} chambers`
+              : 'assembling final output';
           }
 
           // ETA: 用 progress / elapsed 估
@@ -825,21 +824,21 @@ async function main() {
 
           const pct = Math.max(2, Math.round(s.progress * 100));
 
-          // 4 阶段勾标
+          // 2 阶段勾标 (compact)
           const checks = stageOrder.map((k, idx) => {
             let icon = '○';
-            let cls = 'dim';
+            let cls = 'fg-muted';
             if (idx < curIdx) { icon = '✓'; cls = 'good'; }
-            else if (idx === curIdx) { icon = '●'; cls = 'active'; }
-            return `<span style="color:var(--${cls === 'good' ? 'good' : cls === 'active' ? 'fg' : 'fg-muted'},#888);margin-right:8px">${icon} ${escapeHtml(stageLabel[k])}</span>`;
+            else if (idx === curIdx) { icon = '●'; cls = 'fg'; }
+            return `<span style="color:var(--${cls},#888);margin-right:12px">${icon} ${escapeHtml(stageLabel[k])}</span>`;
           }).join('');
 
-          const etaHtml = eta !== null ? `  · ETA ~${eta.toFixed(0)}s` : '';
+          const etaHtml = eta !== null ? ` · ETA ~${eta.toFixed(0)}s` : '';
           recomputeStatus.innerHTML =
-            `<div style="font-size:12px;margin-bottom:4px"><strong>${escapeHtml(stageLabel[curStage])}</strong>${escapeHtml(focus)} <span class="dim">${s.elapsed_s.toFixed(1)}s${etaHtml}</span></div>` +
+            `<div style="font-size:12px;margin-bottom:3px"><strong>${escapeHtml(stageLabel[curStage])}</strong> <span class="dim">${s.elapsed_s.toFixed(1)}s${etaHtml}</span></div>` +
+            `<div class="dim" style="font-size:11px;margin-bottom:5px">${escapeHtml(subText)}</div>` +
             `<div class="progress-bar" style="margin-bottom:4px"><div style="width:${pct}%"></div></div>` +
-            `<div style="font-size:10px;line-height:1.4">${checks}</div>` +
-            `<div class="dim" style="font-size:10px;margin-top:2px">${escapeHtml(stageHint[curStage])}</div>`;
+            `<div style="font-size:10px;line-height:1.4">${checks}</div>`;
         },
         (jobId) => { currentJobId = jobId; },
       );
