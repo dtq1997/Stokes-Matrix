@@ -536,9 +536,13 @@ async function main() {
   buildOmegaMatrix();
   buildOmegaViewSelector();
   updateDimInfo();
-  // ISC 状态 (cache + running flag) 必须在 setupIscLauncher() 调用前声明 — 否则 TDZ.
-  // 实际使用见后面的 ISC 段; 这里只是 hoisted 占位.
+  // ISC 状态. 必须在 setupIscLauncher() 调用前声明 — 否则 TDZ.
+  //   iscCache: 按 (chamber, i, j) 索引的完整 RIES 候选列表 (供 ISC 结果面板展示).
+  //   iscLibrary: 全局"已识别值 → 闭式"字典 — ISC 过的每个浮点值登记进来,
+  //               之后任何 cell 的 re/im 数值匹配某登记值 (或其负数) → 自动闭式蓝字.
+  //               跨 chamber/view 自然传播 RIES 识别成果.
   const iscCache = new Map<string, IscCandidate[]>();
+  const iscLibrary: Array<{ value: number; form: string }> = [];
   let iscRunning = false;
   setupResizeHandles();
   setupInputModeToggles();
@@ -1748,65 +1752,76 @@ async function main() {
   function iscKey(chamber: number, i: number, j: number): string {
     return `${chamber}_${i}_${j}`;
   }
-  /** 候选里挑 best 值形式 (整数 > 有理 > sqrt > π·有理 > ries-value > wolfram).
-   *  按 err_abs 升序; null 当 Infinity. 跳过方程形式. */
-  function pickBestValueForm(cands: IscCandidate[] | undefined, axis: string): string | null {
-    if (!cands || cands.length === 0) return null;
-    const matches = cands.filter(c => c.axis === axis && iscIsValueForm(c));
-    if (matches.length === 0) return null;
+  /** ISC 全局值库登记: 把候选里的 value-form 加入 iscLibrary (按 (engine, kind) 优先级).
+   *  同 value 只存一个 form (优先 kind 等级高的). 同 value 已存且新 form 等级更优 → 替换. */
+  function registerIscLibrary(cands: IscCandidate[]) {
     const kindRank: Record<string, number> = {
       integer: 0, rational: 1, 'pi-rational': 2, sqrt: 3, 'ries-value': 4, wolfram: 5,
     };
-    matches.sort((a, b) => {
-      const r1 = kindRank[a.kind ?? ''] ?? 9;
-      const r2 = kindRank[b.kind ?? ''] ?? 9;
-      if (r1 !== r2) return r1 - r2;
-      return (a.err_abs ?? Infinity) - (b.err_abs ?? Infinity);
-    });
-    return matches[0].form;
+    // 按 axis × value 分组取最优
+    const byKey = new Map<string, IscCandidate>();
+    for (const c of cands) {
+      if (!iscIsValueForm(c)) continue;
+      if (c.axis !== 'Re' && c.axis !== 'Im') continue;  // |z|/arg 不直接当 entry 的 re/im
+      const key = `${c.value}`;
+      const ex = byKey.get(key);
+      if (!ex || (kindRank[c.kind ?? ''] ?? 9) < (kindRank[ex.kind ?? ''] ?? 9)) {
+        byKey.set(key, c);
+      }
+    }
+    for (const c of byKey.values()) {
+      const v = c.value;
+      // 已在库则按 kind rank 替换 (更精简的 form 胜)
+      const idx = iscLibrary.findIndex(e => Math.abs(e.value - v) < 1e-12 * Math.max(1, Math.abs(v)));
+      if (idx === -1) {
+        iscLibrary.push({ value: v, form: c.form });
+      } else {
+        // 替换条件: 这里就不细比, 先到先得即可 (library 单调累积)
+      }
+    }
   }
-  /** 给浮点复数 v 找闭式 LaTeX:
-   *    1. 本地 simple-identify (整数/有理/√有理/π·有理) — 秒级, 无视 cache 跨 chamber 自动复用
-   *    2. fallback 到 iscCache (后端 RIES/WA, 用户主动 ISC 才存)
-   *  null = 都没匹配, 调用方回退浮点显示.
-   *  SSOT: Stokes / Omega / 未来其他矩阵 cell 渲染都用这个入口. */
-  function getSymbolicCellExpr(I: number, J: number, v: ComplexNum): { latex: string; tooltip: string } | null {
-    // tooltip 统一: 原浮点 (re ± im·i)
-    const tipSign = v.im >= 0 ? '+' : '−';
-    const tooltip = `${v.re.toPrecision(8)} ${tipSign} ${Math.abs(v.im).toPrecision(8)}i`;
-    // 1) 本地 simple-identify
-    const localExpr = (() => {
-      const r = simpleIdentifyValue(v.re);
-      const im = simpleIdentifyValue(v.im);
-      if (r === null && im === null) return null;
-      // 缺哪个用浮点 (转字符串) 兜底, 不然不平衡的 cell 就完全 fallback
-      const reForm = r ?? (Math.abs(v.re) < 1e-12 ? '0' : null);
-      const imForm = im ?? (Math.abs(v.im) < 1e-12 ? '0' : null);
-      if (reForm === null && imForm === null) return null;
-      // 只有一边 simple 成功且另一边非平凡 → 放弃 (避免半 closed-form 半浮点的 ugly 表达)
-      if ((reForm === null && Math.abs(v.re) > 1e-12) ||
-          (imForm === null && Math.abs(v.im) > 1e-12)) return null;
-      return buildLocalComplexExpr(reForm, imForm);
-    })();
-    const cacheExpr = (() => {
-      const cands = iscCache.get(iscKey(state.selectedChamber, I, J));
-      if (!cands) return null;
-      const reForm = pickBestValueForm(cands, 'Re');
-      const imForm = pickBestValueForm(cands, 'Im');
-      if (reForm === null && imForm === null) return null;
-      return buildLocalComplexExpr(reForm, imForm);
-    })();
-    // 本地优先, cache fallback. 都尝试 parse + 数值核对.
-    for (const expr of [localExpr, cacheExpr]) {
-      if (!expr) continue;
-      const parsed = parseComplexExpr(expr);
-      if (!parsed) continue;
-      const tolRe = Math.max(1, Math.abs(v.re)) * 1e-8;
-      const tolIm = Math.max(1, Math.abs(v.im)) * 1e-8;
-      if (Math.abs(parsed.re - v.re) > tolRe || Math.abs(parsed.im - v.im) > tolIm) continue;
-      return { latex: exprToLatex(expr), tooltip };
+  /** 全局库查询: 浮点 v 是否匹配某登记值 (或其负数). 返回 form 字符串或 null. */
+  function lookupIscLibrary(v: number): string | null {
+    if (Math.abs(v) < 1e-12) return null;
+    for (const entry of iscLibrary) {
+      const tol = 1e-9 * Math.max(1, Math.abs(v));
+      if (Math.abs(v - entry.value) < tol) return entry.form;
+      if (Math.abs(v + entry.value) < tol) {
+        // 取负: 单字符负号合并, 否则包 -(form)
+        const f = entry.form;
+        if (f.startsWith('-')) return f.slice(1);
+        return `-(${f})`;
+      }
     }
     return null;
+  }
+  /** 浮点 → 值表达式. 入口顺序: 本地 simple-identify → ISC 全局库. null = 都失败. */
+  function identifyValue(v: number): string | null {
+    const s = simpleIdentifyValue(v);
+    if (s !== null) return s;
+    return lookupIscLibrary(v);
+  }
+/** 给浮点复数 v 找闭式 LaTeX. 入口逻辑:
+   *    每个 axis (re, im) 独立走 identifyValue (= 本地 simple → ISC 全局库),
+   *    都成功才合并成单复数表达式; 一边失败但浮点 ≈ 0 也算通过 (避免半浮点半符号 ugly).
+   *  null = 至少一边没识别, 调用方回退浮点显示.
+   *  SSOT: Stokes / Omega / 未来其他矩阵 cell 渲染都用这个入口. */
+  function getSymbolicCellExpr(_I: number, _J: number, v: ComplexNum): { latex: string; tooltip: string } | null {
+    const tipSign = v.im >= 0 ? '+' : '−';
+    const tooltip = `${v.re.toPrecision(8)} ${tipSign} ${Math.abs(v.im).toPrecision(8)}i`;
+    const reTrivial = Math.abs(v.re) < 1e-12;
+    const imTrivial = Math.abs(v.im) < 1e-12;
+    const reForm = reTrivial ? '0' : identifyValue(v.re);
+    const imForm = imTrivial ? '0' : identifyValue(v.im);
+    if (reForm === null || imForm === null) return null;
+    const expr = buildLocalComplexExpr(reForm, imForm);
+    if (!expr) return null;
+    const parsed = parseComplexExpr(expr);
+    if (!parsed) return null;
+    const tolRe = Math.max(1, Math.abs(v.re)) * 1e-8;
+    const tolIm = Math.max(1, Math.abs(v.im)) * 1e-8;
+    if (Math.abs(parsed.re - v.re) > tolRe || Math.abs(parsed.im - v.im) > tolIm) return null;
+    return { latex: exprToLatex(expr), tooltip };
   }
   /** 拿当前 chamber 的 (i, j) entry 的 std view 标量值 (m_i=m_j=1 假设, block 取 [0,0]). */
   function getStdEntryValue(i: number, j: number): ComplexNum | null {
@@ -1838,6 +1853,7 @@ async function main() {
     });
     clearBtn.addEventListener('click', () => {
       iscCache.clear();
+      iscLibrary.length = 0;
       refreshStokesMatrix();
       renderIscResults();
       refreshIscLauncher();
@@ -1888,6 +1904,7 @@ async function main() {
     try {
       const resp = await iscQuery(v.re, v.im, undefined, ['ries']);
       iscCache.set(iscKey(state.selectedChamber, i, j), resp.candidates);
+      registerIscLibrary(resp.candidates);  // 入库 → 跨 chamber/view 自动复用
       refreshStokesMatrix();  // 让 cell 立刻切到闭式渲染
       renderIscResults();
     } catch (e) {
@@ -1927,6 +1944,7 @@ async function main() {
       for (const [i, j, v] of todo) {
         const resp = await iscQuery(v.re, v.im, undefined, ['ries']);
         iscCache.set(iscKey(state.selectedChamber, i, j), resp.candidates);
+        registerIscLibrary(resp.candidates);
         done++;
         panel.innerHTML = progress();
         refreshStokesMatrix();  // 增量刷新, 用户看到 cell 一个个变闭式
