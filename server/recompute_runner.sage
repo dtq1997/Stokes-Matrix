@@ -10,8 +10,12 @@ Output schema: SimpleDataset (跟 web/src/lib/types.ts 对齐).
 块版 (m_k>1): A_diag_block + A_off (带 a/b 字段) 通过 dataset_builder.pack_A_metadata
 打包, 跟 export_n4_block.sage 走同一 SSOT.
 """
-import os, sys, json, time, builtins
+import os, sys, json, time, builtins, resource
 py_int = builtins.int     # sage preparser 把 int() 替换成 Integer
+
+# Phase 0 profiling: 模块加载耗时 (sage core import + load() 调用), Phase 1 持久
+# worker 之后这段每次只付一次, 现在每次 recompute 都付. baseline 实测用.
+_t_module_load_start = time.time()
 
 _WS = "/Users/dtq1997/ai/workspace/academic-formula-workbench"
 sys.path.insert(0, os.path.join(_WS, "50-computation"))
@@ -23,8 +27,21 @@ from sd_chamber_geom import anti_stokes_rays, chamber_midpoints  # SSOT
 load(os.path.join(_WS, "50-computation/compute_Sd_entry.sage"))
 load(os.path.join(_WS, "60-outputs/sd-viz/server/dataset_builder.sage"))
 
+_t_module_load_done = time.time()
+
+
+def _get_rss_mb():
+    """峰值 RSS in MB. macOS ru_maxrss=bytes, linux=KB.
+    sage preparser 会把 1024 当 Integer, 用 float() 兜底确保返回 python float."""
+    r = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    return (r / 1048576.0) if r > 1e8 else (r / 1024.0)
+
 
 def recompute(inp):
+    _t_recompute_start = time.time()
+    # Phase 0: cold-start 拆解. module_load_s = sage core import + load();
+    # cold_total_s = sage 进程启动到 recompute() 入口 (含 module_load).
+    print(f"STAGE profile-cold|module_load_s={_t_module_load_done - _t_module_load_start:.2f}|cold_total_s={_t_recompute_start - _t_module_load_start:.2f}", flush=True)
     punctures = inp['punctures']
     A_in = inp['A']
     m_sizes = list(inp['m_sizes'])
@@ -62,9 +79,12 @@ def recompute(inp):
         algorithm=algorithm,
         progress=_progress,
     )
+    _t_build_done = time.time()
     total = stats['hits'] + stats['miss']
     rate = (100.0 * stats['hits'] / total) if total else 0
-    print(f"DONE elapsed={time.time()-t0:.1f}s cache_hit={stats['hits']}/{total} ({rate:.0f}%)", flush=True)
+    print(f"DONE elapsed={_t_build_done-t0:.1f}s cache_hit={stats['hits']}/{total} ({rate:.0f}%)", flush=True)
+    # Phase 0: 总览
+    print(f"STAGE profile-summary|recompute_s={time.time()-_t_recompute_start:.2f}|build_chambers_s={_t_build_done-t0:.2f}|peak_rss_mb={_get_rss_mb():.0f}|algorithm={algorithm}|precision={precision}|n_punctures={n}|N={N}", flush=True)
 
     out = {
         'punctures': [{'re': float(u.real), 'im': float(u.imag)} for u in U_list],

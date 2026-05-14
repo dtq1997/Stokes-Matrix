@@ -287,6 +287,11 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
             except Exception:
                 pass
 
+    # Phase 0 profiling: 收集回调时戳推导 wall-clock 拆分.
+    _prof = {'t_first_pair': None, 't_last_pair': None,
+             't_first_wall': None, 't_last_wall': None,
+             'n_pairs': 0, 'n_walls': 0}
+
     def _on_pair(done, total, i, j):
         # ramp 0..ceil(0.85*n_chambers_total)
         ch_idx = _py_int(round((done / total) * 0.85 * n_chambers_total))
@@ -296,6 +301,11 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
             ch_idx = n_chambers_total
         # use 0.0 as label d; frontend just shows progress bar
         _emit_progress(ch_idx - 1, 0.0)
+        _now = time.time()
+        if _prof['t_first_pair'] is None:
+            _prof['t_first_pair'] = _now
+        _prof['t_last_pair'] = _now
+        _prof['n_pairs'] += 1
         # 详细 phase 标签 (push_server 单独 parse STAGE 行)
         print(f"STAGE base-case|pair=({_py_int(i)+1},{_py_int(j)+1})|done={_py_int(done)}/{_py_int(total)}", flush=True)
 
@@ -306,6 +316,11 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
         if ch_idx > n_chambers_total:
             ch_idx = n_chambers_total
         _emit_progress(ch_idx - 1, 0.0)
+        _now = time.time()
+        if _prof['t_first_wall'] is None:
+            _prof['t_first_wall'] = _now
+        _prof['t_last_wall'] = _now
+        _prof['n_walls'] += 1
         print(f"STAGE wall-crossing|chamber={_py_int(from_idx)}->{_py_int(to_idx)}|done={_py_int(done)}/{_py_int(total)}", flush=True)
 
     print("STAGE base-case|starting v5 base entries (PL push + tq Richardson per ordered pair)", flush=True)
@@ -318,8 +333,15 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
     )
     precompute_seconds = time.time() - t0
 
+    # Phase 0: 拆 base case / wall-crossing wall-clock. base = t0 → t_last_pair;
+    # walls = t_first_wall → t_last_wall (若有). chamber_pack 在下面统计.
+    _base_case_wall_s = (_prof['t_last_pair'] - t0) if _prof['t_last_pair'] else 0.0
+    _walls_wall_s = (_prof['t_last_wall'] - _prof['t_first_wall']) if (
+        _prof['t_first_wall'] and _prof['t_last_wall']) else 0.0
+
     n = len(U_list)
     print(f"STAGE chamber-pack|packing {len(chamber_ds)} chambers with {n*(n-1)} entries each", flush=True)
+    _t_pack_start = time.time()
     out_chambers = []
     for ch_idx, d in enumerate(chamber_ds):
         d = float(d)
@@ -344,6 +366,10 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
         # final-pass real chamber progress (overwrites virtual base/wall ramp)
         if progress is not None:
             progress(ch_idx, len(chamber_ds), d, out_chambers)
+
+    # Phase 0: 整段 wall-clock 拆解. 这是后续 Phase 1/2 优化的 baseline.
+    _pack_s = time.time() - _t_pack_start
+    print(f"STAGE profile-build|v5_total_s={precompute_seconds:.2f}|base_case_s={_base_case_wall_s:.2f}|walls_s={_walls_wall_s:.2f}|pack_s={_pack_s:.2f}|n_pairs={_prof['n_pairs']}|n_walls={_prof['n_walls']}|backend={kwargs.get('backend','?')}|p1={kwargs.get('p1','?')}", flush=True)
 
     return out_chambers, {
         'hits': _py_int(0),
