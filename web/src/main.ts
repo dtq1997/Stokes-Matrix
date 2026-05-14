@@ -1255,20 +1255,99 @@ async function main() {
     return maxY >= cut.y - eps;
   }
 
-  /** Sample cubic Bezier 密集采样 + 测每段是否撞 cut. n=64 足够，d 变时重算便宜. */
-  function bezierHitsAnyCut(a: CutCoord, c1: CutCoord, c2: CutCoord, b: CutCoord, cuts: CutCoord[], padX = 0): boolean {
-    const n = 64;
-    let prev = a;
-    for (let k = 1; k <= n; k++) {
-      const t = k / n, u = 1 - t, uu = u * u, tt = t * t;
-      const cur = {
-        x: uu * u * a.x + 3 * uu * t * c1.x + 3 * u * tt * c2.x + tt * t * b.x,
-        y: uu * u * a.y + 3 * uu * t * c1.y + 3 * u * tt * c2.y + tt * t * b.y,
-      };
-      for (const cut of cuts) {
-        if (segmentHitsCut(prev, cur, cut, padX)) return true;
+  /** 实系数三次方程 a3·t^3 + a2·t^2 + a1·t + a0 = 0 在开区间 (lo, hi) 内的所有实根.
+   *  闭式 (depressed cubic + Cardano + 三角法), 退化到 quadratic / linear / 常数也处理.
+   *  根做一次 Newton 抛光以消除浮点漂移.
+   *  返回值未必排序; 调用方自行筛选. */
+  function realCubicRootsIn(
+    a3: number, a2: number, a1: number, a0: number,
+    lo: number, hi: number,
+  ): number[] {
+    const eps = 1e-12;
+    const out: number[] = [];
+    const push = (t: number) => {
+      // 一次 Newton 抛光 (在 t 处用三次导数)
+      const f = ((a3 * t + a2) * t + a1) * t + a0;
+      const fp = (3 * a3 * t + 2 * a2) * t + a1;
+      if (Math.abs(fp) > 1e-14) t -= f / fp;
+      if (t > lo - 1e-9 && t < hi + 1e-9) out.push(Math.min(hi, Math.max(lo, t)));
+    };
+    if (Math.abs(a3) < eps) {
+      // 退化二次 a2·t^2 + a1·t + a0
+      if (Math.abs(a2) < eps) {
+        if (Math.abs(a1) < eps) return [];
+        push(-a0 / a1);
+        return out;
       }
-      prev = cur;
+      const disc = a1 * a1 - 4 * a2 * a0;
+      if (disc < -eps) return [];
+      const sd = Math.sqrt(Math.max(0, disc));
+      push((-a1 - sd) / (2 * a2));
+      push((-a1 + sd) / (2 * a2));
+      return out;
+    }
+    // depressed: t = s - a2/(3 a3), 得 s^3 + p s + q = 0
+    const A = a2 / a3, B = a1 / a3, C = a0 / a3;
+    const shift = -A / 3;
+    const p = B - A * A / 3;
+    const q = (2 * A * A * A) / 27 - (A * B) / 3 + C;
+    const disc = (q * q) / 4 + (p * p * p) / 27;
+    if (disc > eps) {
+      // 一个实根 (Cardano)
+      const sq = Math.sqrt(disc);
+      const u = Math.cbrt(-q / 2 + sq);
+      const v = Math.cbrt(-q / 2 - sq);
+      push(u + v + shift);
+    } else if (disc < -eps) {
+      // 三个实根 (三角法)
+      const r = Math.sqrt(-(p * p * p) / 27);
+      const phi = Math.acos(Math.min(1, Math.max(-1, -q / (2 * r))));
+      const m = 2 * Math.cbrt(r);
+      push(m * Math.cos(phi / 3) + shift);
+      push(m * Math.cos((phi + 2 * Math.PI) / 3) + shift);
+      push(m * Math.cos((phi + 4 * Math.PI) / 3) + shift);
+    } else {
+      // 重根 (disc ≈ 0)
+      const u = Math.cbrt(-q / 2);
+      push(2 * u + shift);
+      push(-u + shift);
+    }
+    return out;
+  }
+
+  /** 判 Bezier B(t), t ∈ (0,1) 是否相交从 cut 出发 +y 方向的射线.
+   *  方法: 解一元三次方程 B_x(t) = cut.x ± padX (padX>0 时取最不利侧).
+   *  对每个实根 t* ∈ (eps, 1-eps), 看 B_y(t*) 是否 ≥ cut.y. 端点 (t=0, t=1) 即 u_i / u_j,
+   *  不视为相交 (path 本来就从那里出发). 这是精确判定, 不靠 sampling. */
+  function bezierHitsCut(
+    a: CutCoord, c1: CutCoord, c2: CutCoord, b: CutCoord, cut: CutCoord, padX = 0,
+  ): boolean {
+    const epsT = 1e-6, epsY = 1e-9;
+    // B(t) = (1-t)^3 P0 + 3(1-t)^2 t P1 + 3(1-t) t^2 P2 + t^3 P3
+    //      = t^3 (-P0+3P1-3P2+P3) + t^2 (3P0-6P1+3P2) + t (-3P0+3P1) + P0
+    const evalY = (t: number) => {
+      const u = 1 - t, uu = u * u, tt = t * t;
+      return uu * u * a.y + 3 * uu * t * c1.y + 3 * u * tt * c2.y + tt * t * b.y;
+    };
+    // padX>0 时考虑两侧 ray (cut.x - padX 和 cut.x + padX), 取任意命中即 hit.
+    const targets = padX > 0 ? [cut.x - padX, cut.x, cut.x + padX] : [cut.x];
+    for (const X of targets) {
+      const p0 = a.x - X, p1 = c1.x - X, p2 = c2.x - X, p3 = b.x - X;
+      const a3 = -p0 + 3 * p1 - 3 * p2 + p3;
+      const a2 = 3 * p0 - 6 * p1 + 3 * p2;
+      const a1 = -3 * p0 + 3 * p1;
+      const a0 = p0;
+      const roots = realCubicRootsIn(a3, a2, a1, a0, epsT, 1 - epsT);
+      for (const t of roots) {
+        if (evalY(t) >= cut.y - epsY) return true;
+      }
+    }
+    return false;
+  }
+
+  function bezierHitsAnyCut(a: CutCoord, c1: CutCoord, c2: CutCoord, b: CutCoord, cuts: CutCoord[], padX = 0): boolean {
+    for (const cut of cuts) {
+      if (bezierHitsCut(a, c1, c2, b, cut, padX)) return true;
     }
     return false;
   }
@@ -1421,8 +1500,32 @@ async function main() {
     if (firstNoHit) {
       return { vertices: cubicVerticesFromBeziers(firstNoHit, d), kind: 'cubic' };
     }
-    const fallback = buildRoundedSafetyLane(a, b, cuts, chord, padY, sideOrder[0], 5.0, 0.25);
-    return { vertices: cubicVerticesFromBeziers(fallback, d), kind: 'cubic' };
+    // 兜底也要过 predicate. 候选列表全失败时, 顺序枚举 depth/scale grid 直到第一个无 hit;
+    // 全部失败则返回 grid 上 hit-count 最小的那条 (保留诊断价值, 至少几何上是合理 detour).
+    const fallbackGrid: Array<{ side: -1 | 0 | 1; depth: number; scale: number }> = [];
+    for (const side of [sideOrder[0], sideOrder[1], 0] as Array<-1 | 0 | 1>) {
+      for (const depth of [2.0, 3.0, 4.0, 5.0, 6.5, 8.0]) {
+        for (const scale of [0.55, 0.4, 0.25, 0.15]) {
+          fallbackGrid.push({ side, depth, scale });
+        }
+      }
+    }
+    let bestBeziers: Array<[CutCoord, CutCoord, CutCoord, CutCoord]> | null = null;
+    let bestHits = Infinity;
+    for (const fg of fallbackGrid) {
+      const beziers = buildRoundedSafetyLane(a, b, cuts, chord, padY, fg.side, fg.depth, fg.scale);
+      let hits = 0;
+      for (const [p0, c1, c2, p1] of beziers) {
+        for (const cut of cuts) {
+          if (bezierHitsCut(p0, c1, c2, p1, cut, 0)) hits++;
+        }
+      }
+      if (hits === 0) {
+        return { vertices: cubicVerticesFromBeziers(beziers, d), kind: 'cubic' };
+      }
+      if (hits < bestHits) { bestHits = hits; bestBeziers = beziers; }
+    }
+    return { vertices: cubicVerticesFromBeziers(bestBeziers!, d), kind: 'cubic' };
   }
 
   function refreshAllPaths() {
