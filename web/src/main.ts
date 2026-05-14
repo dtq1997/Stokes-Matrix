@@ -148,6 +148,10 @@ async function main() {
   const datasetHasAExpr = dataset.A_off.some(e => e.expr);
   let uInputMode: 'pair' | 'expr' = datasetHasPunctureExpr ? 'expr' : 'pair';
   let aInputMode: 'pair' | 'expr' = datasetHasAExpr ? 'expr' : 'pair';
+  // "Hide source" 子状态: 仅 expr 模式下生效, 隐藏 input 仅显示 KaTeX 预览.
+  // 点 cell → 临时显示 input 可编辑, blur 后回隐藏 (.editing class 控制单 cell).
+  let uSourceHidden = false;
+  let aSourceHidden = false;
 
   function complexExprInputHtml(attrs: string, placeholder = 'a + bi'): string {
     return `<div class="cx-expr-cell">` +
@@ -534,31 +538,93 @@ async function main() {
   setupInputModeToggles();
 
   function setupInputModeToggles() {
-    const cfg: Array<{ id: string; get: () => 'pair' | 'expr'; set: (m: 'pair' | 'expr') => void; rebuild: () => void }> = [
-      { id: 'u-mode-toggle', get: () => uInputMode, set: m => { uInputMode = m; }, rebuild: () => buildUTable() },
-      { id: 'a-mode-toggle', get: () => aInputMode, set: m => { aInputMode = m; }, rebuild: () => buildATable() },
+    interface ToggleCfg {
+      hostId: string;
+      tableId: string;
+      get: () => 'pair' | 'expr';
+      set: (m: 'pair' | 'expr') => void;
+      getHidden: () => boolean;
+      setHidden: (v: boolean) => void;
+      rebuild: () => void;
+    }
+    const cfg: ToggleCfg[] = [
+      {
+        hostId: 'u-mode-toggle', tableId: 'u-table',
+        get: () => uInputMode, set: m => { uInputMode = m; },
+        getHidden: () => uSourceHidden, setHidden: v => { uSourceHidden = v; },
+        rebuild: () => buildUTable(),
+      },
+      {
+        hostId: 'a-mode-toggle', tableId: 'a-table',
+        get: () => aInputMode, set: m => { aInputMode = m; },
+        getHidden: () => aSourceHidden, setHidden: v => { aSourceHidden = v; },
+        rebuild: () => buildATable(),
+      },
     ];
     for (const c of cfg) {
-      const host = document.getElementById(c.id);
+      const host = document.getElementById(c.hostId);
       if (!host) continue;
       host.innerHTML =
-        `<button class="mode-btn" data-mode="pair">Re / Im</button>` +
-        `<button class="mode-btn" data-mode="expr">Expression</button>`;
+        `<span class="mode-group">` +
+          `<button class="mode-btn" data-mode="pair">Re / Im</button>` +
+          `<button class="mode-btn" data-mode="expr">Expression</button>` +
+        `</span>` +
+        `<button class="source-toggle" type="button" hidden></button>`;
+      const srcBtn = host.querySelector<HTMLButtonElement>('.source-toggle')!;
       const render = () => {
         host.querySelectorAll<HTMLButtonElement>('.mode-btn').forEach(b => {
           b.classList.toggle('active', b.dataset.mode === c.get());
         });
+        srcBtn.hidden = c.get() !== 'expr';
+        srcBtn.textContent = c.getHidden() ? 'Show source' : 'Hide source';
+      };
+      const applyHidden = () => {
+        const t = document.getElementById(c.tableId);
+        if (!t) return;
+        const active = c.get() === 'expr' && c.getHidden();
+        t.classList.toggle('source-hidden', active);
+        if (!active) {
+          // 离开 hide 状态: 把所有 .editing 临时编辑态清掉
+          t.querySelectorAll('.cx-expr-cell.editing').forEach(e => e.classList.remove('editing'));
+        }
       };
       render();
+      applyHidden();
       host.querySelectorAll<HTMLButtonElement>('.mode-btn').forEach(b => {
         b.addEventListener('click', () => {
           const m = b.dataset.mode as 'pair' | 'expr';
           if (m === c.get()) return;
           c.set(m);
           c.rebuild();
+          applyHidden();
           render();
         });
       });
+      srcBtn.addEventListener('click', () => {
+        c.setHidden(!c.getHidden());
+        applyHidden();
+        render();
+      });
+      // 点 preview → 临时显示 input 可编辑, blur 回隐藏. 事件委托, 不被 buildXTable 重置.
+      const t = document.getElementById(c.tableId);
+      if (t) {
+        t.addEventListener('click', (e) => {
+          if (!t.classList.contains('source-hidden')) return;
+          const tgt = e.target as HTMLElement;
+          const cell = tgt.closest('.cx-expr-cell') as HTMLElement | null;
+          if (!cell || cell.classList.contains('editing')) return;
+          cell.classList.add('editing');
+          const inp = cell.querySelector<HTMLInputElement>('input.cx-expr');
+          inp?.focus();
+          inp?.select();
+        });
+        t.addEventListener('focusout', (e) => {
+          const tgt = e.target as HTMLElement;
+          if (!tgt.classList.contains('cx-expr')) return;
+          const cell = tgt.closest('.cx-expr-cell') as HTMLElement | null;
+          cell?.classList.remove('editing');
+        });
+      }
     }
   }
   const precisionSelect = document.getElementById('precision-select') as HTMLSelectElement;
