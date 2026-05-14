@@ -30,6 +30,32 @@ load(os.path.join(_WS, "60-outputs/sd-viz/server/dataset_builder.sage"))
 _t_module_load_done = time.time()
 
 
+def _prime_mpmath_caches():
+    """Phase 2: 预热 mpmath bernoulli_cache + gamma_stirling_cache.
+
+    多线程并发调 mpmath.gamma 时, 这两个 module-level dict 未填充会触发
+    bernfrac() → sage.primes() → PARI nextprime, PARI 单线程不可重入会段错.
+    在 module load 后串行 prime 一次, 之后并行只读 cache 命中.
+
+    严格只在第一次 import 后跑; recompute() 多次调用不重复.
+    """
+    try:
+        import mpmath
+        old_prec = mpmath.mp.prec
+        for prec in (1600, 800, 300):
+            mpmath.mp.prec = prec
+            _ = mpmath.gamma(mpmath.mpc(1.5, 0.5))
+            _ = mpmath.gamma(mpmath.mpf(2.5))
+        mpmath.mp.prec = old_prec
+        return True
+    except Exception as e:
+        print(f"WARN: mpmath cache prime failed: {e}", flush=True)
+        return False
+
+
+_prime_mpmath_caches()
+
+
 def _get_rss_mb():
     """峰值 RSS in MB. macOS ru_maxrss=bytes, linux=KB.
     sage preparser 会把 1024 当 Integer, 用 float() 兜底确保返回 python float."""

@@ -24,7 +24,8 @@ _WS = "/Users/dtq1997/ai/workspace/academic-formula-workbench"
 sys.path.insert(0, os.path.join(_WS, "50-computation"))
 sys.path.insert(0, os.path.join(_WS, "60-outputs/sd-viz/server"))
 
-# 加载 recompute_runner — 它会触发 sage core + 我们的 sage modules 一次性加载.
+# 加载 recompute_runner — 它会触发 sage core + 我们的 sage modules 一次性加载,
+# 同时跑 _prime_mpmath_caches() (Phase 2 PARI 段错预防).
 # 这是 worker spawn 时一次性付的开销 (~4s); 此后每次 job 不再付.
 load(os.path.join(_WS, "60-outputs/sd-viz/server/recompute_runner.sage"))
 

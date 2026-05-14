@@ -326,8 +326,30 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
         raise ValueError("precision=%r not in %r" %
                          (precision, sorted(V5_PRECISION_PRESETS)))
     kwargs = dict(V5_PRECISION_PRESETS[precision])
+    # Phase 2: 默认并行 base case (i,j) 对到所有可用核. caller 可 v5_kwargs
+    # override (e.g. tests 想跑顺序). 上限 = min(cpu_count, n*(n-1)).
+    #
+    # **CRITICAL** numpy backend 才并行: mpmath/CBF 路径会触发 sage.primes() →
+    # PARI nextprime, PARI 单线程不可重入, 多线程并发会段错. 实测 2026-05-15.
+    #
+    # 调试 escape: env SD_VIZ_N_JOBS 强制覆盖 n_jobs (设 1 = 强制串行).
     if v5_kwargs:
         kwargs.update(v5_kwargs)
+    env_n_jobs = os.environ.get('SD_VIZ_N_JOBS', '').strip()
+    if env_n_jobs:
+        try:
+            kwargs['n_jobs'] = _py_int(env_n_jobs)
+        except ValueError:
+            pass
+    if 'n_jobs' not in kwargs:
+        # Phase 2 实测结论 (2026-05-15): threading 在 mpmath/CBF backend 上
+        # 因 GIL (mpmath gammazeta 纯 Python) 无加速; numpy backend 上 thread
+        # overhead 大于 numpy 调用开销也无加速. PARI 重入问题已通过 worker
+        # 启动 prime mpmath bernoulli_cache 绕开. 默认串行, 仅当 caller 显
+        # 式给 n_jobs (或 env SD_VIZ_N_JOBS) 时开线程, 供未来 backend GIL 释
+        # 放路径用 (e.g. compiled C extension). Phase 4 multiprocessing fork
+        # 是真正解但需另开预算评估.
+        kwargs['n_jobs'] = 1
 
     # Forward base-case pair + wall progress to upstream callback as the
     # *real* progress signal during v5_full. Caller's `progress(ch_idx, n, d, ...)`
