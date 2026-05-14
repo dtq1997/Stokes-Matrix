@@ -10,6 +10,7 @@ import { Canvas } from './components/canvas.js';
 import { chamberOfDirection, monodromyTransforms, antiStokesRays } from './lib/geometry.js';
 import { mmul } from './lib/matexp.js';
 import { parsePiInput, parseRational, formatPi } from './lib/pi-input.js';
+import { parseComplexExpr, exprToLatex, complexToExpr } from './lib/expr-parser.js';
 
 function tex(s: string, displayMode = false): string {
   return katex.renderToString(s, { displayMode, throwOnError: false, strict: false });
@@ -139,6 +140,24 @@ async function main() {
     omegaView: 'omega',
     selectedOmegaBlock: null,
   };
+
+  // U/A 表输入模式. 'pair' = 现有 Re/Im 双框; 'expr' = 单行复数表达式 + KaTeX 预览.
+  // 独立切换, 不进 snapshot/undo (纯 UI 状态; expr 原文存在 ComplexNum.expr 持久化).
+  let uInputMode: 'pair' | 'expr' = 'pair';
+  let aInputMode: 'pair' | 'expr' = 'pair';
+
+  function complexExprInputHtml(attrs: string, placeholder = 'a + bi'): string {
+    return `<div class="cx-expr-cell">` +
+      `<input class="cx cx-expr" ${attrs} placeholder="${placeholder}" />` +
+      `<div class="cx-preview" ${attrs}></div>` +
+      `</div>`;
+  }
+  function renderExprPreview(el: Element | null, text: string) {
+    if (!el) return;
+    const t = text.trim();
+    if (t === '') { el.innerHTML = ''; return; }
+    el.innerHTML = katex.renderToString(exprToLatex(t), { throwOnError: false, strict: false });
+  }
 
   function currentRays(): number[] {
     const ps = state.punctureOverrides ?? dataset.punctures;
@@ -509,6 +528,36 @@ async function main() {
   buildOmegaViewSelector();
   updateDimInfo();
   setupResizeHandles();
+  setupInputModeToggles();
+
+  function setupInputModeToggles() {
+    const cfg: Array<{ id: string; get: () => 'pair' | 'expr'; set: (m: 'pair' | 'expr') => void; rebuild: () => void }> = [
+      { id: 'u-mode-toggle', get: () => uInputMode, set: m => { uInputMode = m; }, rebuild: () => buildUTable() },
+      { id: 'a-mode-toggle', get: () => aInputMode, set: m => { aInputMode = m; }, rebuild: () => buildATable() },
+    ];
+    for (const c of cfg) {
+      const host = document.getElementById(c.id);
+      if (!host) continue;
+      host.innerHTML =
+        `<button class="mode-btn" data-mode="pair">Re / Im</button>` +
+        `<button class="mode-btn" data-mode="expr">Expression</button>`;
+      const render = () => {
+        host.querySelectorAll<HTMLButtonElement>('.mode-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.mode === c.get());
+        });
+      };
+      render();
+      host.querySelectorAll<HTMLButtonElement>('.mode-btn').forEach(b => {
+        b.addEventListener('click', () => {
+          const m = b.dataset.mode as 'pair' | 'expr';
+          if (m === c.get()) return;
+          c.set(m);
+          c.rebuild();
+          render();
+        });
+      });
+    }
+  }
   const precisionSelect = document.getElementById('precision-select') as HTMLSelectElement;
   let _precisionLast = precisionSelect.value;
   precisionSelect.addEventListener('mousedown', () => { _precisionLast = precisionSelect.value; });
@@ -764,11 +813,14 @@ async function main() {
   function buildUTable() {
     const t = document.getElementById('u-table')!;
     t.classList.add('u-table');
+    const cellHtml = (k: number) => uInputMode === 'expr'
+      ? complexExprInputHtml(`data-k="${k}"`, 'e.g. 2 + 3i')
+      : complexInputHtml(`data-k="${k}"`);
     let html = `<thead><tr><th>${tex('k')}</th><th>${tex('u_k')}</th>` +
       `<th>${tex('m_k')}</th></tr></thead><tbody>`;
     for (let k = 0; k < n; k++) {
       html += `<tr><td class="row-label">${tex(`${k+1}`)}</td>` +
-        `<td>${complexInputHtml(`data-k="${k}"`)}</td>` +
+        `<td>${cellHtml(k)}</td>` +
         `<td><input class="cx mk-input" data-k="${k}" /></td></tr>`;
     }
     html += '</tbody>';
@@ -780,15 +832,25 @@ async function main() {
   function refreshUTable() {
     const ps = state.punctureOverrides!;
     const ms = state.mOverrides!;
-    document.querySelectorAll<HTMLInputElement>('#u-table input.cx').forEach(input => {
-      const k = Number(input.dataset.k!);
-      if (input.classList.contains('mk-input')) {
-        input.value = String(ms[k]);
-      } else {
+    // mk inputs (两种模式都在)
+    document.querySelectorAll<HTMLInputElement>('#u-table input.mk-input').forEach(input => {
+      input.value = String(ms[Number(input.dataset.k!)]);
+    });
+    if (uInputMode === 'expr') {
+      document.querySelectorAll<HTMLInputElement>('#u-table input.cx-expr').forEach(input => {
+        const k = Number(input.dataset.k!);
+        const p = ps[k];
+        const txt = p.expr ?? complexToExpr(p.re, p.im);
+        input.value = txt;
+        renderExprPreview(input.parentElement?.querySelector('.cx-preview') ?? null, txt);
+      });
+    } else {
+      document.querySelectorAll<HTMLInputElement>('#u-table input.cx:not(.mk-input):not(.cx-expr)').forEach(input => {
+        const k = Number(input.dataset.k!);
         const axis = input.dataset.axis as 're' | 'im';
         input.value = fmtInputNum(ps[k][axis], axis);
-      }
-    });
+      });
+    }
   }
   function onUEdit(e: Event) {
     const t = e.target as HTMLInputElement;
@@ -808,6 +870,23 @@ async function main() {
       applyBlockResize(newU, newM);
       return;
     }
+    if (t.classList.contains('cx-expr')) {
+      const parsed = parseComplexExpr(t.value);
+      if (parsed === null) { t.classList.add('invalid'); return; }
+      t.classList.remove('invalid');
+      const cur = state.punctureOverrides![k];
+      const newExpr = t.value.trim();
+      if (cur.re === parsed.re && cur.im === parsed.im && (cur.expr ?? '') === newExpr) return;
+      pushHistory();
+      state.punctureOverrides![k].re = parsed.re;
+      state.punctureOverrides![k].im = parsed.im;
+      state.punctureOverrides![k].expr = newExpr;
+      state.stokesStale = true;
+      state.exampleAwaitingCompute = false;
+      onStateChange(state);
+      canvas.setState(state);
+      return;
+    }
     const parsed = parseRational(t.value);
     if (parsed === null) { t.classList.add('invalid'); return; }
     t.classList.remove('invalid');
@@ -815,6 +894,8 @@ async function main() {
     if (state.punctureOverrides![k][axis] === parsed) return;
     pushHistory();
     state.punctureOverrides![k][axis] = parsed;
+    // pair 模式编辑覆盖 expr (原文已失效)
+    state.punctureOverrides![k].expr = undefined;
     state.stokesStale = true;
     state.exampleAwaitingCompute = false;
     // U 改 → 跟 puncture 拖动效果一样: live rays / γ / slider marker 实时跟手.
@@ -829,8 +910,17 @@ async function main() {
   }
   function onUInput(e: Event) {
     const t = e.target as HTMLInputElement;
-    if (!t.classList.contains('mk-input')) return;
-    updateDimInfo(readMInputPreview() ?? state.mOverrides!);
+    if (t.classList.contains('mk-input')) {
+      updateDimInfo(readMInputPreview() ?? state.mOverrides!);
+      return;
+    }
+    if (t.classList.contains('cx-expr')) {
+      // 实时预览, 不 commit. invalid 仅在非空且无法解析时标红.
+      const txt = t.value;
+      const parsed = parseComplexExpr(txt);
+      t.classList.toggle('invalid', txt.trim() !== '' && parsed === null);
+      renderExprPreview(t.parentElement?.querySelector('.cx-preview') ?? null, txt);
+    }
   }
   function updateDimInfo(ms = state.mOverrides!) {
     const m_total = totalMultiplicity(ms);
@@ -874,38 +964,76 @@ async function main() {
       for (let fj = 0; fj < N; fj++) {
         const [J, b] = blockOf(fj);
         const cls = (fj > 0 && b === 0) ? 'block-left' : '';
-        html += `<td class="${cls}">` +
-          complexInputHtml(`data-i="${fi}" data-j="${fj}"`) +
-          `</td>`;
+        const inner = aInputMode === 'expr'
+          ? complexExprInputHtml(`data-i="${fi}" data-j="${fj}"`)
+          : complexInputHtml(`data-i="${fi}" data-j="${fj}"`);
+        html += `<td class="${cls}">${inner}</td>`;
       }
       html += '</tr>';
     }
     html += '</tbody>';
     t.innerHTML = html;
     refreshATable();
+    t.oninput = onAInput;
     t.onchange = onAEdit;
   }
   function refreshATable() {
     const A = state.AOverrides!;
-    document.querySelectorAll<HTMLInputElement>('#a-table input.cx').forEach(input => {
-      const i = Number(input.dataset.i!);
-      const j = Number(input.dataset.j!);
-      const axis = input.dataset.axis as 're' | 'im';
-      input.value = fmtInputNum(A[i][j][axis], axis);
-    });
+    if (aInputMode === 'expr') {
+      document.querySelectorAll<HTMLInputElement>('#a-table input.cx-expr').forEach(input => {
+        const i = Number(input.dataset.i!);
+        const j = Number(input.dataset.j!);
+        const c = A[i][j];
+        const txt = c.expr ?? complexToExpr(c.re, c.im);
+        input.value = txt;
+        renderExprPreview(input.parentElement?.querySelector('.cx-preview') ?? null, txt);
+      });
+    } else {
+      document.querySelectorAll<HTMLInputElement>('#a-table input.cx:not(.cx-expr)').forEach(input => {
+        const i = Number(input.dataset.i!);
+        const j = Number(input.dataset.j!);
+        const axis = input.dataset.axis as 're' | 'im';
+        input.value = fmtInputNum(A[i][j][axis], axis);
+      });
+    }
+  }
+  function onAInput(e: Event) {
+    const t = e.target as HTMLInputElement;
+    if (!t.classList.contains('cx-expr')) return;
+    const txt = t.value;
+    const parsed = parseComplexExpr(txt);
+    t.classList.toggle('invalid', txt.trim() !== '' && parsed === null);
+    renderExprPreview(t.parentElement?.querySelector('.cx-preview') ?? null, txt);
   }
   function onAEdit(e: Event) {
     const t = e.target as HTMLInputElement;
     if (!t.classList.contains('cx')) return;
+    const i = Number(t.dataset.i!);
+    const j = Number(t.dataset.j!);
+    if (t.classList.contains('cx-expr')) {
+      const parsed = parseComplexExpr(t.value);
+      if (parsed === null) { t.classList.add('invalid'); return; }
+      t.classList.remove('invalid');
+      const cur = state.AOverrides![i][j];
+      const newExpr = t.value.trim();
+      if (cur.re === parsed.re && cur.im === parsed.im && (cur.expr ?? '') === newExpr) return;
+      pushHistory();
+      state.AOverrides![i][j].re = parsed.re;
+      state.AOverrides![i][j].im = parsed.im;
+      state.AOverrides![i][j].expr = newExpr;
+      state.stokesStale = true;
+      state.exampleAwaitingCompute = false;
+      updateStaleBanner();
+      return;
+    }
     const parsed = parseRational(t.value);
     if (parsed === null) { t.classList.add('invalid'); return; }
     t.classList.remove('invalid');
-    const i = Number(t.dataset.i!);
-    const j = Number(t.dataset.j!);
     const axis = t.dataset.axis as 're' | 'im';
     if (state.AOverrides![i][j][axis] === parsed) return;
     pushHistory();
     state.AOverrides![i][j][axis] = parsed;
+    state.AOverrides![i][j].expr = undefined;
     state.stokesStale = true;
     state.exampleAwaitingCompute = false;
     updateStaleBanner();

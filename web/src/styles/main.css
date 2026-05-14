@@ -475,6 +475,63 @@ h3 {
   /* mk-input 不参与 field-sizing; 整数居中, 宽度固定 */
 }
 
+/* ---------- Expression-mode 单元格 ---------- */
+/* 单行表达式 input + 下方 KaTeX 预览. 预览空时不占空间.
+   宽度自适应内容 (field-sizing), 最小 14ch 容纳类似 "e^(i*pi/3)" 之类常见表达式. */
+.state-table .cx-expr-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 2px 3px;
+}
+.state-table input.cx.cx-expr {
+  field-sizing: content;
+  width: 100%;
+  min-width: 14ch;
+  text-align: left;
+}
+@supports not (field-sizing: content) {
+  .state-table input.cx.cx-expr { width: 18ch; min-width: 18ch; }
+}
+.state-table .cx-preview {
+  font-size: 11px;
+  color: var(--fg-dim);
+  text-align: center;
+  min-height: 14px;
+  line-height: 1.2;
+  /* KaTeX 默认渲染 inline-block, 居中 */
+  overflow-x: auto;
+}
+.state-table .cx-preview:empty { display: none; }
+.state-table .cx-preview .katex { font-size: 12px; }
+
+/* ---------- 模式切换按钮 (h3 内嵌, U/A 表各一个) ---------- */
+.input-mode-toggle {
+  display: inline-flex;
+  margin-left: 8px;
+  vertical-align: middle;
+  gap: 0;
+  border: 1px solid var(--border, #444);
+  border-radius: 3px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+.input-mode-toggle .mode-btn {
+  background: transparent;
+  border: 0;
+  color: var(--fg-muted);
+  font-size: 10px;
+  padding: 1px 6px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.input-mode-toggle .mode-btn:hover { color: var(--fg); }
+.input-mode-toggle .mode-btn.active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
 .state-actions {
   margin-top: 12px;
   display: flex;

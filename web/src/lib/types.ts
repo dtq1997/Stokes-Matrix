@@ -1,8 +1,10 @@
 // 数据契约: 跟 60-outputs/sd-viz/data/n4_simple.json schema 对齐.
 
-export interface ComplexNum { re: number; im: number; }
+// expr: 用户在 expression 模式下输入的原文 (如 "e^(i*pi/3) + 1/sqrt(5)"),
+// 切回 pair 模式或编辑 re/im 后清空. re/im 始终是 expr 求值后的浮点缓存.
+export interface ComplexNum { re: number; im: number; expr?: string; }
 
-export interface Puncture { re: number; im: number; }
+export interface Puncture { re: number; im: number; expr?: string; }
 
 // A_off entry: (i, j) 是块下标; (a, b) sub-index 在 block case 时存在,
 // simple case (m_k=1) 时省略 → 默认 (0, 0).

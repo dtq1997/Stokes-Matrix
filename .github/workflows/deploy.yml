@@ -1,8 +1,18 @@
 name: Deploy to GitHub Pages
 
+# 双 branch 部署:
+#   main    → https://dtq1997.github.io/Stokes-Matrix/         (正式版)
+#   staging → https://dtq1997.github.io/Stokes-Matrix/preview/ (调试版)
+#
+# 任一 branch push 触发: 都 checkout main + staging (若存在), 各自 build, 合并到
+# 单一 Pages artifact 上传. 这样无论先 push 哪个 branch, 另一个 branch 的 dist
+# 都会从其最新 HEAD 重建, 不会被覆盖.
+#
+# 上线 (promote): git checkout main && git merge --ff-only staging && git push origin main.
+
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   workflow_dispatch:
 
 permissions:
@@ -17,39 +27,101 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./web
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-src
+
+      - name: Check if staging branch exists
+        id: check-staging
+        run: |
+          if git ls-remote --exit-code --heads https://github.com/${{ github.repository }} staging > /dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout staging branch
+        if: steps.check-staging.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          path: staging-src
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
+          cache-dependency-path: main-src/web/package-lock.json
+
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-chromium-v1
+
+      # ---- main branch build ----
+      - name: main npm ci
+        working-directory: main-src/web
+        run: npm ci
+      - name: main typecheck
+        working-directory: main-src/web
+        run: npm run typecheck
       - name: Install Playwright (browsers + deps)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: main-src/web
         run: npx playwright install --with-deps chromium
       - name: Install Playwright system deps only (cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
+        working-directory: main-src/web
         run: npx playwright install-deps chromium
-      - run: npm run test:e2e
-      - name: Build
+      - name: main e2e
+        working-directory: main-src/web
+        run: npm run test:e2e
+      - name: main build
+        working-directory: main-src/web
         env:
           VITE_BASE: /Stokes-Matrix/
           VITE_BACKEND_URL: https://sd-viz.dtq1997.org
         run: npm run build
+
+      # ---- staging branch build (only if branch exists) ----
+      - name: staging npm ci
+        if: steps.check-staging.outputs.exists == 'true'
+        working-directory: staging-src/web
+        run: npm ci
+      - name: staging typecheck
+        if: steps.check-staging.outputs.exists == 'true'
+        working-directory: staging-src/web
+        run: npm run typecheck
+      - name: staging e2e
+        if: steps.check-staging.outputs.exists == 'true'
+        working-directory: staging-src/web
+        run: npm run test:e2e
+      - name: staging build
+        if: steps.check-staging.outputs.exists == 'true'
+        working-directory: staging-src/web
+        env:
+          VITE_BASE: /Stokes-Matrix/preview/
+          VITE_BACKEND_URL: https://sd-viz.dtq1997.org
+        run: npm run build
+
+      # ---- combine + upload ----
+      - name: Combine dist
+        run: |
+          mkdir -p combined-dist
+          cp -r main-src/web/dist/. combined-dist/
+          if [ -d staging-src/web/dist ]; then
+            mkdir -p combined-dist/preview
+            cp -r staging-src/web/dist/. combined-dist/preview/
+          fi
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web/dist
+          path: combined-dist
 
   deploy:
     needs: build
