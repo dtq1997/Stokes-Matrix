@@ -46,8 +46,15 @@ export interface ViewSpec<K extends string> {
 export interface BuildGridOpts {
   containerId: string;
   ms: number[];
-  /** 点击非对角 cell 触发. 对角 cell 不可点 (cursor:default). */
+  /** 点击非对角 cell 触发. 对角 cell 不可点 (cursor:default).
+   *  Stokes (`diagSelectable=false`): 对角不可点; Ω/Ω^-1 (`diagSelectable=true`): 对角也可点. */
   onCellClick?: (I: number, J: number) => void;
+  /** 是否在行方向显示 block 分隔 (default true). Ω_d (行不分块) 传 false. */
+  rowBlocks?: boolean;
+  /** 是否在列方向显示 block 分隔 (default true). Ω_d^{-1} (列不分块) 传 false. */
+  colBlocks?: boolean;
+  /** 对角 cell 也可点击 (default false). */
+  diagSelectable?: boolean;
   /** KaTeX 渲染函数 (调用方注入, 避免 lib 直接依赖 katex). */
   tex: (s: string) => string;
 }
@@ -58,6 +65,9 @@ export function buildMatrixGrid(opts: BuildGridOpts): void {
   if (!sm) return;
   const ms = opts.ms;
   const N = totalMultiplicity(ms);
+  const rowBlocks = opts.rowBlocks !== false;
+  const colBlocks = opts.colBlocks !== false;
+  const diagSelectable = !!opts.diagSelectable;
   sm.style.gridTemplateColumns = `auto repeat(${N}, 1fr)`;
   sm.innerHTML = '';
   // corner + 列 labels
@@ -68,8 +78,9 @@ export function buildMatrixGrid(opts: BuildGridOpts): void {
     const [J, b] = flatToBlock(ms, fj);
     const th = document.createElement('div');
     th.className = 'sm-header sm-col-header';
-    if (fj > 0 && b === 0) th.classList.add('block-left');
-    th.innerHTML = opts.tex(flatIndexLabel(ms, J, b));
+    if (colBlocks && fj > 0 && b === 0) th.classList.add('block-left');
+    // 没列块结构 → 用 flat "1..N" 连续编号; 有列块 → "I" 或 "I,a"
+    th.innerHTML = opts.tex(colBlocks ? flatIndexLabel(ms, J, b) : String(fj + 1));
     sm.appendChild(th);
   }
   // 数据行: 行 label + N cells
@@ -77,20 +88,21 @@ export function buildMatrixGrid(opts: BuildGridOpts): void {
     const [I, a] = flatToBlock(ms, fi);
     const rowH = document.createElement('div');
     rowH.className = 'sm-header sm-row-header';
-    if (fi > 0 && a === 0) rowH.classList.add('block-top');
-    rowH.innerHTML = opts.tex(flatIndexLabel(ms, I, a));
+    if (rowBlocks && fi > 0 && a === 0) rowH.classList.add('block-top');
+    rowH.innerHTML = opts.tex(rowBlocks ? flatIndexLabel(ms, I, a) : String(fi + 1));
     sm.appendChild(rowH);
     for (let fj = 0; fj < N; fj++) {
       const [J, b] = flatToBlock(ms, fj);
       const cell = document.createElement('div');
-      cell.className = 'sm-cell' + (I === J ? ' diag' : '');
-      if (fi > 0 && a === 0) cell.classList.add('block-top');
-      if (fj > 0 && b === 0) cell.classList.add('block-left');
+      cell.className = 'sm-cell' + (I === J && !diagSelectable ? ' diag' : '');
+      if (rowBlocks && fi > 0 && a === 0) cell.classList.add('block-top');
+      if (colBlocks && fj > 0 && b === 0) cell.classList.add('block-left');
       cell.dataset.i = String(I);
       cell.dataset.j = String(J);
       cell.dataset.a = String(a);
       cell.dataset.b = String(b);
-      if (I !== J && opts.onCellClick) {
+      const clickable = opts.onCellClick && (diagSelectable || I !== J);
+      if (clickable) {
         cell.addEventListener('click', () => opts.onCellClick!(I, J));
       }
       sm.appendChild(cell);
@@ -112,6 +124,9 @@ export interface RefreshOpts {
   /** 数据 fresh: 任何 cell 没 fresh 全显示 '—'. */
   isStale: boolean;
   staleMessage?: string;
+  /** stale 时是否对对角 cell 也显 '—' (default false, 保 Stokes 旧行为: diag 永远走 getCellContent).
+   *  Ω/Ω^-1 对角不特殊, 传 true 让 stale 时 diag 也 '—'. */
+  staleIncludesDiag?: boolean;
   /** 取 (I, J) entry block. I==J 也可调 (取对角 view 决定 zero/identity). */
   getCellContent: (I: number, J: number, a: number, b: number) => CellContent;
   /** 跨 view 同尺寸保证: 调用方提供 view-independent 的"宽度上界" block 集合.
@@ -169,7 +184,7 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
       opts.selectedEntry[0] === I && opts.selectedEntry[1] === J);
     cell.classList.toggle('selected', sel);
 
-    if (opts.isStale && I !== J) {
+    if (opts.isStale && (opts.staleIncludesDiag || I !== J)) {
       cell.innerHTML = `<span class="cs-zero" title="${staleTip}">—</span>`;
       continue;
     }

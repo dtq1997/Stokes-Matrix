@@ -271,6 +271,17 @@ export class Canvas {
               uu * u * P0[1] + 3 * uu * t * P1[1] + 3 * u * tt * P2[1] + tt * t * P3[1],
             ];
           };
+          const splitLeft = (t: number) => {
+            const lerp = (A: [number, number], B: [number, number]): [number, number] =>
+              [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
+            const A = lerp(P0, P1);
+            const B = lerp(P1, P2);
+            const C = lerp(P2, P3);
+            const D = lerp(A, B);
+            const E = lerp(B, C);
+            const F = lerp(D, E);
+            return { tip: F, c1: A, c2: D, t };
+          };
           const n = 80;
           let acc = 0;
           let prev = eval_(1);
@@ -279,10 +290,10 @@ export class Canvas {
             const cur = eval_(t);
             const dx = prev[0] - cur[0], dy = prev[1] - cur[1];
             acc += Math.hypot(dx, dy);
-            if (acc >= gap) return cur;
+            if (acc >= gap) return splitLeft(t);
             prev = cur;
           }
-          return P0;  // 整段都不够长, 退回起点 (退化)
+          return splitLeft(0);  // 整段都不够长, 退回起点 (退化)
         };
 
         if (isNatural && (pts.length - 1) % 3 === 0 && pts.length > 2) {
@@ -292,7 +303,8 @@ export class Canvas {
           const c1 = pts[pts.length - 3];
           const p0 = pts[pts.length - 4];
           // 沿 Bezier 反向找 tip 位置 (累积弧长 = ARROW_GAP), 不再依赖 |b-c2|.
-          const tip = bezierBackoff(p0, c1, c2, last, ARROW_GAP);
+          const clipped = bezierBackoff(p0, c1, c2, last, ARROW_GAP);
+          const tip = clipped.tip;
           tipX = tip[0]; tipY = tip[1];
           // 箭头方向: 从 tip 指向原终点 b. 语义直接 ("正在朝目的地 b 走"),
           // 而且永远跟 path 在 tip 处的真切线非常接近 (gap=14px 远小于 path 总长).
@@ -304,7 +316,10 @@ export class Canvas {
             if (Math.hypot(ax, ay) < 1e-6) { ax = last[0] - c1[0]; ay = last[1] - c1[1]; }
           }
           angle = Math.atan2(ay, ax);
-          // path 也截断到 tip
+          // path 也截断到 tip. 只改 endpoint 会让原 c1/c2 拉出小回环; 必须用
+          // De Casteljau 保留原 cubic 的 [0,t*] 左半段控制点.
+          pts[pts.length - 3] = clipped.c1;
+          pts[pts.length - 2] = clipped.c2;
           pts[pts.length - 1] = [tipX, tipY];
           let svg = `M${pts[0][0]},${pts[0][1]}`;
           for (let k = 1; k < pts.length; k += 3) {

@@ -1134,8 +1134,8 @@ async function main() {
 
   function buildOmegaViewSelector() {
     const opts: ViewSpec<import('./lib/types.js').OmegaView>[] = [
-      { key: 'omega',     tex: '\\Omega_d',         title: 'central connection matrix' },
-      { key: 'omega-inv', tex: '\\Omega_d^{-1}',    title: 'inverse central connection matrix' },
+      { key: 'omega',     tex: '\\Omega_d',         title: 'central connection matrix (computed row-by-row → blocks on columns only)' },
+      { key: 'omega-inv', tex: '\\Omega_d^{-1}',    title: 'inverse central connection matrix (computed column-by-column → blocks on rows only)' },
     ];
     buildViewSelector({
       selectorId: 'omega-view-selector',
@@ -1146,7 +1146,8 @@ async function main() {
         pushHistory();
         state.omegaView = v;
         refreshOmegaViewSelector();
-        refreshOmegaMatrix();
+        // view 切换改了块结构 (omega 有列块, omega-inv 有行块) → 必须重 build grid.
+        buildOmegaMatrix();
       },
     });
   }
@@ -1154,12 +1155,21 @@ async function main() {
     refreshViewSelector('omega-view-selector', state.omegaView);
   }
 
+  /** Ω/Ω^-1 矩阵. 块结构跟当前 view 绑定:
+   *   - Ω: 算法一行一行算 → 列方向有块结构, 行方向无块 (每行独立).
+   *   - Ω^-1: 算法一列一列算 → 行方向有块结构, 列方向无块.
+   *  对角不特殊, 全部 cell 同等可点 (点击高亮所在块).
+   */
   function buildOmegaMatrix() {
     const ms = state.mOverrides ?? dataset.m_sizes;
+    const isOmega = state.omegaView === 'omega';
     buildMatrixGrid({
       containerId: 'omega-matrix',
       ms,
       onCellClick: (I, J) => selectEntry(I, J),
+      rowBlocks: !isOmega,   // omega 行无块; omega-inv 行有块
+      colBlocks: isOmega,    // omega 列有块; omega-inv 列无块
+      diagSelectable: true,  // 对角不特殊
       tex,
     });
     refreshOmegaMatrix();
@@ -1174,12 +1184,12 @@ async function main() {
       ms,
       digits,
       isStale: true,
+      staleIncludesDiag: true,
       staleMessage: 'central connection matrix algorithm not implemented yet — click Compute Central Connection Matrix',
       selectedEntry: state.selectedEntry,
       tex,
       renderComplex,
-      getCellContent: (I, J, _a, _b): CellContent => {
-        if (I === J) return { kind: 'identity' };  // Ω 对角约定 (TBD: 可能不该是 identity, 算法实现后再确认)
+      getCellContent: (_I, _J, _a, _b): CellContent => {
         return { kind: 'unavailable' };
       },
     });

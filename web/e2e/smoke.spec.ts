@@ -676,8 +676,9 @@ test.describe('Sd-viz smoke tests', () => {
   });
 
   // 防回归 (2026-05-14): Ω_d central connection matrix panel + view selector.
-  // SSOT — 跟 Stokes 矩阵共享 matrix-panel.ts 渲染. 算法待实现, off-diag 全 "—".
-  test('Ω_d central connection panel: shared renderer, two-view selector, placeholder cells', async ({ page }) => {
+  // SSOT — 跟 Stokes 矩阵共享 matrix-panel.ts 渲染. 算法待实现, 全 cell "—".
+  // 块结构: Ω (一行一行算) 列有块行无块; Ω^-1 (一列一列算) 行有块列无块.
+  test('Ω_d central connection panel: shared renderer, two-view selector, view-dependent block structure', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('#omega-matrix .sm-cell');
     // grid 跟 Stokes 同样 N×N
@@ -687,15 +688,29 @@ test.describe('Sd-viz smoke tests', () => {
     // view selector 有 2 个 button
     const omegaBtns = await page.locator('#omega-view-selector .sd-view-btn').count();
     expect(omegaBtns).toBe(2);
-    // 默认 active = omega
     await expect(page.locator('#omega-view-selector .sd-view-btn[data-view="omega"]')).toHaveClass(/active/);
-    // 切到 omega-inv 后 active 跟着切
+
+    // Ω view: 行无块 (cells 不含 block-top) 列有块 (含 block-left 在块边界).
+    // 默认 dataset n=4 m=(2,2,2,2) → 块边界在 fj=2,4,6, 列 cell 含 block-left.
+    const omegaBlockTops = await page.locator('#omega-matrix .sm-cell.block-top').count();
+    const omegaBlockLefts = await page.locator('#omega-matrix .sm-cell.block-left').count();
+    expect(omegaBlockTops).toBe(0);     // 行无块
+    expect(omegaBlockLefts).toBeGreaterThan(0);  // 列有块
+
+    // 切 Ω^-1: 块结构应反过来.
     await page.locator('#omega-view-selector .sd-view-btn[data-view="omega-inv"]').click();
     await expect(page.locator('#omega-view-selector .sd-view-btn[data-view="omega-inv"]')).toHaveClass(/active/);
-    // off-diag cell 显 "—" (算法未实现, isStale=true)
-    const offdiag = await page.locator('#omega-matrix .sm-cell[data-i="0"][data-j="1"]').first().textContent();
-    expect((offdiag ?? '').replace(/\s+/g, '')).toContain('—');
-    // Compute Central Connection Matrix 按钮存在
+    const invBlockTops = await page.locator('#omega-matrix .sm-cell.block-top').count();
+    const invBlockLefts = await page.locator('#omega-matrix .sm-cell.block-left').count();
+    expect(invBlockTops).toBeGreaterThan(0);    // 行有块
+    expect(invBlockLefts).toBe(0);              // 列无块
+
+    // 所有 cell (含对角) 显 "—"
+    const cellTexts = await page.$$eval('#omega-matrix .sm-cell', cells =>
+      cells.map(c => c.textContent?.replace(/\s+/g, '') ?? ''));
+    for (const t of cellTexts) expect(t).toContain('—');
+
+    // Compute 按钮存在
     await expect(page.locator('#state-recompute-omega')).toBeVisible();
   });
 
