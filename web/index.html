@@ -46,6 +46,7 @@
             </select>
           </div>
           <button id="state-recompute" class="btn-primary">Compute Stokes Matrices</button>
+          <button id="state-recompute-omega" class="btn-primary">Compute Central Connection Matrix</button>
           <div id="recompute-status" class="mono dim"></div>
         </div>
         <h3 id="d-heading">Direction</h3>
@@ -72,6 +73,9 @@
         <div id="stokes-display"></div>
         <h3>Path info <span data-tex="\boldsymbol{\gamma}_{ij}^{(d)}"></span></h3>
         <div id="path-info" class="mono"></div>
+        <h2>Central connection matrix</h2>
+        <div id="omega-view-selector" class="sd-view-selector" role="tablist"></div>
+        <div id="omega-matrix"></div>
       </aside>
     </div>
     <script type="module" src="/src/main.ts"></script>

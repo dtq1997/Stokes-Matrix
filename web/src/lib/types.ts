@@ -79,6 +79,7 @@ export interface VizState {
   stokesStale: boolean;                  // A/U/m 改了 Stokes 数值还没重算
   exampleAwaitingCompute: boolean;       // example dataset 加载后未点 Compute / 未编辑前 true; banner 文案分支用
   sdView: SdView;                        // S_d 矩阵右栏当前显示模式
+  omegaView: OmegaView;                  // Ω_d 矩阵右栏当前显示模式
 }
 
 /** 右栏 stokes-matrix 显示模式. -d 方向 label 排序定义 S_d^± entrywise:
@@ -88,3 +89,6 @@ export interface VizState {
  *  对角块: S_d^+ = S_d^- = I_block (displayed S_d 对角约定为 0, 故 0 = 1 - 1 自洽,
  *  off-diag 逐 entry 也满足 S_d = S_d^+ - S_d^-). */
 export type SdView = 'std' | 'plus' | 'minus' | 'eg';
+
+/** Ω_d 中心连接矩阵显示模式. 算法待实现, 目前只占位 UI. */
+export type OmegaView = 'omega' | 'omega-inv';

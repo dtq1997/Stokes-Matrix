@@ -2,6 +2,10 @@ import katex from 'katex';
 import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey } from './lib/data.js';
 import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js';
+import {
+  buildMatrixGrid, refreshMatrixCells, buildViewSelector, refreshViewSelector,
+  type CellContent, type ViewSpec,
+} from './lib/matrix-panel.js';
 import { Canvas } from './components/canvas.js';
 import { chamberOfDirection, monodromyTransforms, antiStokesRays } from './lib/geometry.js';
 import { mmul } from './lib/matexp.js';
@@ -132,6 +136,7 @@ async function main() {
     stokesStale: hideOnLoad,
     exampleAwaitingCompute: hideOnLoad,
     sdView: 'std',
+    omegaView: 'omega',
   };
 
   function currentRays(): number[] {
@@ -232,6 +237,7 @@ async function main() {
       buildUTable();
       buildATable();
       buildStokesMatrix();
+      buildOmegaMatrix();
       // precision + sd-view 按钮态
       const psel = document.getElementById('precision-select') as HTMLSelectElement | null;
       if (psel) psel.value = s.precision;
@@ -484,6 +490,7 @@ async function main() {
     buildUTable();
     buildATable();
     buildStokesMatrix();
+    buildOmegaMatrix();
     updateDimInfo();
     updateStaleBanner();
     canvas.setState(state);
@@ -497,6 +504,8 @@ async function main() {
   buildATable();
   buildStokesMatrix();
   buildSdViewSelector();
+  buildOmegaMatrix();
+  buildOmegaViewSelector();
   updateDimInfo();
   setupResizeHandles();
   const precisionSelect = document.getElementById('precision-select') as HTMLSelectElement;
@@ -512,6 +521,13 @@ async function main() {
   // stokesStale 仅用于驱动 stale-banner 文案; 不再控制按钮 disabled.
   // computing 期间按钮变成 Cancel (click handler 内分支), 仍然 enabled.
   const recomputeBtn = document.getElementById('state-recompute') as HTMLButtonElement;
+  const recomputeOmegaBtn = document.getElementById('state-recompute-omega') as HTMLButtonElement | null;
+  if (recomputeOmegaBtn) {
+    recomputeOmegaBtn.addEventListener('click', () => {
+      // 算法待用户给规格. 目前占位 alert.
+      alert('Central connection matrix algorithm not implemented yet. Specification pending.');
+    });
+  }
   const recomputeStatus = document.getElementById('recompute-status')!;
   let backendAvailable = false;
 
@@ -921,92 +937,43 @@ async function main() {
   }
 
   function buildSdViewSelector() {
-    const el = document.getElementById('sd-view-selector');
-    if (!el) return;
-    const opts: Array<{ key: import('./lib/types.js').SdView; tex: string; title: string }> = [
+    const opts: ViewSpec<import('./lib/types.js').SdView>[] = [
       { key: 'std',   tex: 'S_d',                  title: 'standard Stokes matrix' },
       { key: 'plus',  tex: 'S_d^{+}',              title: 'upper part w.r.t. -d labels (diag = I)' },
       { key: 'minus', tex: 'S_d^{-}',              title: 'lower part w.r.t. -d labels, negated (diag = I)' },
       { key: 'eg',    tex: 'S_d^{\\mathrm{eg}}',   title: 'per-pair branch S_[τ_ij^closest], θ_ij = -arg(u_j - u_i)' },
     ];
-    el.innerHTML = opts.map(o =>
-      `<button type="button" class="sd-view-btn" data-view="${o.key}" title="${o.title}">` +
-        `<span data-tex="${o.tex}"></span></button>`
-    ).join('');
-    el.addEventListener('click', (ev) => {
-      const btn = (ev.target as HTMLElement).closest<HTMLElement>('.sd-view-btn');
-      if (!btn) return;
-      const v = btn.dataset.view as import('./lib/types.js').SdView | undefined;
-      if (!v || v === state.sdView) return;
-      pushHistory();
-      state.sdView = v;
-      refreshSdViewSelector();
-      refreshAllPaths();
-      canvas.setState(state);
-      refreshStokesMatrix();
-      updateStokesPanel();
-      updatePathInfo();
+    buildViewSelector({
+      selectorId: 'sd-view-selector',
+      views: opts,
+      getCurrentView: () => state.sdView,
+      onChange: (v) => {
+        if (v === state.sdView) return;
+        pushHistory();
+        state.sdView = v;
+        refreshSdViewSelector();
+        refreshAllPaths();
+        canvas.setState(state);
+        refreshStokesMatrix();
+        updateStokesPanel();
+        updatePathInfo();
+      },
     });
-    refreshSdViewSelector();
   }
   function refreshSdViewSelector() {
-    document.querySelectorAll<HTMLElement>('#sd-view-selector .sd-view-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.view === state.sdView);
-    });
+    refreshViewSelector('sd-view-selector', state.sdView);
   }
 
-  /** Stokes 矩阵网格: N×N flat grid, 按块结构加视觉分隔.
-   * std 模式: 对角块 (I, I) 显示 0 (S_d 默认 - I 视觉约定), 非对角显示 S_d entry.
-   * plus 模式: 对角块 = I_block (a=b → 1, a≠b → 0); 非对角 (I, J) label[I]<label[J] → S_d, 否则 0.
-   * minus 模式: 对角块 = 0; 非对角 (I, J) label[I]>label[J] → -S_d, 否则 0.
-   * 点击任意 sub-cell 选 block (I, J).
-   */
+  /** Stokes 矩阵网格. SSOT 用 buildMatrixGrid; cell 含义靠 refreshStokesMatrix 内的
+   * sdViewCellContent 决定 (diag identity vs zero, off-diag std/plus/minus/eg). */
   function buildStokesMatrix() {
-    const sm = document.getElementById('stokes-matrix')!;
     const ms = state.mOverrides ?? dataset.m_sizes;
-    const N = totalMultiplicity(ms);
-    const starts = blockStarts(ms);
-    const blockOf = (fi: number) => {
-      for (let k = ms.length - 1; k >= 0; k--) if (fi >= starts[k]) return [k, fi - starts[k]];
-      return [-1, -1];
-    };
-    // grid 多 1 列 (左侧行 label) + 多 1 行 (顶部列 label). 第一列 sticky 让水平滚时冻结.
-    sm.style.gridTemplateColumns = `auto repeat(${N}, 1fr)`;
-    sm.innerHTML = '';
-    // 第一行: corner + N 个列 label
-    const corner = document.createElement('div');
-    corner.className = 'sm-corner';
-    sm.appendChild(corner);
-    for (let fj = 0; fj < N; fj++) {
-      const [J, b] = blockOf(fj);
-      const th = document.createElement('div');
-      th.className = 'sm-header sm-col-header';
-      if (fj > 0 && b === 0) th.classList.add('block-left');
-      th.innerHTML = tex(flatIndexLabel(ms, J, b));
-      sm.appendChild(th);
-    }
-    // 数据 N 行: 行 label + N 个 data cell
-    for (let fi = 0; fi < N; fi++) {
-      const [I, a] = blockOf(fi);
-      const rowH = document.createElement('div');
-      rowH.className = 'sm-header sm-row-header';
-      if (fi > 0 && a === 0) rowH.classList.add('block-top');
-      rowH.innerHTML = tex(flatIndexLabel(ms, I, a));
-      sm.appendChild(rowH);
-      for (let fj = 0; fj < N; fj++) {
-        const [J, b] = blockOf(fj);
-        const cell = document.createElement('div');
-        cell.className = 'sm-cell' + (I === J ? ' diag' : '');
-        if (fi > 0 && a === 0) cell.classList.add('block-top');
-        if (fj > 0 && b === 0) cell.classList.add('block-left');
-        cell.dataset.i = String(I);
-        cell.dataset.j = String(J);
-        cell.dataset.a = String(a);
-        cell.dataset.b = String(b);
-        if (I !== J) cell.addEventListener('click', () => selectEntry(I, J));
-        sm.appendChild(cell);
-      }
-    }
+    buildMatrixGrid({
+      containerId: 'stokes-matrix',
+      ms,
+      onCellClick: (I, J) => selectEntry(I, J),
+      tex,
+    });
     refreshStokesMatrix();
   }
 
@@ -1083,17 +1050,16 @@ async function main() {
   }
 
   function refreshStokesMatrix() {
-    const sm = document.getElementById('stokes-matrix')!;
     const ch = dataset.chambers[state.selectedChamber];
     const digits = selectedPrecisionDigits();
     const valuesFresh = stokesValuesFresh();
     const view = state.sdView;
-    // 预算所有 (I, J) modified block (paper monodromy 块版修正一次, sub-cell 共享).
-    // eg 模式: raw straight-entry anchor + per-pair Δm sandwich (egBlock).
+    const ms = state.mOverrides ?? dataset.m_sizes;
+
+    // 预算 (I,J) modified block 缓存 (sub-cell 共享, 块内 a/b 多次取同 block).
     const blockCache = new Map<string, ComplexNum[][]>();
     if (valuesFresh) {
-      const n_ch = state.mOverrides ? state.mOverrides.length : dataset.m_sizes.length;
-      for (let I = 0; I < n_ch; I++) for (let J = 0; J < n_ch; J++) {
+      for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
         if (I === J) continue;
         if (view === 'eg') {
           const eg = egBlock(I, J);
@@ -1105,81 +1071,118 @@ async function main() {
         }
       }
     }
-    // 跨 cell 小数点对齐 + 跨 view 同尺寸: 列宽按 std S_d (当前 chamber) 算上界,
-    // 再跟当前 view 的实际值取 max — 这样 std/plus/minus/eg 默认同宽,
-    // 只在 eg 数值变大 (远 d 强制 lift) 时才扩, 不会缩.
-    let maxInt = 1, maxFrac = 0;
-    const accumulate = (mod: ComplexNum[][]) => {
-      for (const row of mod) for (const v of row) {
-        for (const x of [v.re, v.im]) {
-          if (x === 0 || !Number.isFinite(x)) continue;
-          const mag = Math.floor(Math.log10(Math.abs(x)));
-          maxInt = Math.max(maxInt, Math.max(1, mag + 1));
-          maxFrac = Math.max(maxFrac, Math.max(0, digits - mag - 1));
-        }
-      }
-    };
-    if (valuesFresh) {
-      for (const key of Object.keys(ch.entries)) {
-        const [I, J] = key.split(',').map(Number);
-        if (I === J) continue;
-        const e = ch.entries[key];
-        if (!e || e.error || !e.value_block) continue;
-        accumulate(modifiedBlock(e, ch.d, I, J));
-      }
-      // 再扫当前 view 的 blockCache (eg 模式下可能含更宽数值)
-      for (const mod of blockCache.values()) accumulate(mod);
-    }
-    sm.style.setProperty('--cs-int-w', `${maxInt}ch`);
-    sm.style.setProperty('--cs-frac-w', `${maxFrac > 0 ? maxFrac + 1 : 0}ch`);
-    // 只迭代真正的 data cells (跳过 .sm-header / .sm-corner)
+
     const labels = (view === 'plus' || view === 'minus') ? dLabels() : null;
-    const cells = sm.querySelectorAll<HTMLElement>('.sm-cell');
-    for (const cell of Array.from(cells)) {
-      const I = Number(cell.dataset.i!);
-      const J = Number(cell.dataset.j!);
-      const a = Number(cell.dataset.a!);
-      const b = Number(cell.dataset.b!);
-      if (I === J) {
-        // 对角块: plus/minus = I_block (a==b → 1, 否则 0); std/eg = 0.
-        // 约定: displayed S_d diag=0, displayed S_d^± diag=I 保 0 = 1−1 自洽.
-        // S_d^eg diag = 0 (用户指定: per-pair 直线段公式仅对 i≠j 定义).
-        if ((view === 'plus' || view === 'minus') && a === b) {
-          cell.innerHTML = `<span class="cs-zero">${tex('1')}</span>`;
-        } else {
-          cell.innerHTML = `<span class="cs-zero">${tex('0')}</span>`;
+
+    refreshMatrixCells({
+      containerId: 'stokes-matrix',
+      ms,
+      digits,
+      isStale: !valuesFresh,
+      staleMessage: 'stale: recompute Stokes matrices',
+      selectedEntry: state.selectedEntry,
+      tex,
+      renderComplex,
+      // 跨 view 同尺寸: 永远扫 std view 所有 off-diag block 当宽度上界,
+      // plus/minus/eg 即使 sign-zero 也不让列宽缩.
+      widthReferenceBlocks: function*() {
+        if (!valuesFresh) return;
+        for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
+          if (I === J) continue;
+          const e = ch.entries[`${I},${J}`];
+          if (!e || e.error || !e.value_block) continue;
+          yield modifiedBlock(e, ch.d, I, J);
         }
-        continue;
-      }
-      if (!valuesFresh) {
-        cell.innerHTML = '<span class="cs-zero" title="stale: recompute Stokes matrices">—</span>';
-        continue;
-      }
-      const e = ch.entries[`${I},${J}`];
-      const sel = !!(state.selectedEntry &&
-        state.selectedEntry[0] === I && state.selectedEntry[1] === J);
-      cell.classList.toggle('selected', sel);
-      if (!e || e.error) {
-        cell.innerHTML = `<span style="color: var(--bad)">!</span>`;
-        continue;
-      }
-      // Entry 分类: std/eg 全展示, plus/minus 按 label 排序保/置 0.
-      let sign: 1 | -1 | 0 = 1;
-      if (view === 'plus')  sign = labels![I] < labels![J] ? 1 : 0;
-      if (view === 'minus') sign = labels![I] > labels![J] ? -1 : 0;
-      if (sign === 0) {
-        cell.innerHTML = `<span class="cs-zero">${tex('0')}</span>`;
-      } else {
+      },
+      getCellContent: (I, J, _a, _b): CellContent => {
+        if (I === J) {
+          // displayed S_d diag = 0 (约定); S_d^± diag = I_block (sub-cell a==b → 1).
+          if (view === 'plus' || view === 'minus') return { kind: 'identity' };
+          return { kind: 'zero' };
+        }
+        // 错误 cell
+        const eRaw = ch.entries[`${I},${J}`];
+        if (eRaw && eRaw.error) {
+          return { kind: 'unavailable', tooltip: eRaw.error };
+        }
+        // plus/minus 按 label 排序保/置 0
+        let sign: 1 | -1 | 0 = 1;
+        if (view === 'plus')  sign = labels![I] < labels![J] ? 1 : 0;
+        if (view === 'minus') sign = labels![I] > labels![J] ? -1 : 0;
+        if (sign === 0) return { kind: 'zero' };
         const mod = blockCache.get(`${I},${J}`);
-        if (!mod && view === 'eg') {
-          cell.innerHTML = '<span class="cs-zero" title="straight-entry data unavailable">—</span>';
-          continue;
+        if (!mod) {
+          return { kind: 'unavailable', tooltip: view === 'eg' ? 'straight-entry data unavailable' : 'entry data unavailable' };
         }
-        const v = mod?.[a]?.[b] ?? { re: 0, im: 0 };
-        const w = sign === 1 ? v : { re: -v.re, im: -v.im };
-        cell.innerHTML = renderComplex(w, digits);
-      }
-    }
+        if (sign === -1) {
+          // 整块取负
+          return {
+            kind: 'block',
+            block: mod.map(row => row.map(v => ({ re: -v.re, im: -v.im }))),
+          };
+        }
+        return { kind: 'block', block: mod };
+      },
+    });
+  }
+
+  // ---------- Ω_d 中心连接矩阵 ----------
+  // SSOT: 复用 matrix-panel 的 buildMatrixGrid / refreshMatrixCells. 跟 Stokes 矩阵
+  // 完全同一套渲染. 算法尚未实现, 所有 cell 显示 "—" + tooltip "algorithm not implemented yet".
+  // 后续 (a) 算出 data 后 fill ch.omega_entries 或类似; (b) 加 omegaStale 标志位;
+  // (c) getCellContent 接 omega data; refreshOmegaMatrix 调用方式不动.
+
+  function buildOmegaViewSelector() {
+    const opts: ViewSpec<import('./lib/types.js').OmegaView>[] = [
+      { key: 'omega',     tex: '\\Omega_d',         title: 'central connection matrix' },
+      { key: 'omega-inv', tex: '\\Omega_d^{-1}',    title: 'inverse central connection matrix' },
+    ];
+    buildViewSelector({
+      selectorId: 'omega-view-selector',
+      views: opts,
+      getCurrentView: () => state.omegaView,
+      onChange: (v) => {
+        if (v === state.omegaView) return;
+        pushHistory();
+        state.omegaView = v;
+        refreshOmegaViewSelector();
+        refreshOmegaMatrix();
+      },
+    });
+  }
+  function refreshOmegaViewSelector() {
+    refreshViewSelector('omega-view-selector', state.omegaView);
+  }
+
+  function buildOmegaMatrix() {
+    const ms = state.mOverrides ?? dataset.m_sizes;
+    buildMatrixGrid({
+      containerId: 'omega-matrix',
+      ms,
+      onCellClick: (I, J) => selectEntry(I, J),
+      tex,
+    });
+    refreshOmegaMatrix();
+  }
+
+  function refreshOmegaMatrix() {
+    const ms = state.mOverrides ?? dataset.m_sizes;
+    const digits = selectedPrecisionDigits();
+    // Ω data 待算; 目前永远 stale.
+    refreshMatrixCells({
+      containerId: 'omega-matrix',
+      ms,
+      digits,
+      isStale: true,
+      staleMessage: 'central connection matrix algorithm not implemented yet — click Compute Central Connection Matrix',
+      selectedEntry: state.selectedEntry,
+      tex,
+      renderComplex,
+      getCellContent: (I, J, _a, _b): CellContent => {
+        if (I === J) return { kind: 'identity' };  // Ω 对角约定 (TBD: 可能不该是 identity, 算法实现后再确认)
+        return { kind: 'unavailable' };
+      },
+    });
   }
 
   function selectEntry(i: number, j: number) {
@@ -1260,53 +1263,106 @@ async function main() {
     return false;
   }
 
-  /** Upper-hull of 2D points. y 朝上时, upper hull 沿"右拐"走 (cross < 0).
-   *  即 cross >= 0 时把中间点 pop 掉 (Andrew monotone chain 标准实现). */
-  function upperHull(pts: CutCoord[]): CutCoord[] {
-    const sorted = [...pts].sort((p, q) => p.x - q.x || p.y - q.y);
-    const hull: CutCoord[] = [];
-    const cross = (o: CutCoord, a: CutCoord, b: CutCoord) =>
-      (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-    for (const p of sorted) {
-      while (hull.length >= 2 && cross(hull[hull.length - 2], hull[hull.length - 1], p) >= 0) {
-        hull.pop();
+  function cubicPoint(a: CutCoord, c1: CutCoord, c2: CutCoord, b: CutCoord, t: number): CutCoord {
+    const u = 1 - t, uu = u * u, tt = t * t;
+    return {
+      x: uu * u * a.x + 3 * uu * t * c1.x + 3 * u * tt * c2.x + tt * t * b.x,
+      y: uu * u * a.y + 3 * uu * t * c1.y + 3 * u * tt * c2.y + tt * t * b.y,
+    };
+  }
+
+  function roundedDetourHasStableTurn(beziers: Array<[CutCoord, CutCoord, CutCoord, CutCoord]>): boolean {
+    const samples: CutCoord[] = [];
+    for (const [a, c1, c2, b] of beziers) {
+      for (let k = samples.length === 0 ? 0 : 1; k <= 24; k++) {
+        samples.push(cubicPoint(a, c1, c2, b, k / 24));
       }
-      hull.push(p);
     }
-    return hull;
+    let turnSign = 0;
+    const eps = 1e-6;
+    for (let k = 1; k < samples.length - 1; k++) {
+      const u = { x: samples[k].x - samples[k - 1].x, y: samples[k].y - samples[k - 1].y };
+      const v = { x: samples[k + 1].x - samples[k].x, y: samples[k + 1].y - samples[k].y };
+      const cross = u.x * v.y - u.y * v.x;
+      if (Math.abs(cross) < eps) continue;
+      const s = Math.sign(cross);
+      if (turnSign === 0) turnSign = s;
+      else if (s !== turnSign) return false;
+    }
+    return true;
   }
 
-  /** Catmull-Rom (alpha=0.5, centripetal) → cubic Bezier 段. 用于把多顶点折线
-   *  转成平滑曲线. 端点重复一次 ("clamped" 边界). 返 SVG path "d" 字符串里
-   *  M / C 命令的顶点数组 (a, c1, c2, b)*N-1. */
-  function catmullRomToBeziers(pts: CutCoord[]): Array<[CutCoord, CutCoord, CutCoord, CutCoord]> {
-    if (pts.length < 2) return [];
-    const out: Array<[CutCoord, CutCoord, CutCoord, CutCoord]> = [];
-    const get = (k: number) => pts[Math.max(0, Math.min(pts.length - 1, k))];
-    for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = get(i - 1), p1 = get(i), p2 = get(i + 1), p3 = get(i + 2);
-      const tension = 1 / 6;  // 标准 Catmull-Rom uniform → Bezier 系数
-      const c1 = {
-        x: p1.x + (p2.x - p0.x) * tension,
-        y: p1.y + (p2.y - p0.y) * tension,
-      };
-      const c2 = {
-        x: p2.x - (p3.x - p1.x) * tension,
-        y: p2.y - (p3.y - p1.y) * tension,
-      };
-      out.push([p1, c1, c2, p2]);
+  function cubicVerticesFromBeziers(beziers: Array<[CutCoord, CutCoord, CutCoord, CutCoord]>, d: number): ComplexNum[] {
+    const vertices: ComplexNum[] = [];
+    if (beziers.length === 0) return vertices;
+    vertices.push(fromCutCoord(beziers[0][0], d));
+    for (const [, c1, c2, b] of beziers) {
+      vertices.push(fromCutCoord(c1, d), fromCutCoord(c2, d), fromCutCoord(b, d));
     }
-    return out;
+    return vertices;
   }
 
-  /** S_d view 自然路径 (凸包绕障版):
-   *  1. 把 cuts 中 "挡道" 的 (cut.x 介于 a.x, b.x 之间) 提取出来.
-   *  2. 用 a, b, 挡道 cut 起点 (略上抬 padY) 取上凸包.
-   *  3. Catmull-Rom 平滑.
+  function buildRoundedSafetyLane(
+    a: CutCoord,
+    b: CutCoord,
+    cuts: CutCoord[],
+    chord: number,
+    padY: number,
+    side: -1 | 0 | 1,
+    depthScale: number,
+    handleScale: number,
+  ): Array<[CutCoord, CutCoord, CutCoord, CutCoord]> {
+    const dx = b.x - a.x;
+    const absDx = Math.abs(dx);
+    const xDir = absDx > 1e-9 ? Math.sign(dx) : (side || 1);
+    const lateral = side === 0 ? 0 : side * Math.max(0.35, 0.35 * chord, 2.5 * padY);
+    const p1Base = { x: a.x + lateral, y: 0 };
+    const p2Base = { x: b.x + lateral, y: 0 };
+    const xLo = Math.min(a.x, b.x, p1Base.x, p2Base.x);
+    const xHi = Math.max(a.x, b.x, p1Base.x, p2Base.x);
+    const betweenCuts = cuts.filter(c => c.x >= xLo - 1e-9 && c.x <= xHi + 1e-9);
+    const yLow = Math.min(a.y, b.y, ...betweenCuts.map(c => c.y)) - padY * depthScale;
+    const p1 = { x: p1Base.x, y: yLow };
+    const p2 = { x: p2Base.x, y: yLow };
+    const laneDir = Math.abs(p2.x - p1.x) > 1e-9 ? Math.sign(p2.x - p1.x) : xDir;
+
+    const dist = (p: CutCoord, q: CutCoord) => Math.hypot(q.x - p.x, q.y - p.y);
+    const h = (p: CutCoord, q: CutCoord, cap: number) =>
+      Math.max(0, Math.min(dist(p, q) * handleScale / 3, cap));
+    const laneWidth = Math.max(Math.abs(p2.x - p1.x), 0.30 * chord, 0.30);
+    const h01 = h(a, p1, laneWidth * 0.55);
+    const h12 = Math.abs(p2.x - p1.x) * handleScale / 3;
+    const h23 = h(p2, b, laneWidth * 0.55);
+    return [
+      [
+        a,
+        { x: a.x, y: a.y - h01 },
+        { x: p1.x - laneDir * h01, y: p1.y },
+        p1,
+      ],
+      [
+        p1,
+        { x: p1.x + laneDir * h12, y: p1.y },
+        { x: p2.x - laneDir * h12, y: p2.y },
+        p2,
+      ],
+      [
+        p2,
+        { x: p2.x + laneDir * h23, y: p2.y },
+        { x: b.x, y: b.y - h23 },
+        b,
+      ],
+    ];
+  }
+
+  /** S_d view 自然路径 (rounded safety-lane 版):
+   *  1. cut-coord 下所有 cuts 是竖直向 +y 的半射线.
+   *  2. 若直线撞 cut, 路径下沉到所有相关 cut 起点以下的安全带 y_low.
+   *  3. 用三个显式 cubic Bezier 段画圆角 U 形: 下降、水平安全带、上升.
    *
-   *  Rationale: 上凸包 = a → b 之间在 cuts (向上无穷射线) 的"屋顶上方"绕过去的最短折线.
-   *  在 cut-coord 下 cuts 都竖直向 +y, 上凸包绕过它们的起点天然不撞 cut.
-   *  小幅 padY 上抬让 Bezier 平滑曲线也安全地高于 cut 起点.
+   *  这个构造不再把 blocker 簇塞进 spline 控制点, 因而不会在近重合 punctures 上振荡.
+   *  每个候选曲线都会采样检查: 不穿 cut, 且转向符号一致. 若直接安全带退化, 再试左右
+   *  lateral lane 与更深安全带.
    */
   function computeNaturalPath(i: number, j: number, punctures: ComplexNum[], d: number): {
     vertices: ComplexNum[];
@@ -1329,84 +1385,34 @@ async function main() {
       return { vertices: [{ ...start }, { ...end }], kind: 'line' };
     }
 
-    // 挡道 cuts: cut.x 严格在 (min(a.x,b.x), max(a.x,b.x)) 之内, 且
-    // cut.y ≤ max(a.y, b.y) + padY (cut 起点没远在 a/b 上方, 否则不影响 a→b 通道).
-    const xLo = Math.min(a.x, b.x);
-    const xHi = Math.max(a.x, b.x);
-    const yCap = Math.max(a.y, b.y) + padY;
-    const blockers = cuts.filter(c => c.x > xLo && c.x < xHi && c.y < yCap);
+    const nearVertical = Math.abs(b.x - a.x) < Math.max(0.05, 0.08 * chord);
+    const sideOrder: Array<-1 | 1> = b.x >= a.x ? [-1, 1] : [1, -1];
+    const candidates: Array<{ side: -1 | 0 | 1; depth: number; scale: number }> = [];
+    if (!nearVertical) candidates.push({ side: 0, depth: 1, scale: 1 });
+    for (const side of sideOrder) candidates.push({ side, depth: 1, scale: 1 });
+    candidates.push(
+      { side: sideOrder[0], depth: 1.8, scale: 0.65 },
+      { side: sideOrder[1], depth: 1.8, scale: 0.65 },
+      { side: 0, depth: 2.5, scale: 0.45 },
+      { side: sideOrder[0], depth: 3.0, scale: 0.45 },
+      { side: sideOrder[1], depth: 3.0, scale: 0.45 },
+    );
 
-    if (blockers.length === 0) {
-      return { vertices: [{ ...start }, { ...end }], kind: 'line' };
-    }
-
-    // 凸包顶点: a, b, blockers 起点上抬 padY (让 Bezier 不贴 cut 起点).
-    const hullInput: CutCoord[] = [
-      a, b,
-      ...blockers.map(c => ({ x: c.x, y: c.y - padY })),  // 注: cut 朝 +y, blocker 上方是 y < cut.y
-    ];
-    // 注释订正: cuts 沿 +y 向上, 我们要绕 "底" (y 小那一侧), 取 *下* 凸包 (y 小那条外壳).
-    // 但实现里 upperHull 取的是 y 大的外壳, 所以 a, b 和 blockers 都先 y 取反, hull 后再取回.
-    const flipped = hullInput.map(p => ({ x: p.x, y: -p.y }));
-    const hullFlipped = upperHull(flipped);
-    const hull = hullFlipped.map(p => ({ x: p.x, y: -p.y }));
-    // hull 是按 x 升序的折线. 取 a, b 之间的那段; 若 a.x > b.x 反向取.
-    const ai = hull.findIndex(p => Math.hypot(p.x - a.x, p.y - a.y) < 1e-9);
-    const bi = hull.findIndex(p => Math.hypot(p.x - b.x, p.y - b.y) < 1e-9);
-    let polyline: CutCoord[];
-    if (ai < 0 || bi < 0) {
-      // a 或 b 没在 hull 上 (理论上不该, 但保险): 用 a-b 直线
-      polyline = [a, b];
-    } else if (ai <= bi) {
-      polyline = hull.slice(ai, bi + 1);
-    } else {
-      polyline = hull.slice(bi, ai + 1).reverse();
-    }
-
-    // 退化 (a-b 直接相邻 in hull = 没绕)
-    if (polyline.length === 2) {
-      return { vertices: [{ ...start }, { ...end }], kind: 'line' };
-    }
-
-    // 去重簇: 多个 cut 近重合时 (例如 u_3≈u_4≈u_5), hull 折线上有连续近重合点,
-    // Catmull-Rom 在这种密集点上控制点鼓出来 → 曲线打圈. 阈值取 chord 5%, 下界 0.01.
-    // 合并规则: 簇内保留 y 最低的代表 (cut-coord 下 y 小 = 离 cut 远 = 路径更"绕过去"),
-    // 端点 a (索引 0) 和 b (索引 last) 必保留, 不被合并掉.
-    const minGap = Math.max(0.01, 0.05 * chord);
-    const compacted: CutCoord[] = [polyline[0]];
-    for (let k = 1; k < polyline.length - 1; k++) {
-      const last = compacted[compacted.length - 1];
-      const dist = Math.hypot(polyline[k].x - last.x, polyline[k].y - last.y);
-      if (dist < minGap) {
-        if (polyline[k].y < last.y) last.y = polyline[k].y;
-      } else {
-        compacted.push(polyline[k]);
+    let firstNoHit: Array<[CutCoord, CutCoord, CutCoord, CutCoord]> | null = null;
+    for (const candidate of candidates) {
+      const beziers = buildRoundedSafetyLane(a, b, cuts, chord, padY, candidate.side, candidate.depth, candidate.scale);
+      const hitsCut = beziers.some(([p0, c1, c2, p1]) => bezierHitsAnyCut(p0, c1, c2, p1, cuts, 0));
+      if (hitsCut) continue;
+      if (!firstNoHit) firstNoHit = beziers;
+      if (roundedDetourHasStableTurn(beziers)) {
+        return { vertices: cubicVerticesFromBeziers(beziers, d), kind: 'cubic' };
       }
     }
-    // 末点 b 单独处理: 若离 compacted 末尾过近, 替换之 (b 必须是真正端点)
-    const tail = compacted[compacted.length - 1];
-    const bEnd = polyline[polyline.length - 1];
-    const dTail = Math.hypot(bEnd.x - tail.x, bEnd.y - tail.y);
-    if (compacted.length > 1 && dTail < minGap) {
-      compacted[compacted.length - 1] = bEnd;
-    } else {
-      compacted.push(bEnd);
+    if (firstNoHit) {
+      return { vertices: cubicVerticesFromBeziers(firstNoHit, d), kind: 'cubic' };
     }
-
-    if (compacted.length === 2) {
-      return { vertices: [{ ...start }, { ...end }], kind: 'line' };
-    }
-
-    // Catmull-Rom 平滑. 输出: 多段 cubic Bezier 拼起来.
-    const beziers = catmullRomToBeziers(compacted);
-    // path 序列: M a, C c1 c2 p2, C c1 c2 p3, ... — vertices 顺序: [a, c1_1, c2_1, p2, c1_2, c2_2, p3, ...]
-    // canvas 端用 homotopyId 含 'std-natural-spline' 来识别多段 Bezier 路径.
-    const vertices: ComplexNum[] = [];
-    vertices.push(fromCutCoord(polyline[0], d));
-    for (const [, c1, c2, b2] of beziers) {
-      vertices.push(fromCutCoord(c1, d), fromCutCoord(c2, d), fromCutCoord(b2, d));
-    }
-    return { vertices, kind: 'cubic' };
+    const fallback = buildRoundedSafetyLane(a, b, cuts, chord, padY, sideOrder[0], 5.0, 0.25);
+    return { vertices: cubicVerticesFromBeziers(fallback, d), kind: 'cubic' };
   }
 
   function refreshAllPaths() {

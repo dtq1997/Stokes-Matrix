@@ -557,9 +557,9 @@ test.describe('Sd-viz smoke tests', () => {
     expect(pl.signIsChildOfInt).toBe(true);
   });
 
-  // 防回归 (2026-05-14): std view natural path 凸包算法. 默认 dataset 下 (0,2) 直线
+  // 防回归 (2026-05-14): std view natural path rounded safety-lane 算法. 默认 dataset 下 (0,2) 直线
   // 撞 punc[3] 的 -d cut, 必须绕一下 → path 含至少 1 段 cubic Bezier "C" 命令.
-  test('S_d std natural path avoids cuts (hull-based)', async ({ page }) => {
+  test('S_d std natural path avoids cuts (rounded safety-lane)', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
     await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="2"]').first().click();
@@ -588,6 +588,66 @@ test.describe('Sd-viz smoke tests', () => {
     expect(d).toContain('C');  // 必须 cubic, 不是 fallback 直线
   });
 
+  // 防回归 (2026-05-14): cut-coord 下 u_3/u_4/u_5 近重合时, 不能回到 hull+CR 的多控制点
+  // 振荡路径. rounded safety-lane 应始终输出固定 3 段 cubic, 且采样转向不反号.
+  test('S_d natural path: near-coincident blocker cluster stays rounded and stable', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+
+    const nInput = page.locator('#n-input');
+    await nInput.fill('5');
+    await nInput.press('Enter');
+
+    const setU = async (k: number, re: string, im: string) => {
+      const reInput = page.locator(`#u-table input.cx[data-k="${k}"][data-axis="re"]`).first();
+      const imInput = page.locator(`#u-table input.cx[data-k="${k}"][data-axis="im"]`).first();
+      await reInput.fill(re);
+      await reInput.press('Tab');
+      await imInput.fill(im);
+      await imInput.press('Tab');
+    };
+    // d=0 时 cut-coord 为 (x, y)=(-Im u, Re u). 这组点让 u_0→u_1 近竖直,
+    // 中间三点在 cut-coord 下挤成一簇, 会触发旧 hull+CR 的密集控制点问题.
+    await setU(0, '1.00', '-0.015');
+    await setU(1, '-1.00', '0.015');
+    await setU(2, '0.00', '0.000');
+    await setU(3, '0.01', '-0.018');
+    await setU(4, '-0.01', '0.018');
+    const dInput = page.locator('#d-input');
+    await dInput.fill('0');
+    await dInput.press('Enter');
+
+    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
+    const path = page.locator('.path-line').first();
+    const d = await path.getAttribute('d');
+    expect((d?.match(/C/g) ?? []).length).toBe(3);
+    expect(d).not.toMatch(/NaN|Infinity/);
+
+    const stable = await path.evaluate((el: SVGPathElement) => {
+      const n = 80;
+      const len = el.getTotalLength();
+      const pts = Array.from({ length: n + 1 }, (_, k) => {
+        const p = el.getPointAtLength(len * k / n);
+        return { x: p.x, y: p.y };
+      });
+      let sign = 0;
+      let flips = 0;
+      for (let k = 1; k < pts.length - 1; k++) {
+        const u = { x: pts[k].x - pts[k - 1].x, y: pts[k].y - pts[k - 1].y };
+        const v = { x: pts[k + 1].x - pts[k].x, y: pts[k + 1].y - pts[k].y };
+        const cross = u.x * v.y - u.y * v.x;
+        if (Math.abs(cross) < 0.02) continue;
+        const s = Math.sign(cross);
+        if (sign === 0) sign = s;
+        else if (s !== sign) flips += 1;
+      }
+      return { len, sign, flips };
+    });
+    expect(stable.len).toBeGreaterThan(20);
+    expect(stable.sign).not.toBe(0);
+    expect(stable.flips).toBe(0);
+  });
+
   // 防回归 (2026-05-14): 拖 puncture 时 γ_ij^(d) 实时跟随, 不需要先点 Compute.
   // anti-Stokes marker 同样实时更新 (slider 的 .d-mark.ray 子节点).
   test('live γ + anti-Stokes rays follow puncture drag (no recompute needed)', async ({ page }) => {
@@ -613,6 +673,30 @@ test.describe('Sd-viz smoke tests', () => {
     await page.waitForTimeout(50);
     const dRestored = await page.locator('.path-line').first().getAttribute('d');
     expect(dRestored).toBe(dBefore);
+  });
+
+  // 防回归 (2026-05-14): Ω_d central connection matrix panel + view selector.
+  // SSOT — 跟 Stokes 矩阵共享 matrix-panel.ts 渲染. 算法待实现, off-diag 全 "—".
+  test('Ω_d central connection panel: shared renderer, two-view selector, placeholder cells', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('#omega-matrix .sm-cell');
+    // grid 跟 Stokes 同样 N×N
+    const stokesCells = await page.locator('#stokes-matrix .sm-cell').count();
+    const omegaCells = await page.locator('#omega-matrix .sm-cell').count();
+    expect(omegaCells).toBe(stokesCells);
+    // view selector 有 2 个 button
+    const omegaBtns = await page.locator('#omega-view-selector .sd-view-btn').count();
+    expect(omegaBtns).toBe(2);
+    // 默认 active = omega
+    await expect(page.locator('#omega-view-selector .sd-view-btn[data-view="omega"]')).toHaveClass(/active/);
+    // 切到 omega-inv 后 active 跟着切
+    await page.locator('#omega-view-selector .sd-view-btn[data-view="omega-inv"]').click();
+    await expect(page.locator('#omega-view-selector .sd-view-btn[data-view="omega-inv"]')).toHaveClass(/active/);
+    // off-diag cell 显 "—" (算法未实现, isStale=true)
+    const offdiag = await page.locator('#omega-matrix .sm-cell[data-i="0"][data-j="1"]').first().textContent();
+    expect((offdiag ?? '').replace(/\s+/g, '')).toContain('—');
+    // Compute Central Connection Matrix 按钮存在
+    await expect(page.locator('#state-recompute-omega')).toBeVisible();
   });
 
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
