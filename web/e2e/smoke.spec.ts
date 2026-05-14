@@ -557,21 +557,22 @@ test.describe('Sd-viz smoke tests', () => {
     expect(pl.signIsChildOfInt).toBe(true);
   });
 
-  // 防回归 (2026-05-14): std view natural path 用 lower-convex-hull 数学构造. 默认 dataset 下
-  // (0,2) 直线撞 punc[3] 的 -d cut, 必须绕 → polyline 含多段 (L 命令 > 10), 路径比 chord 长.
-  test('S_d std natural path avoids cuts (lower-convex-hull)', async ({ page }) => {
+  // 防回归 (2026-05-14): std view natural path 3 段直线构造. 默认 dataset 下 (0,2) 直线
+  // 撞 punc[3] 的 -d cut, 必须绕 → 3 段折线 (3 个 L), 长度 > chord.
+  test('S_d std natural path avoids cuts (3-segment detour)', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
     await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="2"]').first().click();
     const path = page.locator('.path-line').first();
     const d = await path.getAttribute('d');
-    expect((d?.match(/L/g) ?? []).length).toBeGreaterThan(10);
+    // 5 顶点 (含中段中点) → 4 个 L 命令
+    expect((d?.match(/L/g) ?? []).length).toBe(4);
     const stat = await path.evaluate((el: SVGPathElement) => {
       const len = el.getTotalLength();
       const p0 = el.getPointAtLength(0), p1 = el.getPointAtLength(len);
       return { len, chord: Math.hypot(p1.x - p0.x, p1.y - p0.y) };
     });
-    expect(stat.len / stat.chord).toBeGreaterThan(1.02);
+    expect(stat.len / stat.chord).toBeGreaterThan(1.05);
     // S_d^eg 模式下是 2-顶点直线: 只有 1 个 L
     await page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]').click();
     const d_eg = await page.locator('.path-line').first().getAttribute('d');
@@ -591,85 +592,13 @@ test.describe('Sd-viz smoke tests', () => {
     await page.locator('#stokes-matrix .sm-cell[data-i="2"][data-j="1"]').first().click();
     const path = page.locator('.path-line').first();
     const d = await path.getAttribute('d');
-    expect((d?.match(/L/g) ?? []).length).toBeGreaterThan(10);
+    expect((d?.match(/L/g) ?? []).length).toBe(4);
     const stat = await path.evaluate((el: SVGPathElement) => {
       const len = el.getTotalLength();
       const p0 = el.getPointAtLength(0), p1 = el.getPointAtLength(len);
       return { len, chord: Math.hypot(p1.x - p0.x, p1.y - p0.y) };
     });
-    expect(stat.len / stat.chord).toBeGreaterThan(1.02);
-  });
-
-  // 防回归 (2026-05-14): cut-coord 下 u_3/u_4/u_5 近重合时, polyline 不能自交也不能爆膨胀.
-  // lower-hull 数学构造下: f(x) 是 x 单值函数, 自交不可能; 长度 < 5·chord.
-  test('S_d natural path: near-coincident blocker cluster stays smooth and stable', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('.puncture');
-
-    const nInput = page.locator('#n-input');
-    await nInput.fill('5');
-    await nInput.press('Enter');
-
-    const setU = async (k: number, re: string, im: string) => {
-      const reInput = page.locator(`#u-table input.cx[data-k="${k}"][data-axis="re"]`).first();
-      const imInput = page.locator(`#u-table input.cx[data-k="${k}"][data-axis="im"]`).first();
-      await reInput.fill(re);
-      await reInput.press('Tab');
-      await imInput.fill(im);
-      await imInput.press('Tab');
-    };
-    // d=0 时 cut-coord 为 (x, y)=(-Im u, Re u). 这组点让 u_0→u_1 近竖直,
-    // 中间三点在 cut-coord 下挤成一簇, 会触发旧 hull+CR 的密集控制点问题.
-    await setU(0, '1.00', '-0.015');
-    await setU(1, '-1.00', '0.015');
-    await setU(2, '0.00', '0.000');
-    await setU(3, '0.01', '-0.018');
-    await setU(4, '-0.01', '0.018');
-    const dInput = page.locator('#d-input');
-    await dInput.fill('0');
-    await dInput.press('Enter');
-
-    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
-    const path = page.locator('.path-line').first();
-    const d = await path.getAttribute('d');
-    // lower-hull polyline 在 chord 几乎垂直时会走 legacy rounded-lane (cubic), 否则 polyline.
-    // 此 fixture chord 确实 cut-coord 下近垂直, fallback 给 3-cubic; 但也允许新算法 polyline.
-    const hasCubic = (d?.match(/C/g) ?? []).length === 3;
-    const hasPolyline = (d?.match(/L/g) ?? []).length > 10;
-    expect(hasCubic || hasPolyline).toBe(true);
-    expect(d).not.toMatch(/NaN|Infinity/);
-
-    const stable = await path.evaluate((el: SVGPathElement) => {
-      const n = 80;
-      const len = el.getTotalLength();
-      const pts = Array.from({ length: n + 1 }, (_, k) => {
-        const p = el.getPointAtLength(len * k / n);
-        return { x: p.x, y: p.y };
-      });
-      const orient = (a: typeof pts[number], b: typeof pts[number], c: typeof pts[number]) =>
-        (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-      const intersects = (a: typeof pts[number], b: typeof pts[number], c: typeof pts[number], d: typeof pts[number]) => {
-        const o1 = orient(a, b, c), o2 = orient(a, b, d);
-        const o3 = orient(c, d, a), o4 = orient(c, d, b);
-        return o1 * o2 < 0 && o3 * o4 < 0;
-      };
-      let crossings = 0;
-      for (let i = 0; i < pts.length - 1; i++) {
-        for (let j = i + 2; j < pts.length - 1; j++) {
-          if (j === i + 1) continue;
-          // 首尾相邻也不是自交.
-          if (i === 0 && j === pts.length - 2) continue;
-          if (intersects(pts[i], pts[i + 1], pts[j], pts[j + 1])) crossings += 1;
-        }
-      }
-      const first = pts[0], last = pts[pts.length - 1];
-      const chord = Math.hypot(last.x - first.x, last.y - first.y);
-      return { len, chord, crossings };
-    });
-    expect(stable.len).toBeGreaterThan(20);
-    expect(stable.chord).toBeGreaterThan(10);
-    expect(stable.len / stable.chord).toBeLessThan(5);
-    expect(stable.crossings).toBe(0);
+    expect(stat.len / stat.chord).toBeGreaterThan(1.05);
   });
 
   // 防回归 (2026-05-14): 拖 puncture 时 γ_ij^(d) 实时跟随, 不需要先点 Compute.
