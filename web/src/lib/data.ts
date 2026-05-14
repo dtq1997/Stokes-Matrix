@@ -169,9 +169,19 @@ export async function recomputeAsync(
 export interface IscCandidate {
   axis: string;          // 'Re' | 'Im' | '|z|' | 'arg/π'
   value: number;         // 通道数值 (浮点)
-  engine: 'ries' | 'wolfram' | 'trivial';
-  form: string;          // 候选闭式表达 (RIES: "x+pi = 4"; WA: "1/sqrt(3)" etc.)
-  err_abs: number | null;  // RIES 给的绝对误差; WA 不提供
+  engine: 'simple' | 'ries' | 'wolfram';
+  form: string;          // 候选表达式 (值或方程, 视 kind)
+  raw_form?: string;     // RIES 原始方程 (kind=ries-value 时存); 调试用
+  err_abs: number | null;
+  // kind 决定 form 能否当值表达式塞回 cell:
+  //   integer / rational / sqrt / pi-rational / ries-value / wolfram = 值
+  //   ries-equation = 方程, cell 渲染时跳过
+  kind?: 'integer' | 'rational' | 'sqrt' | 'pi-rational' | 'ries-value' | 'ries-equation' | 'wolfram';
+}
+
+/** ISC 候选的 form 是否可作为值表达式 (而非方程) 直接喂给 expr-parser. */
+export function iscIsValueForm(c: IscCandidate): boolean {
+  return c.kind !== 'ries-equation';
 }
 
 export interface IscResponse {

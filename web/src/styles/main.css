@@ -962,3 +962,15 @@ body.computing-lock button:disabled {
   cursor: pointer;
 }
 .isc-results .isc-jump:hover { border-color: var(--accent); }
+
+/* ISC 闭式 cell: KaTeX 渲染填满, 居中, 适应宽窄 */
+.sm-cell .cs-symbolic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  font-size: 14px;
+  color: var(--accent);
+  cursor: help;
+}
+.sm-cell .cs-symbolic .katex { font-size: 1em; }

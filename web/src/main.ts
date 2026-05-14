@@ -1,5 +1,5 @@
 import katex from 'katex';
-import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey, iscQuery, type IscCandidate } from './lib/data.js';
+import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey, iscQuery, iscIsValueForm, type IscCandidate } from './lib/data.js';
 import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js';
 import {
@@ -11,6 +11,7 @@ import { chamberOfDirection, monodromyTransforms, antiStokesRays } from './lib/g
 import { mmul } from './lib/matexp.js';
 import { parsePiInput, parseRational, formatPi } from './lib/pi-input.js';
 import { parseComplexExpr, exprToLatex, complexToExpr } from './lib/expr-parser.js';
+// (parseComplexExpr / exprToLatex 上面已 import, ISC 段共享)
 
 function tex(s: string, displayMode = false): string {
   return katex.renderToString(s, { displayMode, throwOnError: false, strict: false });
@@ -1318,6 +1319,11 @@ async function main() {
         if (!mod) {
           return { kind: 'unavailable', tooltip: view === 'eg' ? 'straight-entry data unavailable' : 'entry data unavailable' };
         }
+        // ISC symbolic: 仅 std view + m=1 cell + cache 命中 + 表达式数值跟原浮点核对一致.
+        if (view === 'std' && sign === 1 && ms[I] === 1 && ms[J] === 1) {
+          const sym = getSymbolicCellExpr(I, J, mod[0][0]);
+          if (sym) return { kind: 'symbolic', latex: sym.latex, tooltip: sym.tooltip };
+        }
         if (sign === -1) {
           // 整块取负
           return {
@@ -1729,6 +1735,58 @@ async function main() {
   function iscKey(chamber: number, i: number, j: number): string {
     return `${chamber}_${i}_${j}`;
   }
+  /** 候选里挑 best 值形式 (整数 > 有理 > sqrt > π·有理 > ries-value > wolfram).
+   *  按 err_abs 升序; null 当 Infinity. 跳过方程形式. */
+  function pickBestValueForm(cands: IscCandidate[] | undefined, axis: string): string | null {
+    if (!cands || cands.length === 0) return null;
+    const matches = cands.filter(c => c.axis === axis && iscIsValueForm(c));
+    if (matches.length === 0) return null;
+    const kindRank: Record<string, number> = {
+      integer: 0, rational: 1, 'pi-rational': 2, sqrt: 3, 'ries-value': 4, wolfram: 5,
+    };
+    matches.sort((a, b) => {
+      const r1 = kindRank[a.kind ?? ''] ?? 9;
+      const r2 = kindRank[b.kind ?? ''] ?? 9;
+      if (r1 !== r2) return r1 - r2;
+      return (a.err_abs ?? Infinity) - (b.err_abs ?? Infinity);
+    });
+    return matches[0].form;
+  }
+  /** 把 re/im 各自的值表达式合并成单个复数表达式 (供 expr-parser 渲染). */
+  function buildComplexExprFromForms(reForm: string | null, imForm: string | null): string | null {
+    const r = reForm ?? '0';
+    const im = imForm ?? '0';
+    const reZero = r === '0' || r === '+0' || r === '-0';
+    const imZero = im === '0' || im === '+0' || im === '-0';
+    if (reZero && imZero) return '0';
+    if (imZero) return r;
+    let imPart: string;
+    if (im === '1' || im === '+1') imPart = 'i';
+    else if (im === '-1') imPart = '-i';
+    else imPart = `(${im})*i`;
+    if (reZero) return imPart;
+    return imPart.startsWith('-') ? `${r}${imPart}` : `${r}+${imPart}`;
+  }
+  /** 给 (I, J) 当前 chamber 的 cell 找 ISC-derived 闭式 LaTeX.
+   *  null 表示没 cache 命中或表达式数值跟原浮点不匹配. */
+  function getSymbolicCellExpr(I: number, J: number, v: ComplexNum): { latex: string; tooltip: string } | null {
+    const cands = iscCache.get(iscKey(state.selectedChamber, I, J));
+    if (!cands) return null;
+    const reForm = pickBestValueForm(cands, 'Re');
+    const imForm = pickBestValueForm(cands, 'Im');
+    if (reForm === null && imForm === null) return null;
+    const expr = buildComplexExprFromForms(reForm, imForm);
+    if (!expr) return null;
+    const parsed = parseComplexExpr(expr);
+    if (!parsed) return null;
+    const tolRe = Math.max(1, Math.abs(v.re)) * 1e-8;
+    const tolIm = Math.max(1, Math.abs(v.im)) * 1e-8;
+    if (Math.abs(parsed.re - v.re) > tolRe || Math.abs(parsed.im - v.im) > tolIm) return null;
+    const latex = exprToLatex(expr);
+    const sign = v.im >= 0 ? '+' : '−';
+    const tooltip = `${v.re.toPrecision(8)} ${sign} ${Math.abs(v.im).toPrecision(8)}i`;
+    return { latex, tooltip };
+  }
   /** 拿当前 chamber 的 (i, j) entry 的 std view 标量值 (m_i=m_j=1 假设, block 取 [0,0]). */
   function getStdEntryValue(i: number, j: number): ComplexNum | null {
     if (!stokesValuesFresh()) return null;
@@ -1759,6 +1817,7 @@ async function main() {
     });
     clearBtn.addEventListener('click', () => {
       iscCache.clear();
+      refreshStokesMatrix();
       renderIscResults();
       refreshIscLauncher();
     });
@@ -1808,6 +1867,7 @@ async function main() {
     try {
       const resp = await iscQuery(v.re, v.im, undefined, ['ries']);
       iscCache.set(iscKey(state.selectedChamber, i, j), resp.candidates);
+      refreshStokesMatrix();  // 让 cell 立刻切到闭式渲染
       renderIscResults();
     } catch (e) {
       panel.innerHTML = `<div class="isc-error">ISC failed: ${escapeHtml((e as Error).message)}</div>`;
@@ -1848,6 +1908,7 @@ async function main() {
         iscCache.set(iscKey(state.selectedChamber, i, j), resp.candidates);
         done++;
         panel.innerHTML = progress();
+        refreshStokesMatrix();  // 增量刷新, 用户看到 cell 一个个变闭式
       }
       renderIscResults();
     } catch (e) {

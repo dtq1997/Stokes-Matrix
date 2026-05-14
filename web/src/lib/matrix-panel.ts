@@ -115,7 +115,9 @@ export type CellContent =
   | { kind: 'zero' }
   | { kind: 'identity' }
   | { kind: 'block'; block: ComplexNum[][] }
-  | { kind: 'unavailable'; tooltip?: string };
+  | { kind: 'unavailable'; tooltip?: string }
+  // ISC 给出的闭式表达, cell 渲染直接走 KaTeX. tooltip 显示原浮点值便于交叉核对.
+  | { kind: 'symbolic'; latex: string; tooltip?: string };
 
 export interface RefreshOpts {
   containerId: string;
@@ -212,6 +214,11 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
       case 'block': {
         const v = content.block[a]?.[b] ?? { re: 0, im: 0 };
         cell.innerHTML = opts.renderComplex(v, opts.digits);
+        break;
+      }
+      case 'symbolic': {
+        const tipAttr = content.tooltip ? ` title="${content.tooltip.replace(/"/g, '&quot;')}"` : '';
+        cell.innerHTML = `<span class="cs-symbolic"${tipAttr}>${opts.tex(content.latex)}</span>`;
         break;
       }
     }

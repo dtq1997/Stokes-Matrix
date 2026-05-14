@@ -303,12 +303,133 @@ def job_cancel(job_id: str):
 
 
 # ---------- Inverse Symbolic Computation (ISC) ----------
-# 给定复数, 跑 RIES + WolframAlpha identify 找闭式表达.
-# 通道: re, im, |z|, arg/π — 默认全跑; 每通道独立返候选.
+# 给定复数, 跑 simple → RIES → WolframAlpha 三层 identify.
+# 通道: re, im, |z|, arg/π.
+# 'kind' 字段告诉前端 form 是值表达式 (integer/rational/sqrt/pi-rational/wolfram)
+# 还是方程 (ries-equation) — cell 渲染只能用值表达式.
+
+from fractions import Fraction as _Fraction
+
+
+def _simple_identify(val: float, tol: float = 1e-10, max_denom: int = 1000) -> List[Dict[str, Any]]:
+    """快速 closed-form 识别 (整数/有理/√有理/π·有理). 返回每个匹配的 dict."""
+    out: List[Dict[str, Any]] = []
+    if not math.isfinite(val):
+        return out
+    av = abs(val)
+    scale = max(av, 1.0)
+    # 1. integer
+    n = round(val)
+    if abs(val - n) < tol * scale:
+        out.append({'form': str(n), 'err_abs': abs(val - n), 'kind': 'integer'})
+        return out  # 整数直接退出, 其他形式无意义
+    # 2. rational p/q
+    try:
+        f = _Fraction(val).limit_denominator(max_denom)
+        if abs(val - float(f)) < tol * scale:
+            out.append({'form': f'{f.numerator}/{f.denominator}',
+                        'err_abs': abs(val - float(f)), 'kind': 'rational'})
+    except Exception:
+        pass
+    # 3. sqrt of rational: val^2 = p/q  →  val = ±sqrt(p/q), 完美平方提出来
+    def _sqrt_token(n: int) -> str:
+        """sqrt(n) 化简: 提出完美平方因子. n>0."""
+        s = math.isqrt(n)
+        if s * s == n:
+            return str(s)
+        # 提因子: n = a^2 * b, sqrt(n) = a * sqrt(b)
+        a = 1
+        for d in range(2, math.isqrt(n) + 1):
+            d2 = d * d
+            while n % d2 == 0:
+                n //= d2
+                a *= d
+        if a == 1:
+            return f'sqrt({n})'
+        if n == 1:
+            return str(a)
+        return f'{a}*sqrt({n})'
+
+    if av > 0:
+        sq = val * val
+        try:
+            fsq = _Fraction(sq).limit_denominator(max_denom)
+            if fsq != 0 and abs(sq - float(fsq)) < tol * max(sq, 1.0):
+                sign = '-' if val < 0 else ''
+                p, q = fsq.numerator, fsq.denominator
+                num_tok = _sqrt_token(p)
+                if q == 1:
+                    body = num_tok
+                else:
+                    den_tok = _sqrt_token(q)
+                    body = f'{num_tok}/{den_tok}' if num_tok != '1' else f'1/{den_tok}'
+                # 跳过纯整数/有理 (上面已收录) — 只在 form 含 sqrt 时记入
+                if 'sqrt' in body:
+                    out.append({'form': f'{sign}{body}',
+                                'err_abs': abs(av - math.sqrt(float(fsq))),
+                                'kind': 'sqrt'})
+        except Exception:
+            pass
+    # 4. rational multiple of π: val = p/q * π
+    try:
+        rp = val / math.pi
+        fp = _Fraction(rp).limit_denominator(max_denom)
+        if abs(rp - float(fp)) < tol * max(abs(rp), 1.0):
+            p, q = fp.numerator, fp.denominator
+            if p == 0:
+                pass  # zero already handled by integer branch
+            elif abs(p) == 1 and q == 1:
+                out.append({'form': '-pi' if p < 0 else 'pi',
+                            'err_abs': abs(val - p * math.pi), 'kind': 'pi-rational'})
+            elif q == 1:
+                out.append({'form': f'{p}*pi',
+                            'err_abs': abs(val - p * math.pi), 'kind': 'pi-rational'})
+            elif abs(p) == 1:
+                form = f'pi/{q}' if p > 0 else f'-pi/{q}'
+                out.append({'form': form,
+                            'err_abs': abs(val - float(fp) * math.pi), 'kind': 'pi-rational'})
+            else:
+                out.append({'form': f'{p}*pi/{q}',
+                            'err_abs': abs(val - float(fp) * math.pi), 'kind': 'pi-rational'})
+    except Exception:
+        pass
+    return out
+
 
 _RIES_LINE_RE = re.compile(
     r'^\s*(\S.*?)\s+=\s+(\S.*?)\s+(?:for x = T\s*([+\-])\s*([0-9.eE+\-]+)|\(\'exact\' match\))'
 )
+
+
+def _ries_value_form(lhs: str, rhs: str) -> Optional[str]:
+    """把 RIES 方程逆解成 x 的值表达式 (仅简单 pattern).
+    返回 None 表示无法直接逆解, 调用方保留方程形式."""
+    lhs_s = lhs.strip()
+    rhs_s = rhs.strip()
+    # x = expr  /  expr = x
+    if lhs_s == 'x':
+        return rhs_s
+    if rhs_s == 'x':
+        return lhs_s
+    # -x = expr  /  expr = -x
+    if lhs_s == '-x':
+        return f'-({rhs_s})'
+    if rhs_s == '-x':
+        return f'-({lhs_s})'
+    # 1/x = expr  →  x = 1/expr
+    if lhs_s == '1/x':
+        return f'1/({rhs_s})'
+    if rhs_s == '1/x':
+        return f'1/({lhs_s})'
+    # x^2 = expr  →  x = sqrt(expr) (符号丢失, 跳过留 RIES 输出)
+    # k*x = expr (k 整数) → x = expr/k. 简化版: 数字 + "x" 的形式.
+    m = re.fullmatch(r'(-?\d+)\*x', lhs_s)
+    if m:
+        return f'({rhs_s})/{m.group(1)}'
+    m = re.fullmatch(r'(-?\d+)\*x', rhs_s)
+    if m:
+        return f'({lhs_s})/{m.group(1)}'
+    return None
 
 
 def _ries_identify(val: float, timeout: float = 3.0, max_results: int = 5) -> List[Dict[str, Any]]:
@@ -327,11 +448,14 @@ def _ries_identify(val: float, timeout: float = 3.0, max_results: int = 5) -> Li
         if not m:
             continue
         lhs, rhs, sign, delta_s = m.group(1), m.group(2), m.group(3), m.group(4)
-        if delta_s is not None:
-            err_abs = float(delta_s)
+        err_abs = float(delta_s) if delta_s is not None else 0.0
+        v = _ries_value_form(lhs, rhs)
+        if v is not None:
+            out.append({'form': v, 'raw_form': f'{lhs} = {rhs}',
+                        'err_abs': err_abs, 'kind': 'ries-value'})
         else:
-            err_abs = 0.0
-        out.append({'form': f'{lhs} = {rhs}', 'err_abs': err_abs})
+            out.append({'form': f'{lhs} = {rhs}',
+                        'err_abs': err_abs, 'kind': 'ries-equation'})
         if len(out) >= max_results:
             break
     return out
@@ -382,15 +506,21 @@ def api_isc(req: IscRequest):
     candidates: List[Dict[str, Any]] = []
     for axis, val in targets:
         if abs(val) < EPS:
-            candidates.append({'axis': axis, 'value': val, 'engine': 'trivial', 'form': '0', 'err_abs': abs(val)})
+            candidates.append({'axis': axis, 'value': val, 'engine': 'simple',
+                               'form': '0', 'err_abs': abs(val), 'kind': 'integer'})
             continue
+        # fast 本地 simple-identify (整数/有理/√有理/π·有理)
+        for c in _simple_identify(val):
+            candidates.append({'axis': axis, 'value': val, 'engine': 'simple', **c})
         if 'ries' in req.engines:
             for c in _ries_identify(val):
                 candidates.append({'axis': axis, 'value': val, 'engine': 'ries', **c})
         if 'wolfram' in req.engines:
             for c in _wa_identify_wrap(val):
-                candidates.append({'axis': axis, 'value': val, 'engine': 'wolfram', **c})
-    return {'candidates': candidates, 'engines_available': {'ries': os.path.exists(RIES_BIN), 'wolfram': _WA_AVAILABLE}}
+                candidates.append({'axis': axis, 'value': val, 'engine': 'wolfram',
+                                   'kind': 'wolfram', **c})
+    return {'candidates': candidates,
+            'engines_available': {'ries': os.path.exists(RIES_BIN), 'wolfram': _WA_AVAILABLE}}
 
 
 if __name__ == '__main__':
