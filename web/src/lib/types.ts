@@ -80,6 +80,10 @@ export interface VizState {
   exampleAwaitingCompute: boolean;       // example dataset 加载后未点 Compute / 未编辑前 true; banner 文案分支用
   sdView: SdView;                        // S_d 矩阵右栏当前显示模式
   omegaView: OmegaView;                  // Ω_d 矩阵右栏当前显示模式
+  /** Ω/Ω^-1 的"选中块"索引. 跟 selectedEntry 完全独立 (SSOT 解耦):
+   *  Ω 视图: 算法按行算 ⇒ 这里存被选中的行索引 I, 整行块高亮.
+   *  Ω^-1 视图: 算法按列算 ⇒ 存被选中的列索引 J, 整列块高亮. */
+  selectedOmegaBlock: number | null;
 }
 
 /** 右栏 stokes-matrix 显示模式. -d 方向 label 排序定义 S_d^± entrywise:

@@ -137,6 +137,7 @@ async function main() {
     exampleAwaitingCompute: hideOnLoad,
     sdView: 'std',
     omegaView: 'omega',
+    selectedOmegaBlock: null,
   };
 
   function currentRays(): number[] {
@@ -1166,7 +1167,8 @@ async function main() {
     buildMatrixGrid({
       containerId: 'omega-matrix',
       ms,
-      onCellClick: (I, J) => selectEntry(I, J),
+      // Ω/Ω^-1 选择跟 S_d 解耦. Ω 行块作整体被选, Ω^-1 列块作整体被选.
+      onCellClick: (I, J) => selectOmegaBlock(isOmega ? I : J),
       rowBlocks: !isOmega,   // omega 行无块; omega-inv 行有块
       colBlocks: isOmega,    // omega 列有块; omega-inv 列无块
       diagSelectable: true,  // 对角不特殊
@@ -1175,9 +1177,19 @@ async function main() {
     refreshOmegaMatrix();
   }
 
+  function selectOmegaBlock(idx: number) {
+    state.selectedOmegaBlock = idx;
+    refreshOmegaMatrix();
+  }
+
   function refreshOmegaMatrix() {
     const ms = state.mOverrides ?? dataset.m_sizes;
     const digits = selectedPrecisionDigits();
+    const isOmega = state.omegaView === 'omega';
+    // selectedOmegaBlock 是单 index; 按 view 解释为 row (omega) 或 col (omega-inv).
+    const sel: [number, number] | null = state.selectedOmegaBlock === null
+      ? null
+      : (isOmega ? [state.selectedOmegaBlock, 0] : [0, state.selectedOmegaBlock]);
     // Ω data 待算; 目前永远 stale.
     refreshMatrixCells({
       containerId: 'omega-matrix',
@@ -1186,7 +1198,8 @@ async function main() {
       isStale: true,
       staleIncludesDiag: true,
       staleMessage: 'central connection matrix algorithm not implemented yet — click Compute Central Connection Matrix',
-      selectedEntry: state.selectedEntry,
+      selectedEntry: sel,
+      selectionMode: isOmega ? 'row' : 'col',
       tex,
       renderComplex,
       getCellContent: (_I, _J, _a, _b): CellContent => {

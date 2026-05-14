@@ -134,6 +134,11 @@ export interface RefreshOpts {
    *  退化成 view-specific 自己扫一遍 — 但会出现 plus/minus 比 std 窄的不稳定. */
   widthReferenceBlocks?: () => Iterable<ComplexNum[][]>;
   selectedEntry: [number, number] | null;
+  /** 高亮模式:
+   *  - 'entry' (default): 仅 (I,J) 匹配 selectedEntry 时高亮.
+   *  - 'row': selectedEntry[0] 给出行索引, 该行所有 cell 高亮 (Ω 行块).
+   *  - 'col': selectedEntry[1] 给出列索引, 该列所有 cell 高亮 (Ω^-1 列块). */
+  selectionMode?: 'entry' | 'row' | 'col';
   /** 拍 cell 显示用. 调用方注入 (跟 buildMatrixGrid 一致). */
   renderComplex: (v: ComplexNum, digits: number) => string;
   tex: (s: string) => string;
@@ -180,8 +185,12 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
     const a = Number(cell.dataset.a!);
     const b = Number(cell.dataset.b!);
 
-    const sel = !!(opts.selectedEntry &&
-      opts.selectedEntry[0] === I && opts.selectedEntry[1] === J);
+    const mode = opts.selectionMode ?? 'entry';
+    const sel = !!(opts.selectedEntry && (
+      mode === 'entry' ? (opts.selectedEntry[0] === I && opts.selectedEntry[1] === J) :
+      mode === 'row'   ? (opts.selectedEntry[0] === I) :
+      /* col */          (opts.selectedEntry[1] === J)
+    ));
     cell.classList.toggle('selected', sel);
 
     if (opts.isStale && (opts.staleIncludesDiag || I !== J)) {
