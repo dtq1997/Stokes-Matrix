@@ -16,7 +16,7 @@ Stdout 协议:
 
 Worker 自己永远不退出 (除非 SIGTERM 或 stdin EOF).
 """
-import os, sys, json, traceback, gc, time, builtins
+import os, sys, json, traceback, gc, time, builtins, signal
 
 py_int = builtins.int
 
@@ -28,6 +28,15 @@ sys.path.insert(0, os.path.join(_WS, "60-outputs/sd-viz/server"))
 # 同时跑 _prime_mpmath_caches() (Phase 2 PARI 段错预防).
 # 这是 worker spawn 时一次性付的开销 (~4s); 此后每次 job 不再付.
 load(os.path.join(_WS, "60-outputs/sd-viz/server/recompute_runner.sage"))
+
+
+# Phase 1c (soft cancel): SIGINT → raise KeyboardInterrupt in running compute,
+# worker 不退出, 下一个 job 仍接受. 旧行为 (SIGTERM hard kill + respawn) 在
+# worker_pool 端仍保留作 fallback. 保留 1b cache 跨 cancel.
+def _on_sigint(signum, frame):
+    raise KeyboardInterrupt("job cancelled via SIGINT")
+signal.signal(signal.SIGINT, _on_sigint)
+
 
 # recompute() 现在在 globals 里. 标记 worker 已就绪.
 print("WORKER_READY", flush=True)
@@ -53,6 +62,9 @@ def _run_job_line(line):
         with open(out_path, 'w') as f:
             json.dump(result, f)
         print(f"JOB_DONE {job_id} ok", flush=True)
+    except KeyboardInterrupt:
+        # Phase 1c soft cancel — worker stays alive, cache preserved.
+        print(f"JOB_DONE {job_id} error:Cancelled", flush=True)
     except Exception as e:
         tb = traceback.format_exc()
         for tline in tb.splitlines():
@@ -64,7 +76,11 @@ def _run_job_line(line):
 
 
 while True:
-    line = sys.stdin.readline()
+    try:
+        line = sys.stdin.readline()
+    except KeyboardInterrupt:
+        # SIGINT 在 readline 阶段无害 (没有 in-flight job), 继续等下一行.
+        continue
     if not line:
         # Parent closed stdin → exit cleanly.
         break

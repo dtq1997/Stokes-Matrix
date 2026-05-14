@@ -105,7 +105,10 @@ class SageWorker:
         on_line(str): called per stdout line that is NOT JOB_DONE / WORKER_*.
                       Caller uses this to parse STAGE/PROGRESS.
         cancel_event: threading.Event or callable returning bool. If set/True,
-                      kills the worker (Phase 1a hard cancel — respawn next time).
+                      Phase 1c sends SIGINT to worker (soft cancel — worker
+                      raises KeyboardInterrupt, returns JOB_DONE error:Cancelled,
+                      stays alive, preserves cache). If SIGINT 1s 后仍未死
+                      (兜底), 升级到 SIGTERM hard kill + respawn.
         timeout: seconds before killing worker and returning failure.
         """
         with self._lock:
@@ -127,15 +130,27 @@ class SageWorker:
             deadline = time.time() + timeout
             done_prefix_ok = f'JOB_DONE {job_id} ok'
             done_prefix_err = f'JOB_DONE {job_id} error:'
+            sigint_sent_at = None
             while True:
                 # cancel poll
                 if cancel_event is not None:
                     cancelled = (cancel_event.is_set()
                                  if hasattr(cancel_event, 'is_set')
                                  else bool(cancel_event()))
-                    if cancelled:
-                        self._kill()  # Phase 1a hard cancel
-                        return False, 'cancelled'
+                    if cancelled and sigint_sent_at is None:
+                        # Phase 1c soft cancel: SIGINT first
+                        try:
+                            self._proc.send_signal(signal.SIGINT)
+                            sigint_sent_at = time.time()
+                        except (ProcessLookupError, OSError):
+                            self._kill()
+                            return False, 'cancelled'
+                    elif cancelled and sigint_sent_at is not None and (
+                        time.time() - sigint_sent_at > 1.5
+                    ):
+                        # 1.5s 兜底: SIGINT 没让 worker 回 JOB_DONE, 升级硬杀.
+                        self._kill()
+                        return False, 'cancelled (escalated SIGTERM)'
 
                 if not self._is_alive():
                     return False, f'worker died (exit={self._proc.returncode if self._proc else "?"})'
@@ -157,7 +172,11 @@ class SageWorker:
                     return True, None
                 if line.startswith(done_prefix_err):
                     self._jobs_done += 1
-                    return False, line[len('JOB_DONE '):]
+                    err_kind = line[len('JOB_DONE '):]
+                    # Phase 1c: 'error:Cancelled' 是干净 SIGINT 完结, 不退出 worker.
+                    if 'Cancelled' in err_kind and sigint_sent_at is not None:
+                        return False, 'cancelled'
+                    return False, err_kind
                 # Pass through STAGE / PROGRESS / WORKER_TRACE etc. to caller.
                 if on_line is not None:
                     try:
