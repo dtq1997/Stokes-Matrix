@@ -12,6 +12,7 @@ import { mmul } from './lib/matexp.js';
 import { parsePiInput, parseRational, formatPi } from './lib/pi-input.js';
 import { parseComplexExpr, exprToLatex, complexToExpr } from './lib/expr-parser.js';
 import { simpleIdentifyValue, buildComplexExprFromForms as buildLocalComplexExpr } from './lib/local-isc.js';
+import { propagateExactMatrices, type IntMatrix } from './lib/wall-crossing.js';
 
 function tex(s: string, displayMode = false): string {
   return katex.renderToString(s, { displayMode, throwOnError: false, strict: false });
@@ -543,6 +544,9 @@ async function main() {
   //               跨 chamber/view 自然传播 RIES 识别成果.
   const iscCache = new Map<string, IscCandidate[]>();
   const iscLibrary: Array<{ value: number; form: string }> = [];
+  // 精确传播结果: chamberIdx → 整数矩阵 (off-diag). 由 wall-crossing 从 ISC 后的
+  // base chamber 推出. 跟 iscLibrary 并行 — cell 渲染优先查它 (代数精确), 没命中再查 library.
+  const exactByChamber = new Map<number, IntMatrix>();
   let iscRunning = false;
   setupResizeHandles();
   setupInputModeToggles();
@@ -1835,11 +1839,21 @@ async function main() {
    *    都成功才合并成单复数表达式; 一边失败但浮点 ≈ 0 也算通过 (避免半浮点半符号 ugly).
    *  null = 至少一边没识别, 调用方回退浮点显示.
    *  SSOT: Stokes / Omega / 未来其他矩阵 cell 渲染都用这个入口. */
-  function getSymbolicCellExpr(_I: number, _J: number, v: ComplexNum): { latex: string; tooltip: string } | null {
+  function getSymbolicCellExpr(I: number, J: number, v: ComplexNum): { latex: string; tooltip: string } | null {
     const tipSign = v.im >= 0 ? '+' : '−';
     const tooltip = `${v.re.toPrecision(8)} ${tipSign} ${Math.abs(v.im).toPrecision(8)}i`;
-    // "视为 0" 阈值: 相对 cell 模长 ~7 位有效数字以下 (匹配 medium 精度数值噪声层).
-    // 不能用绝对 1e-12 — Stokes 数值噪声常在 1e-10 量级.
+    // 1) 精确传播命中: 当前 chamber 有 wall-crossing 算出的整数 M[I][J] 且 v 匹配 (含负号)
+    const M = exactByChamber.get(state.selectedChamber);
+    if (M && I >= 0 && I < M.length && J >= 0 && J < M.length) {
+      const n = M[I][J];
+      const mag = Math.max(Math.abs(v.re), Math.abs(v.im), 1, Math.abs(n));
+      const tol = mag * 1e-5;
+      if (Math.abs(v.im) < tol) {
+        if (Math.abs(v.re - n) < tol) return { latex: String(n), tooltip };
+        if (Math.abs(v.re + n) < tol) return { latex: String(-n), tooltip };
+      }
+    }
+    // 2) iscLibrary 查询 (数值字典, identifyValue 入口)
     const mag = Math.max(Math.abs(v.re), Math.abs(v.im), 1);
     const zeroTol = mag * 1e-7;
     const reTrivial = Math.abs(v.re) < zeroTol;
@@ -1888,6 +1902,7 @@ async function main() {
     clearBtn.addEventListener('click', () => {
       iscCache.clear();
       iscLibrary.length = 0;
+      exactByChamber.clear();
       refreshStokesMatrix();
       renderIscResults();
       refreshIscLauncher();
@@ -1960,9 +1975,51 @@ async function main() {
   async function runIscMatrix() {
     const panel = document.getElementById('isc-results')!;
     if (!stokesValuesFresh()) { panel.hidden = false; panel.innerHTML = `<div class="isc-hint">Compute Stokes matrices first.</div>`; return; }
+
+    // ★ 真传播路径 (CP^n 整数 case): ISC base chamber → 拿整数矩阵 → wall-crossing 推所有 chamber.
+    //   不需要对每个 chamber 跑 RIES, 不需要数值字典命中. 精确代数.
+    const ps = state.punctureOverrides ?? dataset.punctures;
+    const sortedChambers = dataset.chambers
+      .map((ch, idx) => ({ d: ch.d, originalIdx: idx, ch }))
+      .sort((a, b) => a.d - b.d);
+    const baseSorted = sortedChambers[0];
+    // 尝试从 base chamber 抽整数矩阵: 每个 entry 必须 (re ≈ integer, im ≈ 0).
+    const baseM: IntMatrix = Array.from({ length: n }, () => Array(n).fill(0));
+    let baseAllInteger = true;
+    const snapTol = 1e-3;  // 容差: medium 精度数据噪声远低于此
+    for (let i = 0; i < n && baseAllInteger; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const e = baseSorted.ch.entries[`${i},${j}`];
+        if (!e || !e.value_block) { baseAllInteger = false; break; }
+        const v = e.value_block[0][0];
+        const nRound = Math.round(v.re);
+        if (Math.abs(v.re - nRound) > snapTol || Math.abs(v.im) > snapTol) {
+          baseAllInteger = false; break;
+        }
+        baseM[i][j] = nRound;
+      }
+    }
+    if (baseAllInteger) {
+      iscRunning = true; refreshIscLauncher();
+      panel.hidden = false;
+      panel.innerHTML = `<div class="isc-loading">Propagating base chamber ${baseSorted.originalIdx} (d=${baseSorted.d.toFixed(3)}) integer matrix via wall-crossing…</div>`;
+      // 短 await 让 DOM 喘一口气, 否则计算太快用户看不到 loading 状态
+      await new Promise(r => setTimeout(r, 0));
+      const propagated = propagateExactMatrices(baseSorted.originalIdx, baseM, sortedChambers, ps);
+      exactByChamber.clear();
+      for (const [chIdx, M] of propagated) exactByChamber.set(chIdx, M);
+      refreshStokesMatrix();
+      panel.innerHTML = `<div class="isc-hint">Wall-crossing propagation: base chamber ${baseSorted.originalIdx} → ${propagated.size} chambers exact (integer matrix algebra, zero floating-point error).</div>`;
+      iscRunning = false; refreshIscLauncher();
+      return;
+    }
+
+    // 非整数 case: 落回老 path (扫所有 chamber 本地 simple-identify + RIES 兜底).
+    // 这条 path 数值字典匹配, 不是真传播, 但对 CP^n 之外 (非整数 entry) 没 wall-crossing 闭式时也能挽救一些.
+    panel.innerHTML = `<div class="isc-hint">Base chamber not integer — falling back to per-value local + RIES sweep.</div>`;
     // 扫所有 chamber 所有 off-diag entry; 按数值去重 (chamber 间常出现重复值,
     // 一次 RIES 入库后其他 cell 走 library 命中); 跳过 local-identify 已接住的.
-    // 用户原话: "ISC 初始 chamber 的计算结果, 然后传递到一些相关的数".
     const todo: Array<{ chamberIdx: number; i: number; j: number; v: ComplexNum }> = [];
     const seen: Array<ComplexNum> = [];
     // 容差 1e-6 — precomputed dataset entry chamber 间常累积 ~5e-7 噪声.
