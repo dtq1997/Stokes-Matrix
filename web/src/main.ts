@@ -1168,7 +1168,7 @@ async function main() {
       containerId: 'omega-matrix',
       ms,
       // Ω/Ω^-1 选择跟 S_d 解耦. Ω 行块作整体被选, Ω^-1 列块作整体被选.
-      onCellClick: (I, J) => selectOmegaBlock(isOmega ? I : J),
+      onCellClick: (I, J) => selectOmegaBlock(I, J),
       rowBlocks: isOmega,    // omega 行块 (按行算 → 行作为整体单位)
       colBlocks: !isOmega,   // omega-inv 列块 (按列算 → 列作为整体单位)
       diagSelectable: true,  // 对角不特殊
@@ -1177,8 +1177,8 @@ async function main() {
     refreshOmegaMatrix();
   }
 
-  function selectOmegaBlock(idx: number) {
-    state.selectedOmegaBlock = idx;
+  function selectOmegaBlock(i: number, j: number) {
+    state.selectedOmegaBlock = [i, j];
     // Ω 和 S_d 选中互斥
     if (state.selectedEntry !== null) {
       state.selectedEntry = null;
@@ -1195,10 +1195,8 @@ async function main() {
     const ms = state.mOverrides ?? dataset.m_sizes;
     const digits = selectedPrecisionDigits();
     const isOmega = state.omegaView === 'omega';
-    // selectedOmegaBlock 是单 index; 按 view 解释为 row (omega) 或 col (omega-inv).
-    const sel: [number, number] | null = state.selectedOmegaBlock === null
-      ? null
-      : (isOmega ? [state.selectedOmegaBlock, 0] : [0, state.selectedOmegaBlock]);
+    // selectedOmegaBlock 存完整 (i, j); 按 view 决定高亮哪个轴.
+    const sel: [number, number] | null = state.selectedOmegaBlock;
     // Ω data 待算; 目前永远 stale.
     refreshMatrixCells({
       containerId: 'omega-matrix',
