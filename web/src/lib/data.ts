@@ -164,6 +164,35 @@ export async function recomputeAsync(
   }
 }
 
+// ---------- ISC (inverse symbolic computation) ----------
+
+export interface IscCandidate {
+  axis: string;          // 'Re' | 'Im' | '|z|' | 'arg/π'
+  value: number;         // 通道数值 (浮点)
+  engine: 'ries' | 'wolfram' | 'trivial';
+  form: string;          // 候选闭式表达 (RIES: "x+pi = 4"; WA: "1/sqrt(3)" etc.)
+  err_abs: number | null;  // RIES 给的绝对误差; WA 不提供
+}
+
+export interface IscResponse {
+  candidates: IscCandidate[];
+  engines_available: { ries: boolean; wolfram: boolean };
+}
+
+export async function iscQuery(re: number, im: number,
+                                channels?: string[], engines?: string[]): Promise<IscResponse> {
+  const body: any = { re, im };
+  if (channels) body.channels = channels;
+  if (engines) body.engines = engines;
+  const r = await fetch(apiUrl('/api/isc'), {
+    method: 'POST',
+    headers: defaultHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`ISC ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
 export async function cancelJob(jobId: string): Promise<void> {
   await fetch(apiUrl(`/api/job/${jobId}/cancel`), {
     method: 'POST',

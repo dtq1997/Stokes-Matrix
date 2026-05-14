@@ -70,15 +70,16 @@
       </main>
       <div class="resize-handle" id="resize-right" data-side="right" title="Drag to resize output panel"></div>
       <aside id="right-panel" data-panel="right">
-<h2>Stokes matrix</h2>
+<h2>Stokes matrix <span class="isc-launcher" id="sd-isc-launcher"></span></h2>
         <div id="sd-view-selector" class="sd-view-selector" role="tablist"></div>
         <div id="stokes-matrix" class="matrix-grid"></div>
-        <h2>Central connection matrix</h2>
+        <h2>Central connection matrix <span class="isc-launcher" id="omega-isc-launcher"></span></h2>
         <div id="omega-view-selector" class="sd-view-selector" role="tablist"></div>
         <div id="omega-matrix" class="matrix-grid"></div>
         <h3>Selected entry</h3>
         <div id="stokes-display"></div>
         <div id="path-info" class="mono" hidden></div>
+        <div id="isc-results" class="isc-results" hidden></div>
       </aside>
     </div>
     <script type="module" src="/src/main.ts"></script>

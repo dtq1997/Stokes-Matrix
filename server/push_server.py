@@ -17,12 +17,22 @@ API:
   GET  /api/dataset      → 当前 cache 数据集 (初始 = 磁盘 JSON)
   POST /api/reset        → 恢复初始 dataset
 """
-import os, sys, json, time, copy, subprocess, tempfile, threading, uuid, re, signal, select
+import os, sys, json, time, copy, subprocess, tempfile, threading, uuid, re, signal, select, math
 from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
+
+# ISC engines (按需 import 失败也不影响其他端点)
+sys.path.insert(0, os.path.expanduser('~/ai/data/wolfram'))
+try:
+    from wolfram_query import wolfram_identify as _wolfram_identify  # type: ignore
+    _WA_AVAILABLE = True
+except Exception:
+    _wolfram_identify = None
+    _WA_AVAILABLE = False
+RIES_BIN = os.path.expanduser('~/ai/data/ries/ries')
 
 WS = "/Users/dtq1997/ai/workspace/academic-formula-workbench"
 DATA_PATH = os.path.join(WS, "60-outputs/sd-viz/data/n4_simple.json")
@@ -290,6 +300,97 @@ def job_cancel(job_id: str):
         except ProcessLookupError:
             pass
     return {'ok': True}
+
+
+# ---------- Inverse Symbolic Computation (ISC) ----------
+# 给定复数, 跑 RIES + WolframAlpha identify 找闭式表达.
+# 通道: re, im, |z|, arg/π — 默认全跑; 每通道独立返候选.
+
+_RIES_LINE_RE = re.compile(
+    r'^\s*(\S.*?)\s+=\s+(\S.*?)\s+(?:for x = T\s*([+\-])\s*([0-9.eE+\-]+)|\(\'exact\' match\))'
+)
+
+
+def _ries_identify(val: float, timeout: float = 3.0, max_results: int = 5) -> List[Dict[str, Any]]:
+    if not os.path.exists(RIES_BIN):
+        return []
+    try:
+        proc = subprocess.run(
+            [RIES_BIN, '-l3', str(val)],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except Exception:
+        return []
+    out: List[Dict[str, Any]] = []
+    for line in proc.stdout.splitlines():
+        m = _RIES_LINE_RE.match(line)
+        if not m:
+            continue
+        lhs, rhs, sign, delta_s = m.group(1), m.group(2), m.group(3), m.group(4)
+        if delta_s is not None:
+            err_abs = float(delta_s)
+        else:
+            err_abs = 0.0
+        out.append({'form': f'{lhs} = {rhs}', 'err_abs': err_abs})
+        if len(out) >= max_results:
+            break
+    return out
+
+
+def _wa_identify_wrap(val: float, max_results: int = 5) -> List[Dict[str, Any]]:
+    if not _WA_AVAILABLE:
+        return []
+    try:
+        forms = _wolfram_identify(val)
+    except Exception:
+        return []
+    out: List[Dict[str, Any]] = []
+    for f in forms[:max_results]:
+        # WA forms look like "1/sqrt(3)≈0.577..." — split on ≈ to extract pure expression.
+        if '≈' in f:
+            expr = f.split('≈', 1)[0].strip()
+        else:
+            expr = f.strip()
+        out.append({'form': expr, 'err_abs': None})
+    return out
+
+
+class IscRequest(BaseModel):
+    re: float
+    im: float = 0.0
+    # 通道选择. 默认全开.
+    channels: List[str] = Field(default_factory=lambda: ['re', 'im', 'abs', 'arg'])
+    engines: List[str] = Field(default_factory=lambda: ['ries', 'wolfram'])
+
+
+@app.post('/api/isc')
+def api_isc(req: IscRequest):
+    """Single-value ISC. 返回每个通道的候选 (re/im/abs/arg/π)."""
+    EPS = 1e-12
+    mag = math.hypot(req.re, req.im)
+    has_im = abs(req.im) > EPS
+    targets: List[tuple] = []
+    if 're' in req.channels:
+        targets.append(('Re', req.re))
+    if 'im' in req.channels and has_im:
+        targets.append(('Im', req.im))
+    if 'abs' in req.channels and has_im and mag > EPS:
+        targets.append(('|z|', mag))
+    if 'arg' in req.channels and has_im and mag > EPS:
+        targets.append(('arg/π', math.atan2(req.im, req.re) / math.pi))
+
+    candidates: List[Dict[str, Any]] = []
+    for axis, val in targets:
+        if abs(val) < EPS:
+            candidates.append({'axis': axis, 'value': val, 'engine': 'trivial', 'form': '0', 'err_abs': abs(val)})
+            continue
+        if 'ries' in req.engines:
+            for c in _ries_identify(val):
+                candidates.append({'axis': axis, 'value': val, 'engine': 'ries', **c})
+        if 'wolfram' in req.engines:
+            for c in _wa_identify_wrap(val):
+                candidates.append({'axis': axis, 'value': val, 'engine': 'wolfram', **c})
+    return {'candidates': candidates, 'engines_available': {'ries': os.path.exists(RIES_BIN), 'wolfram': _WA_AVAILABLE}}
 
 
 if __name__ == '__main__':

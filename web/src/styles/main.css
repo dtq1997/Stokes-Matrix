@@ -834,3 +834,131 @@ body.computing-lock button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* ---------- ISC launcher + results panel ---------- */
+.isc-launcher {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 10px;
+  gap: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  vertical-align: middle;
+}
+.isc-launcher .isc-scope {
+  background: var(--bg-elev);
+  color: var(--fg);
+  border: 1px solid var(--border, #444);
+  border-radius: 3px;
+  font-size: 10px;
+  padding: 1px 4px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.isc-launcher .isc-btn {
+  background: var(--accent);
+  color: var(--bg);
+  border: 0;
+  border-radius: 3px;
+  font-size: 10px;
+  padding: 2px 8px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+}
+.isc-launcher .isc-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.isc-launcher .isc-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.isc-launcher .isc-clear {
+  background: transparent;
+  color: var(--fg-muted);
+  border: 1px solid var(--border, #444);
+  font-weight: normal;
+  padding: 0 6px;
+}
+.isc-launcher .isc-clear:hover { color: var(--fg); }
+
+.isc-results {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border, #333);
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: var(--font-sans, inherit);
+}
+.isc-results .dim { color: var(--fg-dim); }
+.isc-results .mono { font-family: var(--font-mono); }
+.isc-results .isc-hint, .isc-results .isc-loading {
+  color: var(--fg-muted);
+}
+.isc-results .isc-error { color: var(--bad); }
+.isc-results .isc-entry-head {
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.isc-results .isc-cell {
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+.isc-results .isc-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.isc-results .isc-group { }
+.isc-results .isc-axis {
+  font-size: 11px;
+}
+.isc-results .isc-axis-name {
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.isc-results .isc-list {
+  list-style: none;
+  margin: 3px 0 0 0;
+  padding-left: 10px;
+}
+.isc-results .isc-list li {
+  padding: 1px 0;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.isc-results .isc-engine {
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 0 4px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+}
+.isc-results .isc-eng-ries { background: rgba(120, 180, 240, 0.18); color: #8fc0f0; }
+.isc-results .isc-eng-wolfram { background: rgba(240, 160, 120, 0.18); color: #f0b88f; }
+.isc-results .isc-eng-trivial { background: rgba(140, 140, 140, 0.18); color: var(--fg-muted); }
+.isc-results .isc-form { font-family: var(--font-mono); font-size: 12px; }
+.isc-results .isc-err { font-size: 10px; color: var(--fg-dim); }
+.isc-results .isc-err.exact { color: var(--good); }
+.isc-results .isc-cache-summary {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border, #333);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.isc-results .isc-jump {
+  background: var(--bg-elev);
+  border: 1px solid var(--border, #444);
+  color: var(--fg);
+  font-size: 10px;
+  padding: 1px 5px;
+  margin: 1px 2px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.isc-results .isc-jump:hover { border-color: var(--accent); }

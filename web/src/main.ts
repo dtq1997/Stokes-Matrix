@@ -1,5 +1,5 @@
 import katex from 'katex';
-import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey } from './lib/data.js';
+import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey, iscQuery, type IscCandidate } from './lib/data.js';
 import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js';
 import {
@@ -536,6 +536,7 @@ async function main() {
   updateDimInfo();
   setupResizeHandles();
   setupInputModeToggles();
+  setupIscLauncher();
 
   function setupInputModeToggles() {
     interface ToggleCfg {
@@ -1717,6 +1718,206 @@ async function main() {
     state.paths.set(id, { i, j, vertices: path.vertices, homotopyId: id });
   }
 
+  // ---------- ISC (Inverse Symbolic Computation) ----------
+  // 缓存按 (chamber, i, j) 索引. 切 chamber/d 时如果命中 → 复用; 不命中 → 用户主动触发.
+  const iscCache = new Map<string, IscCandidate[]>();
+  let iscRunning = false;
+  function iscKey(chamber: number, i: number, j: number): string {
+    return `${chamber}_${i}_${j}`;
+  }
+  /** 拿当前 chamber 的 (i, j) entry 的 std view 标量值 (m_i=m_j=1 假设, block 取 [0,0]). */
+  function getStdEntryValue(i: number, j: number): ComplexNum | null {
+    if (!stokesValuesFresh()) return null;
+    const ch = dataset.chambers[state.selectedChamber];
+    const e = ch?.entries?.[`${i},${j}`];
+    if (!e || e.error) return null;
+    const blk = modifiedBlock(e, ch.d, i, j);
+    return blk[0]?.[0] ?? null;
+  }
+  function setupIscLauncher() {
+    const host = document.getElementById('sd-isc-launcher');
+    if (!host) return;
+    host.innerHTML =
+      `<select class="isc-scope" id="sd-isc-scope" title="ISC range">` +
+        `<option value="entry">selected entry</option>` +
+        `<option value="matrix">whole matrix (current chamber)</option>` +
+      `</select>` +
+      `<button class="isc-btn" id="sd-isc-btn" type="button" title="Identify symbolic form">ISC</button>` +
+      `<button class="isc-btn isc-clear" id="sd-isc-clear" type="button" title="Clear ISC cache" hidden>×</button>`;
+    const btn = document.getElementById('sd-isc-btn') as HTMLButtonElement;
+    const scope = document.getElementById('sd-isc-scope') as HTMLSelectElement;
+    const clearBtn = document.getElementById('sd-isc-clear') as HTMLButtonElement;
+    btn.addEventListener('click', () => {
+      if (iscRunning) return;
+      const s = scope.value as 'entry' | 'matrix';
+      if (s === 'entry') runIscEntry();
+      else runIscMatrix();
+    });
+    clearBtn.addEventListener('click', () => {
+      iscCache.clear();
+      renderIscResults();
+      refreshIscLauncher();
+    });
+    // 点 cache 摘要里的 (i,j) 跳到对应 entry
+    document.getElementById('isc-results')?.addEventListener('click', (e) => {
+      const tgt = (e.target as HTMLElement).closest('.isc-jump') as HTMLButtonElement | null;
+      if (!tgt) return;
+      const i = Number(tgt.dataset.i), j = Number(tgt.dataset.j);
+      if (!Number.isInteger(i) || !Number.isInteger(j)) return;
+      state.selectedEntry = [i, j];
+      updateStokesPanel();
+      updatePathInfo();
+    });
+    refreshIscLauncher();
+  }
+  function refreshIscLauncher() {
+    const btn = document.getElementById('sd-isc-btn') as HTMLButtonElement | null;
+    const clearBtn = document.getElementById('sd-isc-clear') as HTMLButtonElement | null;
+    if (!btn) return;
+    const fresh = stokesValuesFresh();
+    btn.disabled = !fresh || iscRunning;
+    btn.textContent = iscRunning ? 'ISC…' : 'ISC';
+    if (clearBtn) clearBtn.hidden = iscCache.size === 0;
+  }
+  async function runIscEntry() {
+    const panel = document.getElementById('isc-results')!;
+    if (!state.selectedEntry) {
+      panel.hidden = false;
+      panel.innerHTML = `<div class="isc-hint">Select an entry first (click a Stokes matrix cell).</div>`;
+      return;
+    }
+    const [i, j] = state.selectedEntry;
+    if (i === j) {
+      panel.hidden = false;
+      panel.innerHTML = `<div class="isc-hint">Diagonal entries are trivial (1 or 0).</div>`;
+      return;
+    }
+    const v = getStdEntryValue(i, j);
+    if (!v) {
+      panel.hidden = false;
+      panel.innerHTML = `<div class="isc-hint">No numerical value for (${i+1}, ${j+1}) in current chamber.</div>`;
+      return;
+    }
+    iscRunning = true; refreshIscLauncher();
+    panel.hidden = false;
+    panel.innerHTML = `<div class="isc-loading">Running ISC for (${i+1}, ${j+1})… <span class="dim">RIES, ~1–3s per channel</span></div>`;
+    try {
+      const resp = await iscQuery(v.re, v.im, undefined, ['ries']);
+      iscCache.set(iscKey(state.selectedChamber, i, j), resp.candidates);
+      renderIscResults();
+    } catch (e) {
+      panel.innerHTML = `<div class="isc-error">ISC failed: ${escapeHtml((e as Error).message)}</div>`;
+    } finally {
+      iscRunning = false; refreshIscLauncher();
+    }
+  }
+  async function runIscMatrix() {
+    const panel = document.getElementById('isc-results')!;
+    if (!stokesValuesFresh()) { panel.hidden = false; panel.innerHTML = `<div class="isc-hint">Compute Stokes matrices first.</div>`; return; }
+    const ch = dataset.chambers[state.selectedChamber];
+    if (!ch) return;
+    // 收集当前 chamber 所有 off-diag 非 trivial entries
+    const todo: Array<[number, number, ComplexNum]> = [];
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        if (iscCache.has(iscKey(state.selectedChamber, i, j))) continue;
+        const v = getStdEntryValue(i, j);
+        if (!v) continue;
+        if (Math.abs(v.re) < 1e-12 && Math.abs(v.im) < 1e-12) continue;
+        todo.push([i, j, v]);
+      }
+    }
+    if (todo.length === 0) {
+      panel.hidden = false;
+      panel.innerHTML = `<div class="isc-hint">All entries already cached or trivial. Select one to view candidates.</div>`;
+      return;
+    }
+    iscRunning = true; refreshIscLauncher();
+    panel.hidden = false;
+    let done = 0;
+    const progress = () => `<div class="isc-loading">Running ISC: <span class="dim">${done}/${todo.length} entries (chamber ${state.selectedChamber+1})</span></div>`;
+    panel.innerHTML = progress();
+    try {
+      for (const [i, j, v] of todo) {
+        const resp = await iscQuery(v.re, v.im, undefined, ['ries']);
+        iscCache.set(iscKey(state.selectedChamber, i, j), resp.candidates);
+        done++;
+        panel.innerHTML = progress();
+      }
+      renderIscResults();
+    } catch (e) {
+      panel.innerHTML = `<div class="isc-error">ISC failed at ${done}/${todo.length}: ${escapeHtml((e as Error).message)}</div>`;
+    } finally {
+      iscRunning = false; refreshIscLauncher();
+    }
+  }
+  function renderIscResults() {
+    const panel = document.getElementById('isc-results')!;
+    refreshIscLauncher();
+    if (!stokesValuesFresh()) { panel.hidden = true; return; }
+    // 优先显示当前选中 entry 的候选; 否则列 cache 概要.
+    if (state.selectedEntry) {
+      const [i, j] = state.selectedEntry;
+      const cands = iscCache.get(iscKey(state.selectedChamber, i, j));
+      if (!cands || cands.length === 0) {
+        if (iscCache.size === 0) { panel.hidden = true; return; }
+        panel.hidden = false;
+        panel.innerHTML = `<div class="isc-hint">No ISC candidates cached for (${i+1}, ${j+1}). Click <strong>ISC</strong> above.</div>` + renderIscCacheSummary();
+        return;
+      }
+      panel.hidden = false;
+      panel.innerHTML = `<div class="isc-entry-head">ISC candidates for ` +
+        `<span class="isc-cell">(${i+1}, ${j+1})</span> <span class="dim">chamber ${state.selectedChamber+1}</span></div>` +
+        renderIscCandidates(cands) +
+        renderIscCacheSummary();
+      return;
+    }
+    if (iscCache.size === 0) { panel.hidden = true; return; }
+    panel.hidden = false;
+    panel.innerHTML = `<div class="isc-hint">Select a Stokes matrix entry to see its ISC candidates.</div>` + renderIscCacheSummary();
+  }
+  function renderIscCandidates(cands: IscCandidate[]): string {
+    // 按 axis 分组
+    const groups = new Map<string, IscCandidate[]>();
+    for (const c of cands) {
+      const g = groups.get(c.axis) ?? [];
+      g.push(c);
+      groups.set(c.axis, g);
+    }
+    let html = '<div class="isc-groups">';
+    for (const [axis, list] of groups) {
+      const valStr = list[0]?.value.toPrecision(8);
+      html += `<div class="isc-group">`;
+      html += `<div class="isc-axis"><span class="isc-axis-name">${escapeHtml(axis)}</span> <span class="dim mono">= ${valStr}</span></div>`;
+      html += '<ul class="isc-list">';
+      for (const c of list) {
+        const errStr = c.err_abs === null || c.err_abs === undefined
+          ? ''
+          : c.err_abs === 0 ? '<span class="isc-err exact">exact</span>'
+          : `<span class="isc-err mono">±${c.err_abs.toExponential(1)}</span>`;
+        html += `<li><span class="isc-engine isc-eng-${c.engine}">${c.engine}</span> ` +
+                `<span class="isc-form mono">${escapeHtml(c.form)}</span> ${errStr}</li>`;
+      }
+      html += '</ul></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+  function renderIscCacheSummary(): string {
+    if (iscCache.size === 0) return '';
+    // 列出当前 chamber 已 cache 的 entries
+    const here: Array<[number, number]> = [];
+    for (const key of iscCache.keys()) {
+      const parts = key.split('_').map(Number);
+      if (parts[0] === state.selectedChamber) here.push([parts[1], parts[2]]);
+    }
+    if (here.length === 0) return '';
+    const labels = here.sort(([a,b],[c,d]) => a-c || b-d)
+      .map(([i,j]) => `<button class="isc-jump mono" data-i="${i}" data-j="${j}">(${i+1},${j+1})</button>`).join(' ');
+    return `<div class="isc-cache-summary">cached this chamber: ${labels}</div>`;
+  }
+
   function updateStokesPanel() {
     const el = document.getElementById('stokes-display')!;
     if (!state.selectedEntry) {
@@ -1781,6 +1982,7 @@ async function main() {
     }
     el.innerHTML = `<div class="label">${tex(labelTex)}</div>`
       + `<div class="value">${inner}</div>`;
+    renderIscResults();
   }
 
   function updatePathInfo() {
