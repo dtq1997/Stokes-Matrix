@@ -557,25 +557,30 @@ test.describe('Sd-viz smoke tests', () => {
     expect(pl.signIsChildOfInt).toBe(true);
   });
 
-  // 防回归 (2026-05-14): std view natural path rounded safety-lane 算法. 默认 dataset 下 (0,2) 直线
-  // 撞 punc[3] 的 -d cut, 必须绕一下 → path 含至少 1 段 cubic Bezier "C" 命令.
-  test('S_d std natural path avoids cuts (rounded safety-lane)', async ({ page }) => {
+  // 防回归 (2026-05-14): std view natural path 用 lower-convex-hull 数学构造. 默认 dataset 下
+  // (0,2) 直线撞 punc[3] 的 -d cut, 必须绕 → polyline 含多段 (L 命令 > 10), 路径比 chord 长.
+  test('S_d std natural path avoids cuts (lower-convex-hull)', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
     await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="2"]').first().click();
-    const d = await page.locator('.path-line').first().getAttribute('d');
-    expect(d).toContain('C');  // 必须有 cubic 命令, 不是直线
-    // S_d^eg 模式下应是直线
+    const path = page.locator('.path-line').first();
+    const d = await path.getAttribute('d');
+    expect((d?.match(/L/g) ?? []).length).toBeGreaterThan(10);
+    const stat = await path.evaluate((el: SVGPathElement) => {
+      const len = el.getTotalLength();
+      const p0 = el.getPointAtLength(0), p1 = el.getPointAtLength(len);
+      return { len, chord: Math.hypot(p1.x - p0.x, p1.y - p0.y) };
+    });
+    expect(stat.len / stat.chord).toBeGreaterThan(1.02);
+    // S_d^eg 模式下是 2-顶点直线: 只有 1 个 L
     await page.locator('#sd-view-selector .sd-view-btn[data-view="eg"]').click();
     const d_eg = await page.locator('.path-line').first().getAttribute('d');
-    expect(d_eg).not.toContain('C');  // 直线 only
-    expect(d_eg).toContain('L');
+    expect((d_eg?.match(/L/g) ?? []).length).toBe(1);
+    expect(d_eg).not.toContain('C');
   });
 
-  // 防回归 (2026-05-14): cut-coord 下两 cut 挨得近时, 端点附近 cut 不能因 padX
-  // 视觉余量被误算成 blocker. n=4 block 默认 d=-0.0439π 时 u_0/u_1 在 cut-coord
-  // 几乎共线 (Δx≈0.053); entry (2,1) 仍应绕过 u_3 的 cut, 不能因 padX 把端点
-  // 挤出凸包而 fallback 给直线.
+  // 防回归 (2026-05-14): cut-coord 下两 cut 挨得近时, 端点附近 cut 不能被误算成 blocker
+  // 导致 fallback 给直线. n=4 block 默认 d=-0.0439π 时 entry (2,1) 仍应绕过 u_3 的 cut.
   test('S_d natural path: nearby cuts at endpoints do not collapse to line', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
@@ -584,13 +589,20 @@ test.describe('Sd-viz smoke tests', () => {
     await dInput.press('Enter');
     await page.waitForTimeout(50);
     await page.locator('#stokes-matrix .sm-cell[data-i="2"][data-j="1"]').first().click();
-    const d = await page.locator('.path-line').first().getAttribute('d');
-    expect(d).toContain('C');  // 必须 cubic, 不是 fallback 直线
+    const path = page.locator('.path-line').first();
+    const d = await path.getAttribute('d');
+    expect((d?.match(/L/g) ?? []).length).toBeGreaterThan(10);
+    const stat = await path.evaluate((el: SVGPathElement) => {
+      const len = el.getTotalLength();
+      const p0 = el.getPointAtLength(0), p1 = el.getPointAtLength(len);
+      return { len, chord: Math.hypot(p1.x - p0.x, p1.y - p0.y) };
+    });
+    expect(stat.len / stat.chord).toBeGreaterThan(1.02);
   });
 
-  // 防回归 (2026-05-14): cut-coord 下 u_3/u_4/u_5 近重合时, 不能回到 hull+CR 的多控制点
-  // 振荡路径. rounded safety-lane 应始终输出固定 3 段 cubic, 且采样后无自交/长回环.
-  test('S_d natural path: near-coincident blocker cluster stays rounded and stable', async ({ page }) => {
+  // 防回归 (2026-05-14): cut-coord 下 u_3/u_4/u_5 近重合时, polyline 不能自交也不能爆膨胀.
+  // lower-hull 数学构造下: f(x) 是 x 单值函数, 自交不可能; 长度 < 5·chord.
+  test('S_d natural path: near-coincident blocker cluster stays smooth and stable', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.puncture');
 
@@ -620,7 +632,11 @@ test.describe('Sd-viz smoke tests', () => {
     await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
     const path = page.locator('.path-line').first();
     const d = await path.getAttribute('d');
-    expect((d?.match(/C/g) ?? []).length).toBe(3);
+    // lower-hull polyline 在 chord 几乎垂直时会走 legacy rounded-lane (cubic), 否则 polyline.
+    // 此 fixture chord 确实 cut-coord 下近垂直, fallback 给 3-cubic; 但也允许新算法 polyline.
+    const hasCubic = (d?.match(/C/g) ?? []).length === 3;
+    const hasPolyline = (d?.match(/L/g) ?? []).length > 10;
+    expect(hasCubic || hasPolyline).toBe(true);
     expect(d).not.toMatch(/NaN|Infinity/);
 
     const stable = await path.evaluate((el: SVGPathElement) => {

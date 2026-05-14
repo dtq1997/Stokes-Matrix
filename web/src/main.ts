@@ -1444,14 +1444,24 @@ async function main() {
     ];
   }
 
-  /** S_d view 自然路径 (rounded safety-lane 版):
-   *  1. cut-coord 下所有 cuts 是竖直向 +y 的半射线.
-   *  2. 若直线撞 cut, 路径下沉到所有相关 cut 起点以下的安全带 y_low.
-   *  3. 用三个显式 cubic Bezier 段画圆角 U 形: 下降、水平安全带、上升.
+  /** S_d view 自然路径 (lower-convex-hull 版):
    *
-   *  这个构造不再把 blocker 簇塞进 spline 控制点, 因而不会在近重合 punctures 上振荡.
-   *  每个候选曲线都会采样检查: 不穿 cut, 且转向符号一致. 若直接安全带退化, 再试左右
-   *  lateral lane 与更深安全带.
+   *  cut-coord 下所有 cut 是 (x_k, y_k) 出发的 +y 半射线 R_k = {(x_k, y) : y ≥ y_k}.
+   *  设 a, b 端点, WLOG a.x ≤ b.x. 思路是把 path 表为 cut-coord 下 x 的单值函数 f(x),
+   *  在 [a.x, b.x] 上单调采样, 这样几何上不可能自交; 凸性由 lower convex hull 保证.
+   *
+   *  构造:
+   *    1. 安全余量 ε > 0. 对每个 cut 起点 (x_k, y_k) 满足 x_k ∈ (a.x, b.x), 取
+   *       Q_k = (x_k, y_k - ε).
+   *    2. 取 {a, Q_k, ..., b} 的下凸包 ℓ(x). lower hull 性质 ⇒ ℓ(x_k) ≤ y_k - ε,
+   *       所以 ℓ 不穿任何 R_k.
+   *    3. 每个内部 corner 用二次平滑 q(x) = y_L + s_-·u + (s_+-s_-)/(4ρ)·u² (u=x-(ξ-ρ))
+   *       做 C¹ 圆角. 选 ρ ≤ min(段长/3, 2ε/(s_+-s_-)) 保证圆角抬升 ≤ ε/2 < ε, 仍不穿 R_k.
+   *    4. 可选加入严格凸项 -κ·(x-a.x)·(b.x-x), κ ≥ 0. 该项 ≤ 0, 只把曲线再压低, 不破坏避让;
+   *       端点处 = 0, 不动起点终点.
+   *
+   *  退化处理: 若 a.x ≈ b.x (chord 在 cut-coord 下近垂直), lower-hull-as-function 不适用,
+   *  回退到 legacy 的 rounded safety-lane 候选枚举.
    */
   function computeNaturalPath(i: number, j: number, punctures: ComplexNum[], d: number): {
     vertices: ComplexNum[];
@@ -1462,19 +1472,33 @@ async function main() {
     const cuts = punctures.map((p, k) => ({ k, p: toCutCoord(p, d) }))
       .filter(x => x.k !== i && x.k !== j).map(x => x.p);
     const chord = Math.hypot(b.x - a.x, b.y - a.y);
-    const padY = Math.max(0.10, 0.10 * chord);
 
     if (cuts.length === 0) {
       return { vertices: [{ ...start }, { ...end }], kind: 'line' };
     }
-    // 路径决策用严格 topology (padX=0): 只有真的跨过 cut 才 detour. padX 视觉余量
-    // 不参与决策, 否则线段端点附近的 cut 会被误判为 blocker, 把端点挤出凸包,
-    // 触发 line 1216 的 fallback 给出错误直线 (二 cut 挨得近时尤其常见).
     if (!cuts.some(cut => segmentHitsCut(a, b, cut, 0))) {
       return { vertices: [{ ...start }, { ...end }], kind: 'line' };
     }
 
+    // chord 在 cut-coord 下近垂直 → lower-hull 退化, 走 legacy 兜底
     const nearVertical = Math.abs(b.x - a.x) < Math.max(0.05, 0.08 * chord);
+    if (!nearVertical) {
+      const hullPath = buildLowerHullPath(a, b, cuts, chord, d);
+      if (hullPath !== null) {
+        // 数学构造已保证不穿 cut. 验证一下 (segment-level), 失败再走兜底.
+        let ok = true;
+        for (let k = 0; k + 1 < hullPath.length && ok; k++) {
+          const A = toCutCoord(hullPath[k], d), B = toCutCoord(hullPath[k + 1], d);
+          for (const cut of cuts) {
+            if (segmentHitsCut(A, B, cut, 0)) { ok = false; break; }
+          }
+        }
+        if (ok) return { vertices: hullPath, kind: 'line' };
+      }
+    }
+
+    // Legacy 兜底 (vertical chord 或意外构造失败): rounded safety-lane 候选枚举.
+    const padY = Math.max(0.10, 0.10 * chord);
     const sideOrder: Array<-1 | 1> = b.x >= a.x ? [-1, 1] : [1, -1];
     const candidates: Array<{ side: -1 | 0 | 1; depth: number; scale: number }> = [];
     if (!nearVertical) candidates.push({ side: 0, depth: 1, scale: 1 });
@@ -1486,22 +1510,12 @@ async function main() {
       { side: sideOrder[0], depth: 3.0, scale: 0.45 },
       { side: sideOrder[1], depth: 3.0, scale: 0.45 },
     );
-
-    let firstNoHit: Array<[CutCoord, CutCoord, CutCoord, CutCoord]> | null = null;
     for (const candidate of candidates) {
       const beziers = buildRoundedSafetyLane(a, b, cuts, chord, padY, candidate.side, candidate.depth, candidate.scale);
       const hitsCut = beziers.some(([p0, c1, c2, p1]) => bezierHitsAnyCut(p0, c1, c2, p1, cuts, 0));
-      if (hitsCut) continue;
-      if (!firstNoHit) firstNoHit = beziers;
-      if (roundedDetourHasStableTurn(beziers)) {
-        return { vertices: cubicVerticesFromBeziers(beziers, d), kind: 'cubic' };
-      }
+      if (!hitsCut) return { vertices: cubicVerticesFromBeziers(beziers, d), kind: 'cubic' };
     }
-    if (firstNoHit) {
-      return { vertices: cubicVerticesFromBeziers(firstNoHit, d), kind: 'cubic' };
-    }
-    // 兜底也要过 predicate. 候选列表全失败时, 顺序枚举 depth/scale grid 直到第一个无 hit;
-    // 全部失败则返回 grid 上 hit-count 最小的那条 (保留诊断价值, 至少几何上是合理 detour).
+    // 最坏: 候选全失败, 返回 hit 最少那条. (vertical chord + 多 cut 极端配置)
     const fallbackGrid: Array<{ side: -1 | 0 | 1; depth: number; scale: number }> = [];
     for (const side of [sideOrder[0], sideOrder[1], 0] as Array<-1 | 0 | 1>) {
       for (const depth of [2.0, 3.0, 4.0, 5.0, 6.5, 8.0]) {
@@ -1520,12 +1534,111 @@ async function main() {
           if (bezierHitsCut(p0, c1, c2, p1, cut, 0)) hits++;
         }
       }
-      if (hits === 0) {
-        return { vertices: cubicVerticesFromBeziers(beziers, d), kind: 'cubic' };
-      }
+      if (hits === 0) return { vertices: cubicVerticesFromBeziers(beziers, d), kind: 'cubic' };
       if (hits < bestHits) { bestHits = hits; bestBeziers = beziers; }
     }
     return { vertices: cubicVerticesFromBeziers(bestBeziers!, d), kind: 'cubic' };
+  }
+
+  /** Lower-convex-hull-as-function 路径. 返回采样得到的 ComplexNum 折线 (在原平面),
+   *  保证在 cut-coord 下满足 f(x_k) < y_k 对所有 blocker cut 成立. 失败返 null. */
+  function buildLowerHullPath(
+    a: CutCoord, b: CutCoord, cuts: CutCoord[], chord: number, d: number,
+  ): ComplexNum[] | null {
+    // 让 L.x ≤ R.x, 最后输出时若 swap 了再反序
+    const swap = a.x > b.x;
+    const L = swap ? b : a, R = swap ? a : b;
+    const Xlen = R.x - L.x;
+    if (Xlen < 1e-9) return null;
+
+    // 安全余量, cut-coord y 方向. chord 同量级使得视觉余量在缩放下保持.
+    const eps = Math.max(0.06, 0.06 * chord);
+
+    // Blocker 点: cut 起点 x ∈ (L.x, R.x) 的, 下移 ε
+    const interior = cuts
+      .filter(c => c.x > L.x + 1e-9 && c.x < R.x - 1e-9)
+      .map(c => ({ x: c.x, y: c.y - eps }))
+      .sort((p, q) => p.x - q.x);
+
+    // 端点 + interior 一起做 Andrew's lower hull
+    const allPts: { x: number; y: number }[] = [
+      { x: L.x, y: L.y }, ...interior, { x: R.x, y: R.y },
+    ];
+    const hull: { x: number; y: number }[] = [];
+    for (const p of allPts) {
+      while (hull.length >= 2) {
+        const p1 = hull[hull.length - 2], p2 = hull[hull.length - 1];
+        const cross = (p2.x - p1.x) * (p.y - p1.y) - (p2.y - p1.y) * (p.x - p1.x);
+        if (cross <= 1e-12) hull.pop();  // p2 不在下凸包上 (p2 在 p1→p 上方或共线)
+        else break;
+      }
+      hull.push(p);
+    }
+    // hull[0] = L, hull[末] = R. hull.length = 2 时纯直线.
+
+    // 每个内部 corner 的圆角半径 ρ. corner 数 = hull.length - 2.
+    const rad: number[] = new Array(hull.length).fill(0);
+    for (let m = 1; m < hull.length - 1; m++) {
+      const dxL = hull[m].x - hull[m - 1].x, dxR = hull[m + 1].x - hull[m].x;
+      const sMinus = (hull[m].y - hull[m - 1].y) / dxL;
+      const sPlus = (hull[m + 1].y - hull[m].y) / dxR;
+      const ds = Math.max(1e-9, sPlus - sMinus);  // 下凸包 ⇒ s_+ ≥ s_-
+      // 圆角抬升上限 = (s_+-s_-)·ρ/4. 要求 < ε/2 ⇒ ρ < 2ε/(s_+-s_-).
+      rad[m] = Math.min(dxL / 3, dxR / 3, (2 * eps) / ds);
+    }
+
+    // 严格凸 bump: -κ·(x-L.x)(R.x-x), 端点 0, 中点 -κ·Xlen²/4.
+    // 中点最大下沉 = 0.04 · chord (视觉小幅度).
+    const kappa = (0.04 * chord) / (Xlen * Xlen / 4);
+
+    const evalF = (x: number): number => {
+      // x 在 [hull[m].x, hull[m+1].x] 段内
+      let m = 0;
+      while (m < hull.length - 2 && x > hull[m + 1].x) m++;
+      const pL = hull[m], pR = hull[m + 1];
+      const sMid = (pR.y - pL.y) / (pR.x - pL.x);
+      let y: number;
+      // 默认线性段值
+      const yLin = pL.y + sMid * (x - pL.x);
+      // 左端 corner (在 pL 处, m > 0) 圆角区间 [pL.x, pL.x + rad[m]]
+      const inLeftCorner = m > 0 && x <= pL.x + rad[m];
+      // 右端 corner (在 pR 处, m+1 < hull.length-1) 圆角区间 [pR.x - rad[m+1], pR.x]
+      const inRightCorner = m + 1 < hull.length - 1 && x >= pR.x - rad[m + 1];
+      if (inLeftCorner) {
+        const ρ = rad[m];
+        const sMinus = (pL.y - hull[m - 1].y) / (pL.x - hull[m - 1].x);
+        const sPlus = sMid;
+        const xL = pL.x - ρ;
+        const yL = pL.y - sMinus * ρ;
+        const u = x - xL;
+        y = yL + sMinus * u + (sPlus - sMinus) / (4 * ρ) * u * u;
+      } else if (inRightCorner) {
+        const ρ = rad[m + 1];
+        const sMinus = sMid;
+        const sPlus = (hull[m + 2].y - pR.y) / (hull[m + 2].x - pR.x);
+        const xL = pR.x - ρ;
+        const yL = pR.y - sMinus * ρ;
+        const u = x - xL;
+        y = yL + sMinus * u + (sPlus - sMinus) / (4 * ρ) * u * u;
+      } else {
+        y = yLin;
+      }
+      // 加严格凸 bump (压低), 不动端点
+      return y - kappa * (x - L.x) * (R.x - x);
+    };
+
+    // Dense sample
+    const N = 80;
+    const verts: ComplexNum[] = [];
+    for (let s = 0; s <= N; s++) {
+      const x = L.x + Xlen * s / N;
+      const y = evalF(x);
+      verts.push(fromCutCoord({ x, y }, d));
+    }
+    // 端点抓回严格的原始 (消除数值漂移)
+    verts[0] = fromCutCoord(L, d);
+    verts[verts.length - 1] = fromCutCoord(R, d);
+    return swap ? verts.slice().reverse() : verts;
   }
 
   function refreshAllPaths() {
