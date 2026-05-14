@@ -468,6 +468,94 @@ test.describe('Sd-viz smoke tests', () => {
     expect(before01 !== after01 || before10 !== after10).toBe(true);
   });
 
+  test('e^{2πiM_d} selector computes monodromy factor from S_d^± and block diagonal δ_u A', async ({ page }) => {
+    await page.goto('/?dataset=simple');
+    await page.waitForSelector('#stokes-matrix .sm-cell');
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="md"]').click();
+    await expect(page.locator('#sd-view-selector .sd-view-btn[data-view="md"]')).toHaveClass(/active/);
+
+    const expected = await page.evaluate(async () => {
+      type C = { re: number; im: number };
+      const add = (a: C, b: C): C => ({ re: a.re + b.re, im: a.im + b.im });
+      const sub = (a: C, b: C): C => ({ re: a.re - b.re, im: a.im - b.im });
+      const mul = (a: C, b: C): C => ({ re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re });
+      const div = (a: C, b: C): C => {
+        const den = b.re * b.re + b.im * b.im;
+        return { re: (a.re * b.re + a.im * b.im) / den, im: (a.im * b.re - a.re * b.im) / den };
+      };
+      const expi = (x: number): C => ({ re: Math.cos(x), im: Math.sin(x) });
+      const mmul = (A: C[][], B: C[][]): C[][] => A.map(row => B[0].map((_, j) => {
+        let v = { re: 0, im: 0 };
+        for (let k = 0; k < B.length; k++) v = add(v, mul(row[k], B[k][j]));
+        return v;
+      }));
+      const minv = (A: C[][]): C[][] => {
+        const n = A.length;
+        const aug = A.map((row, i) => [
+          ...row.map(x => ({ ...x })),
+          ...Array.from({ length: n }, (_, j) => ({ re: i === j ? 1 : 0, im: 0 })),
+        ]);
+        for (let col = 0; col < n; col++) {
+          let pivot = col, best = 0;
+          for (let r = col; r < n; r++) {
+            const mag = Math.hypot(aug[r][col].re, aug[r][col].im);
+            if (mag > best) { best = mag; pivot = r; }
+          }
+          if (pivot !== col) [aug[col], aug[pivot]] = [aug[pivot], aug[col]];
+          const p = { ...aug[col][col] };
+          for (let c = 0; c < 2 * n; c++) aug[col][c] = div(aug[col][c], p);
+          for (let r = 0; r < n; r++) {
+            if (r === col) continue;
+            const f = { ...aug[r][col] };
+            for (let c = 0; c < 2 * n; c++) aug[r][c] = sub(aug[r][c], mul(f, aug[col][c]));
+          }
+        }
+        return aug.map(row => row.slice(n));
+      };
+      const r = await fetch('/data/n4_simple.json');
+      const data: any = await r.json();
+      const d = Number((document.querySelector('#d-slider-wrap input[type="range"]') as HTMLInputElement).value);
+      const chamberOf = (x: number) => {
+        const tp = 2 * Math.PI;
+        const dm = ((x % tp) + tp) % tp;
+        for (let k = 0; k < data.rays.length - 1; k++) {
+          if (dm >= data.rays[k] && dm < data.rays[k + 1]) return k;
+        }
+        return data.rays.length - 1;
+      };
+      const ch = data.chambers[chamberOf(d)];
+      const labels = data.punctures.map((u: C, k: number) => ({ k, v: u.re * Math.sin(d) + u.im * Math.cos(d) }))
+        .sort((a: { v: number }, b: { v: number }) => b.v - a.v);
+      const lab = new Array(data.punctures.length);
+      labels.forEach((p: { k: number }, idx: number) => { lab[p.k] = idx + 1; });
+      const entry = (i: number, j: number): C => {
+        const raw = ch.entries[`${i},${j}`].value_block[0][0];
+        const lift = Math.round((d - ch.d) / (2 * Math.PI));
+        return mul(raw, expi(2 * Math.PI * lift * (data.A_diag[j] - data.A_diag[i])));
+      };
+      const n = data.punctures.length;
+      const Splus = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => ({ re: i === j ? 1 : 0, im: 0 })));
+      const Sminus = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => ({ re: i === j ? 1 : 0, im: 0 })));
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const v = entry(i, j);
+        if (lab[i] < lab[j]) Splus[i][j] = v;
+        if (lab[i] > lab[j]) Sminus[i][j] = { re: -v.re, im: -v.im };
+      }
+      const D = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) =>
+        i === j ? expi(2 * Math.PI * data.A_diag[i]) : { re: 0, im: 0 }));
+      return mmul(mmul(minv(Sminus), D), Splus)[0][0] as C;
+    });
+    const cell00 = (await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="0"]').first().textContent() ?? '').replace(/\s+/g, '');
+    const lead = (x: number) => Math.abs(x).toFixed(6).replace(/0+$/, '').slice(0, 5);
+    expect(cell00).toContain(lead(expected.re));
+    if (Math.abs(expected.im) > 1e-6) expect(cell00).toContain(lead(expected.im));
+
+    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="1"]').first().click();
+    await expect(page.locator('#path-info')).toContainText('M');
+    await expect(page.locator('.path-line')).toHaveCount(0);
+  });
+
   // 防回归 (2026-05-14): S_d^eg view 语义.
   //   (S_d^eg)_{ij} uses the exported raw v5 straight-entry anchor, not any S_d chamber value.
   test('S_d^eg: raw v5 anchor baseline + per-pair 2π shift', async ({ page }) => {

@@ -96,8 +96,10 @@ export interface VizState {
  *  对 i≠j: S_d^+_{ij} = S_d_{ij} 若 label[i]<label[j], 否则 0.
  *          S_d^-_{ij} = -S_d_{ij} 若 label[i]>label[j], 否则 0.
  *  对角块: S_d^+ = S_d^- = I_block (displayed S_d 对角约定为 0, 故 0 = 1 - 1 自洽,
- *  off-diag 逐 entry 也满足 S_d = S_d^+ - S_d^-). */
-export type SdView = 'std' | 'plus' | 'minus' | 'eg';
+ *  off-diag 逐 entry 也满足 S_d = S_d^+ - S_d^-).
+ *  md view 显示 monodromy factor exp(2πi M_d) = (S_d^-)^{-1} exp(2πi δ_u A) S_d^+,
+ *  其中 δ_u A 是分块对角矩阵 diag(A_11, ..., A_nn). */
+export type SdView = 'std' | 'plus' | 'minus' | 'eg' | 'md';
 
 /** Ω_d 中心连接矩阵显示模式. 算法待实现, 目前只占位 UI. */
 export type OmegaView = 'omega' | 'omega-inv';

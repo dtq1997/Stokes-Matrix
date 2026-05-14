@@ -8,7 +8,7 @@ import {
 } from './lib/matrix-panel.js';
 import { Canvas } from './components/canvas.js';
 import { chamberOfDirection, monodromyTransforms, antiStokesRays } from './lib/geometry.js';
-import { mmul } from './lib/matexp.js';
+import { expm, mident, minv, mmul } from './lib/matexp.js';
 import { parsePiInput, parseRational, formatPi } from './lib/pi-input.js';
 import { parseComplexExpr, exprToLatex, complexToExpr } from './lib/expr-parser.js';
 import { simpleIdentifyValue, buildComplexExprFromForms as buildLocalComplexExpr } from './lib/local-isc.js';
@@ -309,6 +309,18 @@ async function main() {
   canvas.onDragStart = () => pushHistory();
   refreshUndoBtn();
 
+  // ISC 状态. 必须在 buildStokesMatrix() 前声明: 首次矩阵渲染会走 getSymbolicCellExpr().
+  //   iscCache: 按 (chamber, i, j) 索引的完整 RIES 候选列表 (供 ISC 结果面板展示).
+  //   iscLibrary: 全局"已识别值 → 闭式"字典 — ISC 过的每个浮点值登记进来,
+  //               之后任何 cell 的 re/im 数值匹配某登记值 (或其负数) → 自动闭式蓝字.
+  //               跨 chamber/view 自然传播 RIES 识别成果.
+  const iscCache = new Map<string, IscCandidate[]>();
+  const iscLibrary: Array<{ value: number; form: string }> = [];
+  // 精确传播结果: chamberIdx → 整数矩阵 (off-diag). 由 wall-crossing 从 ISC 后的
+  // base chamber 推出. 跟 iscLibrary 并行 — cell 渲染优先查它 (代数精确), 没命中再查 library.
+  const exactByChamber = new Map<number, IntMatrix>();
+  let iscRunning = false;
+
   // ---------- left panel: entry grid ----------
   // entry 选择: 右栏 Stokes matrix 每个 cell 已经支持点击 (selectEntry),
   // 左栏不再放冗余的 N×N 小方格选择器. (用户 2026-05-12 反馈)
@@ -537,17 +549,6 @@ async function main() {
   buildOmegaMatrix();
   buildOmegaViewSelector();
   updateDimInfo();
-  // ISC 状态. 必须在 setupIscLauncher() 调用前声明 — 否则 TDZ.
-  //   iscCache: 按 (chamber, i, j) 索引的完整 RIES 候选列表 (供 ISC 结果面板展示).
-  //   iscLibrary: 全局"已识别值 → 闭式"字典 — ISC 过的每个浮点值登记进来,
-  //               之后任何 cell 的 re/im 数值匹配某登记值 (或其负数) → 自动闭式蓝字.
-  //               跨 chamber/view 自然传播 RIES 识别成果.
-  const iscCache = new Map<string, IscCandidate[]>();
-  const iscLibrary: Array<{ value: number; form: string }> = [];
-  // 精确传播结果: chamberIdx → 整数矩阵 (off-diag). 由 wall-crossing 从 ISC 后的
-  // base chamber 推出. 跟 iscLibrary 并行 — cell 渲染优先查它 (代数精确), 没命中再查 library.
-  const exactByChamber = new Map<number, IntMatrix>();
-  let iscRunning = false;
   setupResizeHandles();
   setupInputModeToggles();
   setupIscLauncher();
@@ -1155,6 +1156,7 @@ async function main() {
       { key: 'plus',  tex: 'S_d^{+}',              title: 'upper part w.r.t. -d labels (diag = I)' },
       { key: 'minus', tex: 'S_d^{-}',              title: 'lower part w.r.t. -d labels, negated (diag = I)' },
       { key: 'eg',    tex: 'S_d^{\\mathrm{eg}}',   title: 'per-pair branch S_[τ_ij^closest], θ_ij = -arg(u_j - u_i)' },
+      { key: 'md',    tex: '\\mathrm{e}^{2\\pi \\mathrm{i}M_d}', title: 'monodromy factor (S_d^-)^{-1} exp(2πi δ_u A) S_d^+' },
     ];
     buildViewSelector({
       selectorId: 'sd-view-selector',
@@ -1242,6 +1244,81 @@ async function main() {
     return (m === 0) ? raw : mmul(mmul(left, raw), right);
   }
 
+  function zeroMatrix(rows: number, cols: number): ComplexNum[][] {
+    return Array.from({ length: rows }, () =>
+      Array.from({ length: cols }, () => ({ re: 0, im: 0 })));
+  }
+
+  function setFullBlock(M: ComplexNum[][], ms: number[], I: number, J: number, block: ComplexNum[][]) {
+    const starts = blockStarts(ms);
+    const sI = starts[I], sJ = starts[J];
+    for (let a = 0; a < ms[I]; a++) {
+      for (let b = 0; b < ms[J]; b++) M[sI + a][sJ + b] = { ...block[a][b] };
+    }
+  }
+
+  function sliceFullBlock(M: ComplexNum[][], ms: number[], I: number, J: number): ComplexNum[][] {
+    const starts = blockStarts(ms);
+    const sI = starts[I], sJ = starts[J];
+    return Array.from({ length: ms[I] }, (_, a) =>
+      Array.from({ length: ms[J] }, (_, b) => ({ ...M[sI + a][sJ + b] })));
+  }
+
+  function negateBlock(block: ComplexNum[][]): ComplexNum[][] {
+    return block.map(row => row.map(v => ({ re: -v.re, im: -v.im })));
+  }
+
+  function scaleByTwoPiI(block: ComplexNum[][]): ComplexNum[][] {
+    const tp = 2 * Math.PI;
+    return block.map(row => row.map(c => ({
+      re: -tp * c.im,
+      im: tp * c.re,
+    })));
+  }
+
+  /** exp(2πi δ_u A), where δ_u A = diag(A_11, ..., A_nn) as block diagonal matrix. */
+  function expDeltaUABlockDiagonal(): ComplexNum[][] {
+    const ms = state.mOverrides ?? dataset.m_sizes;
+    const N = totalMultiplicity(ms);
+    const out = zeroMatrix(N, N);
+    for (let I = 0; I < ms.length; I++) {
+      setFullBlock(out, ms, I, I, expm(scaleByTwoPiI(getABlock(I))));
+    }
+    return out;
+  }
+
+  function stokesTriangularFactor(kind: 'plus' | 'minus'): ComplexNum[][] | null {
+    const ms = state.mOverrides ?? dataset.m_sizes;
+    const N = totalMultiplicity(ms);
+    const ch = dataset.chambers[state.selectedChamber];
+    const labels = dLabels();
+    const out = mident(N);
+    for (let I = 0; I < ms.length; I++) {
+      for (let J = 0; J < ms.length; J++) {
+        if (I === J) continue;
+        const keep = kind === 'plus' ? labels[I] < labels[J] : labels[I] > labels[J];
+        if (!keep) continue;
+        const e = ch.entries[`${I},${J}`];
+        if (!e || e.error) return null;
+        const block = modifiedBlock(e, ch.d, I, J);
+        setFullBlock(out, ms, I, J, kind === 'minus' ? negateBlock(block) : block);
+      }
+    }
+    return out;
+  }
+
+  /** e^{2πiM_d} = S_{d-π}^+ exp(2πiδ_uA) S_d^+ = (S_d^-)^{-1} exp(2πiδ_uA) S_d^+. */
+  function monodromyFactorFull(): ComplexNum[][] | null {
+    const Splus = stokesTriangularFactor('plus');
+    const Sminus = stokesTriangularFactor('minus');
+    if (!Splus || !Sminus) return null;
+    try {
+      return mmul(mmul(minv(Sminus), expDeltaUABlockDiagonal()), Splus);
+    } catch {
+      return null;
+    }
+  }
+
   /** 复数 entry 渲染为 HTML grid (5 列: sign | gap | 整数 | 小数 | i).
    * 两行 (re / im·i) 用同一 grid 让符号竖直对齐 + 小数点对齐 (整数右对齐 + 小数左对齐).
    * KaTeX 不支持 `array{r@{}l}` 的 `@{}` 列间距控制, 用 LaTeX 渲染会失败回退到源码.
@@ -1269,13 +1346,16 @@ async function main() {
     const valuesFresh = stokesValuesFresh();
     const view = state.sdView;
     const ms = state.mOverrides ?? dataset.m_sizes;
+    const mdFull = valuesFresh && view === 'md' ? monodromyFactorFull() : null;
 
     // 预算 (I,J) modified block 缓存 (sub-cell 共享, 块内 a/b 多次取同 block).
     const blockCache = new Map<string, ComplexNum[][]>();
     if (valuesFresh) {
       for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
         if (I === J) continue;
-        if (view === 'eg') {
+        if (view === 'md') {
+          continue;
+        } else if (view === 'eg') {
           const eg = egBlock(I, J);
           if (eg) blockCache.set(`${I},${J}`, eg);
         } else {
@@ -1293,6 +1373,7 @@ async function main() {
       ms,
       digits,
       isStale: !valuesFresh,
+      staleIncludesDiag: view === 'md',
       staleMessage: 'stale: recompute Stokes matrices',
       selectedEntry: state.selectedEntry,
       tex,
@@ -1320,8 +1401,22 @@ async function main() {
             yield eg;
           }
         }
+        if (mdFull) {
+          for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
+            yield sliceFullBlock(mdFull, ms, I, J);
+          }
+        }
       },
       getCellContent: (I, J, _a, _b): CellContent => {
+        if (view === 'md') {
+          if (!mdFull) return { kind: 'unavailable', tooltip: 'monodromy factor unavailable' };
+          const block = sliceFullBlock(mdFull, ms, I, J);
+          if (ms[I] === 1 && ms[J] === 1) {
+            const sym = getSymbolicCellExpr(I, J, block[0][0]);
+            if (sym) return { kind: 'symbolic', latex: sym.latex, tooltip: sym.tooltip };
+          }
+          return { kind: 'block', block };
+        }
         if (I === J) {
           // displayed S_d diag = 0 (约定); S_d^± diag = I_block (sub-cell a==b → 1).
           if (view === 'plus' || view === 'minus') return { kind: 'identity' };
@@ -1745,7 +1840,7 @@ async function main() {
     if (!state.selectedEntry) return;
     const [i, j] = state.selectedEntry;
     if (i === j) return;
-    if (state.sdView === 'plus' || state.sdView === 'minus') return;
+    if (state.sdView === 'plus' || state.sdView === 'minus' || state.sdView === 'md') return;
     // γ_ij^(d) 是纯几何 (punctures + d), 不依赖 Stokes 数值. 即便 stale 也要 live 跟随
     // u_k 拖动. 拿不到 chamber entry 也无所谓 (path 视觉, 数值面板自己处理 stale).
     const ps = state.punctureOverrides ?? dataset.punctures;
@@ -2228,7 +2323,7 @@ async function main() {
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];
     if (!e) { el.innerHTML = '<span class="label">no data</span>'; return; }
-    const symMap = { std: 'S_d', plus: 'S_d^{+}', minus: 'S_d^{-}', eg: 'S_d^{\\mathrm{eg}}' } as const;
+    const symMap = { std: 'S_d', plus: 'S_d^{+}', minus: 'S_d^{-}', eg: 'S_d^{\\mathrm{eg}}', md: '\\mathrm{e}^{2\\pi \\mathrm{i}M_d}' } as const;
     const labelTex = `(${symMap[state.sdView]})_{${i+1}${j+1}}`;
     if (!stokesValuesFresh()) {
       el.innerHTML = `<div class="label">${tex(labelTex)}</div>`
@@ -2240,9 +2335,18 @@ async function main() {
         <div class="value" style="color: var(--bad)">FAIL: ${e.error}</div>`;
       return;
     }
-    // 块版: 列出整个 m_i × m_j sub-block. std/plus/minus 用 modifiedBlock; eg 用 egBlock.
+    const ms = state.mOverrides ?? dataset.m_sizes;
+    // 块版: 列出整个 m_i × m_j sub-block. std/plus/minus 用 modifiedBlock; eg/md 用派生矩阵.
     let mod: ComplexNum[][];
-    if (state.sdView === 'eg' && i !== j) {
+    if (state.sdView === 'md') {
+      const md = monodromyFactorFull();
+      if (!md) {
+        el.innerHTML = `<div class="label">${tex(labelTex)}</div>`
+          + '<div class="value dim">monodromy factor unavailable</div>';
+        return;
+      }
+      mod = sliceFullBlock(md, ms, i, j);
+    } else if (state.sdView === 'eg' && i !== j) {
       const eg = egBlock(i, j);
       if (!eg) {
         el.innerHTML = `<div class="label">${tex(labelTex)}</div>`
@@ -2293,6 +2397,10 @@ async function main() {
     const ch = dataset.chambers[state.selectedChamber];
     const e = ch.entries[`${i},${j}`];
     if (!e) { el.textContent = '—'; return; }
+    if (state.sdView === 'md') {
+      el.innerHTML = `<span class="label">${tex('\\mathrm{e}^{2\\pi \\mathrm{i}M_d}=(S_d^-)^{-1}\\mathrm{e}^{2\\pi \\mathrm{i}\\delta_u A}S_d^+')}</span>`;
+      return;
+    }
     if (state.sdView === 'plus' || state.sdView === 'minus') {
       el.innerHTML = e.provenance
         ? `<span class="provenance-info" data-provenance="${escapeHtml(e.provenance)}" hidden>${escapeHtml(e.provenance)}</span>`

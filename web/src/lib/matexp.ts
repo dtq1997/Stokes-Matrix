@@ -7,6 +7,14 @@ type CMat = ComplexNum[][];
 
 const zero: ComplexNum = { re: 0, im: 0 };
 
+function cdiv(a: ComplexNum, b: ComplexNum): ComplexNum {
+  const den = b.re * b.re + b.im * b.im;
+  return {
+    re: (a.re * b.re + a.im * b.im) / den,
+    im: (a.im * b.re - a.re * b.im) / den,
+  };
+}
+
 export function mident(n: number): CMat {
   return Array.from({ length: n }, (_, i) =>
     Array.from({ length: n }, (_, j) => i === j ? { re: 1, im: 0 } : { re: 0, im: 0 }));
@@ -37,6 +45,41 @@ export function mmul(A: CMat, B: CMat): CMat {
 
 export function madd(A: CMat, B: CMat): CMat {
   return A.map((row, i) => row.map((c, j) => ({ re: c.re + B[i][j].re, im: c.im + B[i][j].im })));
+}
+
+/** Inverse of a complex square matrix via Gauss-Jordan elimination. */
+export function minv(A: CMat): CMat {
+  const n = A.length;
+  if (n === 0) return [];
+  const aug: CMat = A.map((row, i) => [
+    ...row.map(c => ({ ...c })),
+    ...Array.from({ length: n }, (_, j) => ({ re: i === j ? 1 : 0, im: 0 })),
+  ]);
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    let best = 0;
+    for (let r = col; r < n; r++) {
+      const mag = Math.hypot(aug[r][col].re, aug[r][col].im);
+      if (mag > best) { best = mag; pivot = r; }
+    }
+    if (best < 1e-14) throw new Error('minv: singular matrix');
+    if (pivot !== col) [aug[col], aug[pivot]] = [aug[pivot], aug[col]];
+    const p = { ...aug[col][col] };
+    for (let c = 0; c < 2 * n; c++) aug[col][c] = cdiv(aug[col][c], p);
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = { ...aug[r][col] };
+      if (Math.hypot(f.re, f.im) < 1e-18) continue;
+      for (let c = 0; c < 2 * n; c++) {
+        const pc = aug[col][c];
+        aug[r][c] = {
+          re: aug[r][c].re - (f.re * pc.re - f.im * pc.im),
+          im: aug[r][c].im - (f.re * pc.im + f.im * pc.re),
+        };
+      }
+    }
+  }
+  return aug.map(row => row.slice(n));
 }
 
 /** 矩阵 sup-norm (max |entry|): 用于 scaling 估计. */

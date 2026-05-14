@@ -639,6 +639,7 @@ h3 {
 /* ---------- S_d view selector (S_d / S_d^+ / S_d^-) ---------- */
 .sd-view-selector {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin: 0 0 8px;
 }
