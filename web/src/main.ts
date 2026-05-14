@@ -1823,7 +1823,7 @@ async function main() {
     host.innerHTML =
       `<select class="isc-scope" id="sd-isc-scope" title="ISC range">` +
         `<option value="entry">selected entry</option>` +
-        `<option value="matrix">whole matrix (current chamber)</option>` +
+        `<option value="matrix">whole matrix</option>` +
       `</select>` +
       `<button class="isc-btn" id="sd-isc-btn" type="button" title="Identify symbolic form">ISC</button>` +
       `<button class="isc-btn isc-clear" id="sd-isc-clear" type="button" title="Clear ISC cache" hidden>×</button>`;
