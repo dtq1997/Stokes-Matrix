@@ -342,14 +342,18 @@ def _build_chambers_v5_full(U_list, A_global, m_sizes, chamber_ds,
         except ValueError:
             pass
     if 'n_jobs' not in kwargs:
-        # Phase 2 实测结论 (2026-05-15): threading 在 mpmath/CBF backend 上
-        # 因 GIL (mpmath gammazeta 纯 Python) 无加速; numpy backend 上 thread
-        # overhead 大于 numpy 调用开销也无加速. PARI 重入问题已通过 worker
-        # 启动 prime mpmath bernoulli_cache 绕开. 默认串行, 仅当 caller 显
-        # 式给 n_jobs (或 env SD_VIZ_N_JOBS) 时开线程, 供未来 backend GIL 释
-        # 放路径用 (e.g. compiled C extension). Phase 4 multiprocessing fork
-        # 是真正解但需另开预算评估.
-        kwargs['n_jobs'] = 1
+        # Phase 2/3.5/4A 决策 (2026-05-15):
+        # - threading 在 mpmath (GIL-bound) 和 numpy (overhead>benefit) 都不
+        #   净加速. 默认 n_jobs=1.
+        # - 但 fork-based ProcessPool 突破 GIL, 实测有效. 由 env SD_VIZ_FORK_POOL=1
+        #   开启 (compute_sd_v5_full.sage 内 ProcessPoolExecutor 路径).
+        # 当 SD_VIZ_FORK_POOL=1 时也设 n_jobs > 1, 否则 fork pool 入口 dead code.
+        if os.environ.get('SD_VIZ_FORK_POOL', '').strip() == '1':
+            n_pairs = len(U_list) * (len(U_list) - 1)
+            cpu_n = os.cpu_count() or 4
+            kwargs['n_jobs'] = min(cpu_n, n_pairs)
+        else:
+            kwargs['n_jobs'] = 1
 
     # Forward base-case pair + wall progress to upstream callback as the
     # *real* progress signal during v5_full. Caller's `progress(ch_idx, n, d, ...)`
