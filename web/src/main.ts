@@ -1176,20 +1176,22 @@ async function main() {
     const cuts = punctures.map((p, k) => ({ k, p: toCutCoord(p, d) }))
       .filter(x => x.k !== i && x.k !== j).map(x => x.p);
     const chord = Math.hypot(b.x - a.x, b.y - a.y);
-    const padX = Math.max(0.05, 0.04 * chord);
     const padY = Math.max(0.10, 0.10 * chord);
 
     if (cuts.length === 0) {
       return { vertices: [{ ...start }, { ...end }], kind: 'line' };
     }
-    if (!cuts.some(cut => segmentHitsCut(a, b, cut, padX))) {
+    // 路径决策用严格 topology (padX=0): 只有真的跨过 cut 才 detour. padX 视觉余量
+    // 不参与决策, 否则线段端点附近的 cut 会被误判为 blocker, 把端点挤出凸包,
+    // 触发 line 1216 的 fallback 给出错误直线 (二 cut 挨得近时尤其常见).
+    if (!cuts.some(cut => segmentHitsCut(a, b, cut, 0))) {
       return { vertices: [{ ...start }, { ...end }], kind: 'line' };
     }
 
-    // 挡道 cuts: cut.x 在 (min(a.x,b.x), max(a.x,b.x)) 之内 (含 padX 余量), 且
+    // 挡道 cuts: cut.x 严格在 (min(a.x,b.x), max(a.x,b.x)) 之内, 且
     // cut.y ≤ max(a.y, b.y) + padY (cut 起点没远在 a/b 上方, 否则不影响 a→b 通道).
-    const xLo = Math.min(a.x, b.x) - padX;
-    const xHi = Math.max(a.x, b.x) + padX;
+    const xLo = Math.min(a.x, b.x);
+    const xHi = Math.max(a.x, b.x);
     const yCap = Math.max(a.y, b.y) + padY;
     const blockers = cuts.filter(c => c.x > xLo && c.x < xHi && c.y < yCap);
 

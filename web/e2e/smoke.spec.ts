@@ -572,6 +572,22 @@ test.describe('Sd-viz smoke tests', () => {
     expect(d_eg).toContain('L');
   });
 
+  // 防回归 (2026-05-14): cut-coord 下两 cut 挨得近时, 端点附近 cut 不能因 padX
+  // 视觉余量被误算成 blocker. n=4 block 默认 d=-0.0439π 时 u_0/u_1 在 cut-coord
+  // 几乎共线 (Δx≈0.053); entry (2,1) 仍应绕过 u_3 的 cut, 不能因 padX 把端点
+  // 挤出凸包而 fallback 给直线.
+  test('S_d natural path: nearby cuts at endpoints do not collapse to line', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    const dInput = page.locator('#d-input');
+    await dInput.fill('-0.0439');
+    await dInput.press('Enter');
+    await page.waitForTimeout(50);
+    await page.locator('#stokes-matrix .sm-cell[data-i="2"][data-j="1"]').first().click();
+    const d = await page.locator('.path-line').first().getAttribute('d');
+    expect(d).toContain('C');  // 必须 cubic, 不是 fallback 直线
+  });
+
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
   test('U/A input 接受分式 a/b 输入', async ({ page }) => {
     await page.goto('/');
