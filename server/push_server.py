@@ -78,6 +78,16 @@ def _load_initial():
 def startup():
     if os.path.exists(DATA_PATH):
         _load_initial()
+    # Phase 1a+ optimization: pre-spawn sage worker in background, so first
+    # /api/recompute doesn't pay the ~4s cold start. Spawn is blocking; do it
+    # in a thread.
+    def _prespawn():
+        try:
+            get_worker()._spawn()
+        except Exception as e:
+            # Don't crash startup on worker spawn failure (will lazy-spawn later)
+            print(f"[push_server] worker prespawn failed: {e}", flush=True)
+    threading.Thread(target=_prespawn, daemon=True).start()
 
 
 @app.get("/api/dataset")
