@@ -32,6 +32,7 @@ export class Canvas {
   // 计算进行中锁: true 时 puncture / path-vertex drag 都被拒.
   // 防止跟正在跑的 job 的 (U, A, m) 输入打架.
   private interactionLocked: boolean = false;
+  private zoomBehavior!: d3.ZoomBehavior<SVGSVGElement, unknown>;
 
   constructor(svgEl: SVGSVGElement, state: VizState, onStateChange: (s: VizState) => void) {
     this.svg = d3.select(svgEl);
@@ -64,8 +65,25 @@ export class Canvas {
       overlay: this.root.append('g').attr('class', 'layer-overlay'),
     };
 
-    // TODO: 缩放/平移待加. 之前用 d3-zoom 跟 puncture/path-vertex drag 冲突
-    // (zoom 监听吞 mousedown), e2e smoke.spec.ts:29 fail. 下次会话彻底解决.
+    // Zoom/pan: 滚轮缩放, 空白处左键拖动平移. 落在 puncture / path-vertex
+    // 上的 mousedown 让 d3.drag 接管, zoom 不抢. 拖动时 root.transform 改,
+    // 所有 drag 用 d3.pointer(event, this.root.node()) 取 root-local 坐标,
+    // 自动撤销 zoom transform, 跟旧路径一致.
+    this.zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.2, 20])
+      .filter((event: any) => {
+        if (this.interactionLocked) return false;
+        if (event.type === 'wheel') return true;
+        if (event.button !== 0 && event.button !== undefined) return false;
+        const target = event.target as Element;
+        if (target && (target.closest('.puncture') || target.closest('.path-vertex'))) return false;
+        return true;
+      })
+      .on('zoom', (event) => {
+        this.root.attr('transform', event.transform.toString());
+      });
+    this.svg.call(this.zoomBehavior);
+    this.svg.on('dblclick.zoom', null);  // 双击不 zoom-in (双击 puncture/vertex 有 drag, 干扰)
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -77,6 +95,10 @@ export class Canvas {
   }
 
   getDirection(): number { return this.dCurrent; }
+
+  resetZoom() {
+    this.svg.transition().duration(250).call(this.zoomBehavior.transform, d3.zoomIdentity);
+  }
 
   setInteractionLocked(locked: boolean) {
     if (this.interactionLocked === locked) return;
@@ -313,7 +335,7 @@ export class Canvas {
   private onVertexDrag(d: VertexData, event: d3.D3DragEvent<SVGCircleElement, VertexData, VertexData>) {
     const path = this.state.paths.get(d.pathId);
     if (!path) return;
-    const [px, py] = d3.pointer(event.sourceEvent, this.svg.node());
+    const [px, py] = d3.pointer(event.sourceEvent, this.root.node());
     const newPos = this.toPlane(px, py);
     // Phase 1: drag 期间放任 vertex 跟手, 不做 homotopy 检测
     // (扫掠三角形对高瘦 path 退化, false positive 太多;
@@ -395,7 +417,7 @@ export class Canvas {
   }
 
   private onPunctureDrag(k: number, event: d3.D3DragEvent<SVGCircleElement, any, any>) {
-    const [px, py] = d3.pointer(event.sourceEvent, this.svg.node());
+    const [px, py] = d3.pointer(event.sourceEvent, this.root.node());
     const newPos = this.toPlane(px, py);
     const ps = (this.state.punctureOverrides ?? this.state.dataset.punctures).map((p, i) =>
       i === k ? newPos : p);

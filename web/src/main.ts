@@ -148,6 +148,8 @@ async function main() {
 
   const svg = document.getElementById('canvas') as unknown as SVGSVGElement;
   const canvas = new Canvas(svg, state, onStateChange);
+  const zoomResetBtn = document.getElementById('zoom-reset');
+  if (zoomResetBtn) zoomResetBtn.addEventListener('click', () => canvas.resetZoom());
 
   // ---------- left panel: entry grid ----------
   // entry 选择: 右栏 Stokes matrix 每个 cell 已经支持点击 (selectEntry),
