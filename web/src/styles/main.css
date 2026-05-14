@@ -92,10 +92,9 @@ html, body {
 #canvas:active { cursor: grabbing; }
 #canvas.interaction-locked { cursor: not-allowed; }
 
-.zoom-reset {
+.canvas-overlay-btn {
   position: absolute;
   top: 8px;
-  right: 8px;
   width: 28px;
   height: 28px;
   background: var(--bg-elev);
@@ -111,7 +110,10 @@ html, body {
   opacity: 0.7;
   transition: opacity 0.15s;
 }
-.zoom-reset:hover { opacity: 1; border-color: var(--accent); }
+.canvas-overlay-btn:hover:not(:disabled) { opacity: 1; border-color: var(--accent); }
+.canvas-overlay-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+#zoom-reset { right: 8px; }
+#undo-btn { right: 44px; }
 
 h2 {
   margin: 0 0 10px;

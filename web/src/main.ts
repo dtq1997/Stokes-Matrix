@@ -3,7 +3,7 @@ import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, 
 import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js';
 import { Canvas } from './components/canvas.js';
-import { chamberOfDirection, monodromyTransforms } from './lib/geometry.js';
+import { chamberOfDirection, monodromyTransforms, antiStokesRays } from './lib/geometry.js';
 import { mmul } from './lib/matexp.js';
 import { parsePiInput, parseRational, formatPi } from './lib/pi-input.js';
 
@@ -134,12 +134,22 @@ async function main() {
     sdView: 'std',
   };
 
+  function currentRays(): number[] {
+    const ps = state.punctureOverrides ?? dataset.punctures;
+    return antiStokesRays(ps);
+  }
+
   const onStateChange = (_s: VizState) => {
     // canvas 触发 (拖 puncture / path vertex) 后, 标 Stokes 数值 stale.
     // path-vertex drag 不改 punctureOverrides 但 path 几何变了 — 数值还是旧 dataset 的
     // 值 (因为算法走的 algo_wp 没变, 同伦类 cache 命中). 这里宁可标 stale 用户决定.
     state.stokesStale = !!state.punctureOverrides || !!state.AOverrides;
     if (state.stokesStale) state.exampleAwaitingCompute = false;
+    // Live: puncture 拖动后, anti-Stokes rays + γ_ij^(d) 实时跟随 (Stokes 数值仍 stale).
+    state.selectedChamber = chamberOfDirection(currentD, currentRays());
+    buildMarkerStrip(markStrip);
+    refreshAllPaths();
+    canvas?.setState(state);  // 让 path layer 也跟着 punctures 重画 (live γ)
     refreshRecomputeBtn();
     updateStaleBanner();
     updateStokesPanel();
@@ -147,9 +157,120 @@ async function main() {
   };
 
   const svg = document.getElementById('canvas') as unknown as SVGSVGElement;
-  const canvas = new Canvas(svg, state, onStateChange);
+  const canvas: Canvas = new Canvas(svg, state, onStateChange);
   const zoomResetBtn = document.getElementById('zoom-reset');
   if (zoomResetBtn) zoomResetBtn.addEventListener('click', () => canvas.resetZoom());
+
+  // ---------- Undo history ----------
+  // 每次"用户级"动作前 pushHistory() 抓 snapshot. Undo = 弹栈+整体回放.
+  // 不收 selectEntry / view 切换这类轻动作 (太噪).
+  interface Snapshot {
+    punctureOverrides: any;
+    AOverrides: any;
+    mOverrides: number[];
+    n: number;
+    currentD: number;
+    currentK: number;
+    selectedEntry: [number, number] | null;
+    selectedChamber: number;
+    sdView: any;
+    stokesStale: boolean;
+    exampleAwaitingCompute: boolean;
+    precision: string;
+    datasetJson: string;  // 序列化 dataset 用于回滚 compute
+  }
+  const history: Snapshot[] = [];
+  const HISTORY_MAX = 200;
+  let applyingSnapshot = false;
+  const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement | null;
+  function refreshUndoBtn() {
+    if (undoBtn) undoBtn.disabled = history.length === 0;
+  }
+  function takeSnapshot(): Snapshot {
+    return {
+      punctureOverrides: JSON.parse(JSON.stringify(state.punctureOverrides ?? dataset.punctures)),
+      AOverrides: JSON.parse(JSON.stringify(state.AOverrides)),
+      mOverrides: [...(state.mOverrides ?? dataset.m_sizes)],
+      n,
+      currentD,
+      currentK,
+      selectedEntry: state.selectedEntry ? [state.selectedEntry[0], state.selectedEntry[1]] : null,
+      selectedChamber: state.selectedChamber,
+      sdView: state.sdView,
+      stokesStale: state.stokesStale,
+      exampleAwaitingCompute: state.exampleAwaitingCompute,
+      precision: (document.getElementById('precision-select') as HTMLSelectElement)?.value ?? 'medium',
+      datasetJson: JSON.stringify(dataset),
+    };
+  }
+  function pushHistory() {
+    if (applyingSnapshot) return;
+    history.push(takeSnapshot());
+    if (history.length > HISTORY_MAX) history.shift();
+    refreshUndoBtn();
+  }
+  function applySnapshot(s: Snapshot) {
+    applyingSnapshot = true;
+    try {
+      // dataset 内容回滚
+      const restored = JSON.parse(s.datasetJson);
+      Object.keys(dataset).forEach(k => delete (dataset as any)[k]);
+      Object.assign(dataset, restored);
+      // state
+      state.punctureOverrides = JSON.parse(JSON.stringify(s.punctureOverrides));
+      state.AOverrides = JSON.parse(JSON.stringify(s.AOverrides));
+      state.mOverrides = [...s.mOverrides];
+      state.selectedEntry = s.selectedEntry ? [s.selectedEntry[0], s.selectedEntry[1]] : null;
+      state.selectedChamber = s.selectedChamber;
+      state.sdView = s.sdView;
+      state.stokesStale = s.stokesStale;
+      state.exampleAwaitingCompute = s.exampleAwaitingCompute;
+      // n + 维度
+      n = s.n;
+      nInput.value = String(n);
+      buildUTable();
+      buildATable();
+      buildStokesMatrix();
+      // precision + sd-view 按钮态
+      const psel = document.getElementById('precision-select') as HTMLSelectElement | null;
+      if (psel) psel.value = s.precision;
+      document.querySelectorAll<HTMLElement>('#sd-view-selector .sd-view-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.view === s.sdView);
+      });
+      // d (走 setD; 顺带刷新 marker / chamber / slider)
+      setD(s.currentD, 'init');
+      // 兜底刷新 (setD 内部已 cover 大部分, 这里保险 + 让 stale banner 反映 snapshot)
+      canvas.setState(state);
+      updateStaleBanner();
+      refreshRecomputeBtn();
+      refreshStokesMatrix();
+      refreshAllPaths();
+      updateStokesPanel();
+      updatePathInfo();
+      updateDimInfo();
+    } finally {
+      applyingSnapshot = false;
+    }
+    refreshUndoBtn();
+  }
+  function undo() {
+    if (applyingSnapshot) return;
+    const s = history.pop();
+    if (!s) return;
+    applySnapshot(s);
+  }
+  if (undoBtn) undoBtn.addEventListener('click', undo);
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+      const tag = (e.target as HTMLElement)?.tagName;
+      // 在 input 内的原生 undo 不要劫持
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      e.preventDefault();
+      undo();
+    }
+  });
+  canvas.onDragStart = () => pushHistory();
+  refreshUndoBtn();
 
   // ---------- left panel: entry grid ----------
   // entry 选择: 右栏 Stokes matrix 每个 cell 已经支持点击 (selectEntry),
@@ -209,7 +330,7 @@ async function main() {
     // input 框: 永远显示当前 d (in units of π)
     dInput.value = formatPi(d / Math.PI);
     canvas.setDirection(d);
-    const newCh = chamberOfDirection(d, dataset.rays);
+    const newCh = chamberOfDirection(d, currentRays());
     state.selectedChamber = newCh;
     refreshAllPaths();
     canvas.setState(state);
@@ -220,6 +341,9 @@ async function main() {
   }
 
   slider.addEventListener('input', () => setD(Number(slider.value), 'slider'));
+  // slider 一次拖动手势抓一次 snapshot — 不要每个 step 抓 (噪).
+  slider.addEventListener('mousedown', () => pushHistory());
+  slider.addEventListener('touchstart', () => pushHistory(), { passive: true });
 
   dInput.addEventListener('change', () => commitInput());
   dInput.addEventListener('keydown', (e) => {
@@ -233,7 +357,9 @@ async function main() {
       setTimeout(() => dInput.classList.remove('invalid'), 600);
       return;
     }
-    setD(v * Math.PI, 'input');
+    const newD = v * Math.PI;
+    if (newD !== currentD) pushHistory();
+    setD(newD, 'input');
   }
 
   function buildMarkerStrip(el: HTMLDivElement) {
@@ -243,7 +369,7 @@ async function main() {
     const lo = (2 * currentK - 1) * Math.PI;
     const hi = (2 * currentK + 1) * Math.PI;
     const span = hi - lo;
-    for (const r of dataset.rays) {
+    for (const r of currentRays()) {
       // 找 m 让 lifted ∈ [lo, hi)
       let lifted = r;
       while (lifted >= hi) lifted -= 2 * Math.PI;
@@ -279,7 +405,7 @@ async function main() {
       nInput.value = String(n);
       return;
     }
-    if (newN !== n) resizeN(newN);
+    if (newN !== n) { pushHistory(); resizeN(newN); }
   });
 
   function resizeN(newN: number) {
@@ -373,7 +499,11 @@ async function main() {
   updateDimInfo();
   setupResizeHandles();
   const precisionSelect = document.getElementById('precision-select') as HTMLSelectElement;
+  let _precisionLast = precisionSelect.value;
+  precisionSelect.addEventListener('mousedown', () => { _precisionLast = precisionSelect.value; });
   precisionSelect.addEventListener('change', () => {
+    if (precisionSelect.value !== _precisionLast) pushHistory();
+    _precisionLast = precisionSelect.value;
     refreshStokesMatrix();
     updateStokesPanel();
   });
@@ -467,6 +597,7 @@ async function main() {
       return;
     }
     if (recomputeBtn.disabled) return;
+    pushHistory();  // 一旦点 Compute, 保存当前 state, 用户可 undo 回到 pre-compute
     recomputeBtn.disabled = false;
     recomputeBtn.classList.add('computing');
     recomputeBtn.textContent = 'Cancel';
@@ -565,7 +696,7 @@ async function main() {
       Object.keys(dataset).forEach(k => delete (dataset as any)[k]);
       Object.assign(dataset, newDs);
       buildMarkerStrip(markStrip);
-      state.selectedChamber = chamberOfDirection(currentD, dataset.rays);
+      state.selectedChamber = chamberOfDirection(currentD, currentRays());
       state.stokesStale = false;
       state.exampleAwaitingCompute = false;
       refreshAllPaths();
@@ -651,6 +782,7 @@ async function main() {
       t.classList.remove('invalid');
       const oldMk = state.mOverrides![k];
       if (m === oldMk) return;
+      pushHistory();
       // 触发 block 重建: m_k 变意味着 A 维度 N=sum(m) 变, 必须重建 A.
       const newM = [...state.mOverrides!];
       newM[k] = m;
@@ -662,10 +794,13 @@ async function main() {
     if (parsed === null) { t.classList.add('invalid'); return; }
     t.classList.remove('invalid');
     const axis = t.dataset.axis as 're' | 'im';
+    if (state.punctureOverrides![k][axis] === parsed) return;
+    pushHistory();
     state.punctureOverrides![k][axis] = parsed;
     state.stokesStale = true;
     state.exampleAwaitingCompute = false;
-    updateStaleBanner();
+    // U 改 → 跟 puncture 拖动效果一样: live rays / γ / slider marker 实时跟手.
+    onStateChange(state);
     canvas.setState(state);
   }
   function readMInputPreview(): number[] | null {
@@ -750,6 +885,8 @@ async function main() {
     const i = Number(t.dataset.i!);
     const j = Number(t.dataset.j!);
     const axis = t.dataset.axis as 're' | 'im';
+    if (state.AOverrides![i][j][axis] === parsed) return;
+    pushHistory();
     state.AOverrides![i][j][axis] = parsed;
     state.stokesStale = true;
     state.exampleAwaitingCompute = false;
@@ -800,6 +937,7 @@ async function main() {
       if (!btn) return;
       const v = btn.dataset.view as import('./lib/types.js').SdView | undefined;
       if (!v || v === state.sdView) return;
+      pushHistory();
       state.sdView = v;
       refreshSdViewSelector();
       refreshAllPaths();
@@ -1244,13 +1382,11 @@ async function main() {
   function refreshAllPaths() {
     state.paths.clear();
     if (!state.selectedEntry) return;
-    if (!stokesValuesFresh()) return;
     const [i, j] = state.selectedEntry;
     if (i === j) return;
-    const ch = dataset.chambers[state.selectedChamber];
-    const e = ch.entries[`${i},${j}`];
-    if (!e || e.error) return;
     if (state.sdView === 'plus' || state.sdView === 'minus') return;
+    // γ_ij^(d) 是纯几何 (punctures + d), 不依赖 Stokes 数值. 即便 stale 也要 live 跟随
+    // u_k 拖动. 拿不到 chamber entry 也无所谓 (path 视觉, 数值面板自己处理 stale).
     const ps = state.punctureOverrides ?? dataset.punctures;
     const path = state.sdView === 'eg'
       ? { vertices: [{ ...ps[i] }, { ...ps[j] }], kind: 'line' as const }

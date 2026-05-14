@@ -33,6 +33,8 @@ export class Canvas {
   // 防止跟正在跑的 job 的 (U, A, m) 输入打架.
   private interactionLocked: boolean = false;
   private zoomBehavior!: d3.ZoomBehavior<SVGSVGElement, unknown>;
+  /** Undo hook: 拖 puncture / path-vertex 前调一次, 让 main.ts 抓 snapshot. */
+  public onDragStart: (() => void) | null = null;
 
   constructor(svgEl: SVGSVGElement, state: VizState, onStateChange: (s: VizState) => void) {
     this.svg = d3.select(svgEl);
@@ -315,7 +317,10 @@ export class Canvas {
 
     const dragBehavior = d3.drag<SVGCircleElement, VertexData>()
       .filter(() => !this.interactionLocked)
-      .on('start', function () { d3.select(this).classed('dragging', true); })
+      .on('start', function (this: SVGCircleElement, _event, _d) {
+        d3.select(this).classed('dragging', true);
+      })
+      .on('start.undo', () => { this.onDragStart?.(); })
       .on('drag', (event, d) => this.onVertexDrag(d, event))
       .on('end', function () { d3.select(this).classed('dragging', false); });
 
@@ -386,7 +391,10 @@ export class Canvas {
 
     const dragBehavior = d3.drag<SVGCircleElement, typeof data[0]>()
       .filter(() => !this.interactionLocked)
-      .on('start', function () { d3.select(this).classed('dragging', true); })
+      .on('start', function (this: SVGCircleElement, _event, _d) {
+        d3.select(this).classed('dragging', true);
+      })
+      .on('start.undo', () => { this.onDragStart?.(); })
       .on('drag', (event, d) => this.onPunctureDrag(d.k, event))
       .on('end', function () { d3.select(this).classed('dragging', false); });
 

@@ -112,6 +112,29 @@ export function monodromyPhase(
 }
 
 /**
+ * Anti-Stokes rays from punctures: arg(u_i - u_j) mod 2π for i ≠ j.
+ * Sort 升序, 去重 (tol = 1e-8). 跟 sage 端 anti_stokes_rays 输出对齐.
+ * 用于 puncture 拖动后 live 重算 ray 集合 (代替 dataset.rays).
+ */
+export function antiStokesRays(punctures: { re: number; im: number }[]): number[] {
+  const tp = 2 * Math.PI;
+  const rays = new Set<number>();
+  const tol = 1e-8;
+  for (let i = 0; i < punctures.length; i++) {
+    for (let j = 0; j < punctures.length; j++) {
+      if (i === j) continue;
+      const dx = punctures[i].re - punctures[j].re;
+      const dy = punctures[i].im - punctures[j].im;
+      if (Math.hypot(dx, dy) < tol) continue;
+      let a = Math.atan2(dy, dx);
+      a = ((a % tp) + tp) % tp;
+      rays.add(Math.round(a / tol) * tol);
+    }
+  }
+  return Array.from(rays).sort((a, b) => a - b);
+}
+
+/**
  * 给定 d, 找包含它的 chamber 索引.
  * rays 必须已 sorted 升序 (sage 端 anti_stokes_rays 已 sort). chamber k 对应
  * ray-interval (rays[k], rays[k+1]) (k=last 时绕回到 rays[0]+2π).

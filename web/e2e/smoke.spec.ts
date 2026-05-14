@@ -588,6 +588,33 @@ test.describe('Sd-viz smoke tests', () => {
     expect(d).toContain('C');  // 必须 cubic, 不是 fallback 直线
   });
 
+  // 防回归 (2026-05-14): 拖 puncture 时 γ_ij^(d) 实时跟随, 不需要先点 Compute.
+  // anti-Stokes marker 同样实时更新 (slider 的 .d-mark.ray 子节点).
+  test('live γ + anti-Stokes rays follow puncture drag (no recompute needed)', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.puncture');
+    await page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="2"]').first().click();
+    const dBefore = await page.locator('.path-line').first().getAttribute('d');
+    const raysBefore = await page.locator('#d-marker-strip .d-mark.ray').count();
+    // 拖 puncture #2
+    const punc2 = page.locator('circle.puncture').nth(2);
+    const box = await punc2.boundingBox();
+    if (!box) throw new Error('puncture not visible');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 80, box.y + 60, { steps: 5 });
+    await page.mouse.up();
+    const dAfter = await page.locator('.path-line').first().getAttribute('d');
+    expect(dAfter).not.toBe(dBefore);  // path 跟着动
+    const raysAfter = await page.locator('#d-marker-strip .d-mark.ray').count();
+    expect(raysAfter).toBe(raysBefore);  // ray 数不变 (但位置变 — 这里只验存在性)
+    // Undo: 按按钮恢复
+    await page.locator('#undo-btn').click();
+    await page.waitForTimeout(50);
+    const dRestored = await page.locator('.path-line').first().getAttribute('d');
+    expect(dRestored).toBe(dBefore);
+  });
+
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
   test('U/A input 接受分式 a/b 输入', async ({ page }) => {
     await page.goto('/');
