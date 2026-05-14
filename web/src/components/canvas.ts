@@ -41,22 +41,7 @@ export class Canvas {
     this.state = state;
     this.onStateChange = onStateChange;
     this.dCurrent = state.dataset.chambers[state.selectedChamber]?.d ?? 0;
-    // SVG defs: arrow marker. orient='auto' 让箭头切线跟 path 末端对齐;
-    // 颜色用 context-stroke (跟 path stroke 同色), 不再硬编码绿. markerUnits='userSpaceOnUse'
-    // 让箭头大小不随 stroke-width 缩放, 避免视觉过大.
-    const defs = this.svg.append('defs');
-    defs.append('marker')
-      .attr('id', 'arrow-end')
-      .attr('viewBox', '0 -3 6 6')
-      .attr('refX', 5.5)
-      .attr('refY', 0)
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 6)
-      .attr('orient', 'auto-start-reverse')
-      .attr('markerUnits', 'userSpaceOnUse')
-      .append('path')
-      .attr('d', 'M0,-2.5 L5.5,0 L0,2.5 z')
-      .attr('fill', 'var(--accent-3)');
+    // 箭头不再用 SVG marker-end; renderPaths 自己用 <polygon> 画.
 
     this.root = this.svg.append('g').attr('class', 'root');
     this.layers = {
@@ -251,7 +236,17 @@ export class Canvas {
 
   private renderPaths() {
     const arr = Array.from(this.state.paths.values());
-    // path line + arrow at end (via marker-end)
+    // 箭头自己画 (path-arrow), 不用 marker-end. marker-end 在 cubic Bezier 末端
+    // 切线方向偶尔跟 (b - c2) 不一致 (SVG 引擎实现细节), 截图里出现过箭头反向.
+    // 自己算 (b - c2) 方向, 渲染 <polygon> 三角形, 完全可控.
+    interface ArrowSpec {
+      key: string;
+      tipX: number;
+      tipY: number;
+      angle: number;  // radians, atan2(dy, dx) of tangent
+    }
+    const arrows: ArrowSpec[] = [];
+
     this.layers.paths.selectAll<SVGPathElement, PathRep>('path.path-line')
       .data(arr, (d: any) => d.homotopyId)
       .join(
@@ -267,6 +262,7 @@ export class Canvas {
         // std-natural-cubic 多段 Bezier: vertices 长度 = 1 + 3·(N段), pattern: [a, c1, c2, b, c1', c2', b', ...]
         // 直线 (eg-line / std-natural-line): vertices = [a, b]
         // algo_wp 折线 (老 dataset.path): 任意长度 polyline
+        let tipX: number, tipY: number, angle: number;
         if (isNatural && (pts.length - 1) % 3 === 0 && pts.length > 2) {
           // Bezier 多段: 取最后段 [c1, c2, b] 的 [c2, b] 算切线
           const last = pts[pts.length - 1];
@@ -274,13 +270,16 @@ export class Canvas {
           const dx = last[0] - c2[0], dy = last[1] - c2[1];
           const len = Math.hypot(dx, dy);
           if (len > 24) {
-            pts[pts.length - 1] = [last[0] - dx / len * 18, last[1] - dy / len * 18];
+            pts[pts.length - 1] = [last[0] - dx / len * 14, last[1] - dy / len * 14];
           }
-          // 拼 "M a C c1 c2 b C c1' c2' b' ..."
+          tipX = pts[pts.length - 1][0];
+          tipY = pts[pts.length - 1][1];
+          angle = Math.atan2(dy, dx);  // 切线方向用 *原始* (b - c2), 跟 puncture shorten 无关
           let svg = `M${pts[0][0]},${pts[0][1]}`;
           for (let k = 1; k < pts.length; k += 3) {
             svg += ` C${pts[k][0]},${pts[k][1]} ${pts[k + 1][0]},${pts[k + 1][1]} ${pts[k + 2][0]},${pts[k + 2][1]}`;
           }
+          arrows.push({ key: p.homotopyId, tipX, tipY, angle });
           return svg;
         }
         // 直线段或 algo_wp 折线
@@ -289,10 +288,26 @@ export class Canvas {
         const dx = last[0] - prev[0], dy = last[1] - prev[1];
         const len = Math.hypot(dx, dy);
         if (len > 24) {
-          pts[pts.length - 1] = [last[0] - dx / len * 18, last[1] - dy / len * 18];
+          pts[pts.length - 1] = [last[0] - dx / len * 14, last[1] - dy / len * 14];
         }
+        tipX = pts[pts.length - 1][0];
+        tipY = pts[pts.length - 1][1];
+        angle = Math.atan2(dy, dx);
+        arrows.push({ key: p.homotopyId, tipX, tipY, angle });
         return d3.line()(pts as any);
       });
+
+    // 自己画箭头三角形, transform = translate + rotate.
+    this.layers.paths.selectAll<SVGPolygonElement, ArrowSpec>('polygon.path-arrow')
+      .data(arrows, (d: any) => d.key)
+      .join(
+        enter => enter.append('polygon').attr('class', 'path-arrow')
+          .attr('points', '0,0 -8,-4 -8,4'),  // 尖端在 (0,0), 朝 +x; 长 8, 宽 8
+        update => update,
+        exit => exit.remove(),
+      )
+      .attr('transform', a => `translate(${a.tipX},${a.tipY}) rotate(${a.angle * 180 / Math.PI})`);
+
     // 起点大圆点
     this.layers.paths.selectAll<SVGCircleElement, PathRep>('circle.path-start-dot')
       .data(arr, (d: any) => d.homotopyId + '-start')

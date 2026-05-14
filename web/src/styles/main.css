@@ -712,7 +712,8 @@ h3 {
 .puncture:hover { fill: var(--accent-2); }
 .puncture.dragging { cursor: grabbing; }
 .puncture-label { fill: var(--fg); font-family: var(--font-mono); font-size: 11px; pointer-events: none; }
-.path-line { fill: none; stroke: var(--accent-3); stroke-width: 2; stroke-linejoin: round; marker-end: url(#arrow-end); }
+.path-line { fill: none; stroke: var(--accent-3); stroke-width: 2; stroke-linejoin: round; }
+.path-arrow { fill: var(--accent-3); stroke: none; }
 .path-start-dot { fill: var(--accent-3); stroke: var(--bg); stroke-width: 1.5; }
 .path-vertex { fill: var(--accent-3); stroke: var(--bg); stroke-width: 1.5; cursor: grab; }
 .path-vertex.dragging { cursor: grabbing; }

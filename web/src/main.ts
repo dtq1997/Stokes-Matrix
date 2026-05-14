@@ -149,6 +149,7 @@ async function main() {
     state.selectedChamber = chamberOfDirection(currentD, currentRays());
     buildMarkerStrip(markStrip);
     refreshAllPaths();
+    refreshUTable();  // U 表 input 跟 puncture 拖动同步 (用户能直接看到/复制坐标)
     canvas?.setState(state);  // 让 path layer 也跟着 punctures 重画 (live γ)
     refreshRecomputeBtn();
     updateStaleBanner();
