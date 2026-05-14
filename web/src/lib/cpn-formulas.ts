@@ -1,9 +1,13 @@
 // CP^{K-1} 经典例子 (Guzzetti X gauge) 的精确表达式合成.
-// 数据本身 (re/im 浮点) 仍由 cp{N}.json 提供; 这里只生成 expr 字符串覆盖上去.
+// 数据本身 (re/im 浮点) 仍由 cp{N}.json 提供; 这里生成 expr 字符串 + 重归一化 U.
 //
-// u_n = K * e^(2*pi*i*n/K),                     n = 0..K-1
+// 归一化: sage export 的 u_n = K * e^(2*pi*i*n/K), 这里除掉 K 因子, 取
+//   u_n = e^(2*pi*i*n/K),                       n = 0..K-1
+// 数学上 U → U/K 等同于 z → z·K 的 rescale, Stokes 矩阵不变.
+// 显示更自然 (CP^2 落在单位圆), 不影响后端计算 (按缩放后的 U 算).
+//
 // A[i,j] = (1/(2K)) * Σ_{n=0..K-1} (K-1-2n) * e^(i*pi*(2n+1)*(j-i)/K)
-//        = 0 if i==j (μ_diag 求和为 0).
+//        = 0 if i==j (μ_diag 求和为 0). A 不随 U 缩放.
 
 function gcd(a: number, b: number): number {
   a = Math.abs(a); b = Math.abs(b);
@@ -11,16 +15,16 @@ function gcd(a: number, b: number): number {
   return a || 1;
 }
 
-/** CP^{K-1} 的第 n 个 puncture u_n 表达式. n = 0..K-1. */
+/** CP^{K-1} 的第 n 个 puncture u_n 表达式 (归一化后: u_n = e^(2*pi*i*n/K)). */
 export function cpnPunctureExpr(K: number, n: number): string {
-  if (n === 0) return String(K);
-  if (2 * n === K) return `-${K}`;
+  if (n === 0) return '1';
+  if (2 * n === K) return '-1';
   const g = gcd(2 * n, K);
   const a = (2 * n) / g;
   const b = K / g;
   const pre = a === 1 ? '' : `${a}*`;
   const denom = b === 1 ? '' : `/${b}`;
-  return `${K}*e^(${pre}pi*i${denom})`;
+  return `e^(${pre}pi*i${denom})`;
 }
 
 /** CP^{K-1} 的 A[i,j] 表达式 (0-indexed 块下标; CP^n 所有 m_k=1, 跟 sub-index 无关). */
@@ -68,11 +72,14 @@ export function cpnAEntryExpr(K: number, i: number, j: number): string {
   return `(1/${denom})*(${terms.join('')})`;
 }
 
-/** 给 CP^{K-1} 的 punctures / A_off 附上 expr 字段, 直接 mutate 传入数组. */
+/** 给 CP^{K-1} 的 punctures / A_off 附上 expr 字段, 直接 mutate 传入数组.
+ *  punctures 同时被 1/K rescale (归一化到单位圆), A_off 不动 (residue 不随 U 缩放). */
 export function attachCpnExprs(K: number, punctures: { re: number; im: number; expr?: string }[],
                                 aOff: { i: number; j: number; a?: number; b?: number; re: number; im: number; expr?: string }[]) {
   for (let n = 0; n < punctures.length && n < K; n++) {
     punctures[n].expr = cpnPunctureExpr(K, n);
+    punctures[n].re /= K;
+    punctures[n].im /= K;
   }
   for (const e of aOff) {
     e.expr = cpnAEntryExpr(K, e.i, e.j);
