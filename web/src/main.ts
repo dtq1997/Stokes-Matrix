@@ -1982,9 +1982,23 @@ async function main() {
       .map((ch, idx) => ({ d: ch.d, originalIdx: idx, ch }))
       .sort((a, b) => a.d - b.d);
     const baseSorted = sortedChambers[0];
+    // Hard gate: wall-crossing.ts 公式 S'_{ji}=S_{ji} 显式依赖 A_diag=0, 且
+    // 退化同 wall 多 pair 的 commute 假设只在 CP^n 对称 case 验证过.
+    // 仅"base 全整数"不够 — 非 CP 数据偶尔也能凑出整数 base 但 propagation 不适用.
+    // 结构条件: m_sizes 全 1 (无 Jordan / 无 multiplicity) ∧ A 对角全 0.
+    const msEff = state.mOverrides ?? dataset.m_sizes;
+    const allBlocksSize1 = msEff.every(m => m === 1);
+    let aDiagAllZero = allBlocksSize1;
+    if (allBlocksSize1) {
+      // m_sizes 全 1 ⇒ N = n, AOverrides 对角即是 A_diag.
+      for (let k = 0; k < n; k++) {
+        const d = state.AOverrides?.[k]?.[k];
+        if (!d || Math.abs(d.re) > 1e-12 || Math.abs(d.im) > 1e-12) { aDiagAllZero = false; break; }
+      }
+    }
     // 尝试从 base chamber 抽整数矩阵: 每个 entry 必须 (re ≈ integer, im ≈ 0).
     const baseM: IntMatrix = Array.from({ length: n }, () => Array(n).fill(0));
-    let baseAllInteger = true;
+    let baseAllInteger = allBlocksSize1 && aDiagAllZero;
     const snapTol = 1e-3;  // 容差: medium 精度数据噪声远低于此
     for (let i = 0; i < n && baseAllInteger; i++) {
       for (let j = 0; j < n; j++) {

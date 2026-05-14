@@ -64,8 +64,12 @@ export function detectWallPair(dA: number, dB: number, punctures: { re: number; 
 
 /** 返回相邻 chamber 间穿过的所有 (i, j) wall pairs.
  *  CP^n 等对称 dataset 单条 ray 上常多对 (i, j) 同时 swap (退化 ray);
- *  例如 CP^3 ray π/4 上 (2,3) 跟 (1,0) 同时交换. caller 需对每对独立调
- *  applyWallCrossing — 不同 pair 修改不同的 (row, col) 索引, 互相 commute. */
+ *  例如 CP^3 ray π/4 上 (2,3) 跟 (1,0) 同时交换. caller 对每对独立调 applyWallCrossing.
+ *  注意: 一般退化 ray 上多 pair 的乘积并非顺序无关 — pair 2 公式读 S[k'][i2] 等
+ *  entry, 若 k'∈{i1,j1} 则会拿到 pair 1 已写入的更新. 当前实现依赖 "CP^n A_diag=0
+ *  对称 case 经验性 commute" — caller (main.ts runIscMatrix) 已用 m_sizes 全 1 +
+ *  A_diag 全 0 + base 整数 三重 gate 收窄到该 case. 不要把本函数当作一般 wall-
+ *  crossing 多 pair 规则推广. */
 export function detectAllWallPairs(dA: number, dB: number, punctures: { re: number; im: number }[]): Array<[number, number]> {
   const labelsA = dLabelsAt(dA, punctures);
   const labelsB = dLabelsAt(dB, punctures);
