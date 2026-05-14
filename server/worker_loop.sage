@@ -1,0 +1,73 @@
+"""Persistent sage worker loop.
+
+Phase 1a: 长寿 sage 进程, 从 stdin 读 job spec, 调 recompute(), 输出结果.
+push_server.py via worker_pool.py spawn 一个该进程, 跨多次 /api/recompute
+请求复用 → 节省每次 ~4s sage cold start.
+
+Stdin 协议 (line-delimited JSON):
+  {"job_id": "<hex>", "in_path": "<path>", "out_path": "<path>"}
+
+Stdout 协议:
+  WORKER_READY                                     spawn 完成
+  STAGE ... / PROGRESS chamber N/M                  (recompute 内部, 透传)
+  JOB_DONE <job_id> ok                              成功完结
+  JOB_DONE <job_id> error:<ExceptionClass>          异常完结
+  WORKER_TRACE <job_id> <line>                      异常时 traceback (多行)
+
+Worker 自己永远不退出 (除非 SIGTERM 或 stdin EOF).
+"""
+import os, sys, json, traceback, gc, time, builtins
+
+py_int = builtins.int
+
+_WS = "/Users/dtq1997/ai/workspace/academic-formula-workbench"
+sys.path.insert(0, os.path.join(_WS, "50-computation"))
+sys.path.insert(0, os.path.join(_WS, "60-outputs/sd-viz/server"))
+
+# 加载 recompute_runner — 它会触发 sage core + 我们的 sage modules 一次性加载.
+# 这是 worker spawn 时一次性付的开销 (~4s); 此后每次 job 不再付.
+load(os.path.join(_WS, "60-outputs/sd-viz/server/recompute_runner.sage"))
+
+# recompute() 现在在 globals 里. 标记 worker 已就绪.
+print("WORKER_READY", flush=True)
+
+
+def _run_job_line(line):
+    try:
+        msg = json.loads(line)
+    except Exception as e:
+        # 协议错误, 跳过该行不影响 worker.
+        print(f"WORKER_ERROR bad-json {e}", flush=True)
+        return
+    job_id = str(msg.get('job_id', ''))
+    in_path = msg.get('in_path')
+    out_path = msg.get('out_path')
+    if not in_path or not out_path:
+        print(f"JOB_DONE {job_id} error:bad-spec", flush=True)
+        return
+    try:
+        with open(in_path) as f:
+            inp = json.load(f)
+        result = recompute(inp)
+        with open(out_path, 'w') as f:
+            json.dump(result, f)
+        print(f"JOB_DONE {job_id} ok", flush=True)
+    except Exception as e:
+        tb = traceback.format_exc()
+        for tline in tb.splitlines():
+            print(f"WORKER_TRACE {job_id} {tline}", flush=True)
+        print(f"JOB_DONE {job_id} error:{type(e).__name__}", flush=True)
+    finally:
+        # 每个 job 后主动 gc, 避免长寿 worker 内存爬升 (中间 sage Element 引用易残留).
+        gc.collect()
+
+
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        # Parent closed stdin → exit cleanly.
+        break
+    line = line.strip()
+    if not line:
+        continue
+    _run_job_line(line)

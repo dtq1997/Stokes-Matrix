@@ -104,10 +104,10 @@ def recompute(inp):
     return out
 
 
-if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print("usage: sage recompute_runner.sage input.json output.json", file=sys.stderr)
-        sys.exit(2)
+# CLI 模式: argv = [script, input.json, output.json]. 当 worker_loop.sage 通过
+# load() 引入本模块时, __name__ 也是 '__main__' 但 argv 不是这个形状, 必须 gate
+# on argv len 否则会误触发 CLI 路径报 usage exit.
+if __name__ == '__main__' and len(sys.argv) == 3:
     with open(sys.argv[1]) as f:
         inp = json.load(f)
     out = recompute(inp)

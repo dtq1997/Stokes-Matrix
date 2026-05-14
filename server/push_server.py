@@ -38,6 +38,11 @@ WS = "/Users/dtq1997/ai/workspace/academic-formula-workbench"
 DATA_PATH = os.path.join(WS, "60-outputs/sd-viz/data/n4_simple.json")
 RUNNER = os.path.join(WS, "60-outputs/sd-viz/server/recompute_runner.sage")
 
+# Phase 1a: 持久 sage worker. 取消 per-request subprocess.Popen('sage',...) 的
+# ~4s cold start. 失败时 worker_pool 内部 respawn.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from worker_pool import get_worker, shutdown as worker_shutdown
+
 app = FastAPI(title="Sd-viz backend (async)")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
@@ -91,6 +96,11 @@ def reset():
 
 
 def _run_job(job_id: str, req: RecomputeRequest):
+    """Phase 1a: 提交 job 到持久 worker. cold start 已经被 worker 摊销.
+
+    Worker 单例 (worker_pool.get_worker), 跨多 request 复用 sage 进程.
+    cancel 通过 cancel_event 传给 worker, Phase 1a 实现是 hard kill + respawn.
+    """
     job = _jobs[job_id]
     inp = {
         'punctures': [p.dict() for p in req.punctures],
@@ -104,53 +114,29 @@ def _run_job(job_id: str, req: RecomputeRequest):
     with os.fdopen(in_fd, 'w') as f:
         json.dump(inp, f)
 
+    cancel_event = threading.Event()
+    # poll loop: 把 jobs[].cancelled 翻译给 worker.
+    def _cancel_poll():
+        with _jobs_lock:
+            if job.get('cancelled'):
+                cancel_event.set()
+        return cancel_event.is_set()
+
     try:
         with _jobs_lock:
             job['status'] = 'running'
-            job['phase'] = 'starting sage'
-            job['phase_detail'] = 'cold start + load v5 module'
+            job['phase'] = 'submit'
+            job['phase_detail'] = 'persistent worker'
             job['t_start'] = time.time()
-        proc = subprocess.Popen(
-            ['sage', RUNNER, in_path, out_path],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            preexec_fn=os.setsid,
-        )
-        deadline = time.time() + _JOB_TIMEOUT
-        with _jobs_lock:
-            job['pid'] = proc.pid
 
-        # 流式读 stdout, 提取 PROGRESS / STAGE 行
         prog_re = re.compile(r'PROGRESS chamber (\d+)/(\d+)')
         stage_re = re.compile(r'STAGE\s+([^|]+?)(?:\|(.+))?$')
         output_tail = []
-        while True:
-            with _jobs_lock:
-                if job.get('cancelled'):
-                    break
-            if time.time() > deadline:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-                with _jobs_lock:
-                    job['status'] = 'error'
-                    job['error'] = f'timeout after {_JOB_TIMEOUT}s'
-                    job['t_end'] = time.time()
-                return
-            if proc.poll() is not None:
-                remaining = proc.stdout.read() if proc.stdout else ''
-                if remaining:
-                    output_tail.extend(remaining.splitlines())
-                break
-            ready, _, _ = select.select([proc.stdout], [], [], 0.5)
-            if not ready:
-                continue
-            line = proc.stdout.readline()
-            if not line:
-                continue
-            output_tail.append(line.rstrip())
+
+        def _on_line(line: str):
+            output_tail.append(line)
             if len(output_tail) > 80:
-                output_tail = output_tail[-80:]
+                del output_tail[:-80]
             m = prog_re.search(line)
             if m:
                 done, total = int(m.group(1)), int(m.group(2))
@@ -158,7 +144,7 @@ def _run_job(job_id: str, req: RecomputeRequest):
                     job['chambers_done'] = done
                     job['chambers_total'] = total
                     job['progress'] = done / total if total else 0.0
-                continue
+                return
             sm = stage_re.search(line)
             if sm:
                 phase = sm.group(1).strip()
@@ -166,24 +152,29 @@ def _run_job(job_id: str, req: RecomputeRequest):
                 with _jobs_lock:
                     job['phase'] = phase
                     job['phase_detail'] = detail
-                continue
-            # 增量 partial chamber 不在第一版加 — sage runner 当前不输出
-            # (后续在 runner 加 PARTIAL_CHAMBER {json} 行 + 这里 parse + 累积到 partial)
 
-        proc.wait()
+        worker = get_worker()
+        ok, err = worker.submit(
+            in_path, out_path,
+            on_line=_on_line, cancel_event=_cancel_poll,
+            timeout=_JOB_TIMEOUT,
+        )
+
         with _jobs_lock:
             if job.get('cancelled'):
                 job['status'] = 'cancelled'
                 job['error'] = 'cancelled by user'
                 job['t_end'] = time.time()
                 return
-        if proc.returncode != 0:
-            err = "\n".join(output_tail)[-2000:]
+
+        if not ok:
+            tail = "\n".join(output_tail)[-2000:]
             with _jobs_lock:
                 job['status'] = 'error'
-                job['error'] = f'sage exit {proc.returncode}: {err}'
+                job['error'] = f'worker job failed: {err}\n{tail}'
                 job['t_end'] = time.time()
             return
+
         with open(out_path) as f:
             ds = json.load(f)
         ds['_compute_seconds'] = time.time() - job['t_start']
@@ -293,13 +284,20 @@ def job_cancel(job_id: str):
         if j['status'] in ('done', 'error', 'cancelled'):
             return {'ok': True, 'note': 'already finished'}
         j['cancelled'] = True
-        pid = j.get('pid')
-    if pid:
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+    # Phase 1a: 实际 kill 由 worker_pool.submit 内部根据 cancel_event 处理
+    # (kill worker → respawn). 这里只设标志.
     return {'ok': True}
+
+
+@app.on_event("shutdown")
+def _shutdown():
+    worker_shutdown()
+
+
+@app.get("/api/worker_stats")
+def worker_stats():
+    """Phase 1a debug: 暴露 worker 状态 (alive/pid/jobs_done/spawn_at)."""
+    return get_worker().stats()
 
 
 # ---------- Inverse Symbolic Computation (ISC) ----------
