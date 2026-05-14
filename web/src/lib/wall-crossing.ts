@@ -116,6 +116,7 @@ export function propagateExactMatrices(
     const cur = chambers[pos], next = chambers[pos + 1];
     const walls = detectAllWallPairs(cur.d, next.d, punctures);
     if (walls.length === 0) break;
+    if (hasIndexOverlap(walls)) break;  // commute 假设不成立, 该方向到此为止 (caller fallback).
     const labelOrder = ascendingProjectionOrderAt(cur.d, punctures);
     for (const [i, j] of walls) S = applyWallCrossingCpA0(S, i, j, labelOrder);
     result.set(next.originalIdx, copyM(S));
@@ -126,11 +127,23 @@ export function propagateExactMatrices(
     const cur = chambers[pos], prev = chambers[pos - 1];
     const walls = detectAllWallPairs(prev.d, cur.d, punctures);
     if (walls.length === 0) break;
+    if (hasIndexOverlap(walls)) break;
     const labelOrder = ascendingProjectionOrderAt(prev.d, punctures);
     for (const [i, j] of walls) S = applyWallCrossingCpA0Inverse(S, i, j, labelOrder);
     result.set(prev.originalIdx, copyM(S));
   }
   return result;
+}
+
+/** 退化 ray 多 pair 索引是否重叠. CP^2/3/4 实测无重叠 (Codex audit 2026-05-15).
+ *  有重叠 ⇒ sequential apply 顺序敏感, 当前 commute 假设失效, caller bail out. */
+function hasIndexOverlap(pairs: Array<[number, number]>): boolean {
+  const seen = new Set<number>();
+  for (const [i, j] of pairs) {
+    if (seen.has(i) || seen.has(j)) return true;
+    seen.add(i); seen.add(j);
+  }
+  return false;
 }
 
 /** 反向 wall-crossing (B → A). CP^n A_diag=0 退化版.
