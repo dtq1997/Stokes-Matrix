@@ -1169,8 +1169,8 @@ async function main() {
       ms,
       // Ω/Ω^-1 选择跟 S_d 解耦. Ω 行块作整体被选, Ω^-1 列块作整体被选.
       onCellClick: (I, J) => selectOmegaBlock(isOmega ? I : J),
-      rowBlocks: !isOmega,   // omega 行无块; omega-inv 行有块
-      colBlocks: isOmega,    // omega 列有块; omega-inv 列无块
+      rowBlocks: isOmega,    // omega 行块 (按行算 → 行作为整体单位)
+      colBlocks: !isOmega,   // omega-inv 列块 (按列算 → 列作为整体单位)
       diagSelectable: true,  // 对角不特殊
       tex,
     });
@@ -1179,6 +1179,15 @@ async function main() {
 
   function selectOmegaBlock(idx: number) {
     state.selectedOmegaBlock = idx;
+    // Ω 和 S_d 选中互斥
+    if (state.selectedEntry !== null) {
+      state.selectedEntry = null;
+      refreshAllPaths();
+      canvas.setState(state);
+      refreshStokesMatrix();
+      updateStokesPanel();
+      updatePathInfo();
+    }
     refreshOmegaMatrix();
   }
 
@@ -1210,6 +1219,8 @@ async function main() {
 
   function selectEntry(i: number, j: number) {
     state.selectedEntry = [i, j];
+    // S_d 和 Ω 选中互斥: 选 S_d entry 时清 Ω block, 反之亦然.
+    state.selectedOmegaBlock = null;
     document.querySelectorAll('#entry-grid .cell').forEach((el, idx) => {
       const ii = Math.floor(idx / n), jj = idx % n;
       el.classList.toggle('selected', ii === i && jj === j);
@@ -1217,6 +1228,7 @@ async function main() {
     refreshAllPaths();
     canvas.setState(state);
     refreshStokesMatrix();
+    refreshOmegaMatrix();
     updateStokesPanel();
     updatePathInfo();
   }

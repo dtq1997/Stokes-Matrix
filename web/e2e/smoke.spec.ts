@@ -643,20 +643,19 @@ test.describe('Sd-viz smoke tests', () => {
     expect(omegaBtns).toBe(2);
     await expect(page.locator('#omega-view-selector .sd-view-btn[data-view="omega"]')).toHaveClass(/active/);
 
-    // Ω view: 行无块 (cells 不含 block-top) 列有块 (含 block-left 在块边界).
-    // 默认 dataset n=4 m=(2,2,2,2) → 块边界在 fj=2,4,6, 列 cell 含 block-left.
+    // Ω view: 按行算 ⇒ 行块 (行作为整体单位, 含 block-top 在行边界), 列无块.
     const omegaBlockTops = await page.locator('#omega-matrix .sm-cell.block-top').count();
     const omegaBlockLefts = await page.locator('#omega-matrix .sm-cell.block-left').count();
-    expect(omegaBlockTops).toBe(0);     // 行无块
-    expect(omegaBlockLefts).toBeGreaterThan(0);  // 列有块
+    expect(omegaBlockTops).toBeGreaterThan(0);  // 行有块
+    expect(omegaBlockLefts).toBe(0);            // 列无块
 
-    // 切 Ω^-1: 块结构应反过来.
+    // 切 Ω^-1: 按列算 ⇒ 列块, 行无块. 块结构跟 Ω 反过来.
     await page.locator('#omega-view-selector .sd-view-btn[data-view="omega-inv"]').click();
     await expect(page.locator('#omega-view-selector .sd-view-btn[data-view="omega-inv"]')).toHaveClass(/active/);
     const invBlockTops = await page.locator('#omega-matrix .sm-cell.block-top').count();
     const invBlockLefts = await page.locator('#omega-matrix .sm-cell.block-left').count();
-    expect(invBlockTops).toBeGreaterThan(0);    // 行有块
-    expect(invBlockLefts).toBe(0);              // 列无块
+    expect(invBlockTops).toBe(0);                  // 行无块
+    expect(invBlockLefts).toBeGreaterThan(0);      // 列有块
 
     // 所有 cell (含对角) 显 "—"
     const cellTexts = await page.$$eval('#omega-matrix .sm-cell', cells =>
