@@ -9,7 +9,7 @@ and path-algebroid structure of the meromorphic connection
 \nabla \,=\, d \,-\, \Bigl(U + \frac{A}{z}\Bigr)\,dz
 ```
 
-on the trivial rank $N$ bundle over $\mathbb{P}^{1}$, with a regular
+on the trivial rank $m$ bundle over $\mathbb{P}^{1}$, with a regular
 singularity at $z=0$ and an irregular singularity of Poincaré rank one at
 $z=\infty$.
 
@@ -54,22 +54,22 @@ Fix a *leading term*
 U \,=\, \mathrm{diag}\bigl(u_{1} I_{m_{1}},\,\dots,\,u_{n} I_{m_{n}}\bigr),\qquad u_{i}\in\mathbb{C},\ u_{i}\neq u_{j}\ (i\neq j),\ m_{i}\in\mathbb{Z}_{\geq 1},
 ```
 
-and a *residue matrix* $A\in\mathrm{Mat}_{N}(\mathbb{C})$, arbitrary, with
+and a *residue matrix* $A\in\mathrm{Mat}_{m}(\mathbb{C})$, arbitrary, with
 
 ```math
-N \,=\, m_{1}+\dots+m_{n}.
+m \,=\, m_{1}+\dots+m_{n}.
 ```
 
-Here $n$ is the number of distinct eigenvalues of $U$ and $N$ is the size of
-the system. Write $[A]$ for the block-diagonal part of $A$ adapted to the
-spectral decomposition $\mathbb{C}^{N}=\bigoplus_{i=1}^{n}\mathbb{C}^{m_{i}}$
+Here $n$ is the number of distinct eigenvalues of $U$ and $m$ is the size
+of the system. Write $[A]$ for the block-diagonal part of $A$ adapted to
+the spectral decomposition $\mathbb{C}^{m}=\bigoplus_{i=1}^{n}\mathbb{C}^{m_{i}}$
 of $U$.
 
 At $z=\infty$ the system $\nabla F=0$ has a unique formal fundamental
 solution
 
 ```math
-F^{[\infty]}(z)\,=\,\hat F(z)\,z^{[A]}\,e^{U z},\qquad \hat F(z)\,\in\,I+z^{-1}\mathrm{Mat}_{N}(\mathbb{C})[\![z^{-1}]\!],
+F^{[\infty]}(z)\,=\,\hat F(z)\,z^{[A]}\,e^{U z},\qquad \hat F(z)\,\in\,I+z^{-1}\mathrm{Mat}_{m}(\mathbb{C})[\![z^{-1}]\!],
 ```
 
 generically divergent. The Balser–Jurkat–Lutz / Malgrange theorem asserts
@@ -90,7 +90,7 @@ At $z=0$ the system has a regular singularity. When $A$ is non-resonant,
 there is a unique convergent fundamental solution
 
 ```math
-F^{[0]}(z)\,=\,H^{[0]}(z)\,z^{A},\qquad H^{[0]}(z)\,\in\,I+z\,\mathrm{Mat}_{N}(\mathbb{C})\{z\},\quad H^{[0]}(0)=I.
+F^{[0]}(z)\,=\,H^{[0]}(z)\,z^{A},\qquad H^{[0]}(z)\,\in\,I+z\,\mathrm{Mat}_{m}(\mathbb{C})\{z\},\quad H^{[0]}(0)=I.
 ```
 
 The **monodromy data** of $\nabla$ (cf. Tang–Xu, definition of monodromy
@@ -112,19 +112,19 @@ S_{d}^{\pm}(u,A) := F_{d\pm\pi}(z)^{-1}\,F_{d}(z), \qquad S_{d}(u,A) := S_{d}^{+
 **Central connection matrix.**
 
 ```math
-C_{d}(u,A) := F_{d}(z)^{-1}\,F^{[0]}(z),
+\Omega_{d}(u,A) := F_{d}(z)^{-1}\,F^{[0]}(z),
 ```
 
 expressing the canonical solution at $z=\infty$ in the basis of the
-canonical solution at $z=0$. The visualizer displays this as $\Omega_{d}$.
+canonical solution at $z=0$.
 
 **Monodromy factor at $z=\infty$.** $\;e^{2\pi\mathrm{i}M_{d}(u,A)}$ with
-$M_{d}=C_{d}AC_{d}^{-1}$.
+$M_{d}=\Omega_{d}A\Omega_{d}^{-1}$.
 
 These are related by
 
 ```math
-e^{2\pi\mathrm{i}M_{d}}\,=\,(S_{d}^{-})^{-1}\,e^{2\pi\mathrm{i}[A]}\,S_{d}^{+},\qquad C_{d\pm\pi}\,=\,S_{d}^{\pm}\,C_{d}.
+e^{2\pi\mathrm{i}M_{d}}\,=\,(S_{d}^{-})^{-1}\,e^{2\pi\mathrm{i}[A]}\,S_{d}^{+},\qquad \Omega_{d\pm\pi}\,=\,S_{d}^{\pm}\,\Omega_{d}.
 ```
 
 ---
@@ -133,26 +133,26 @@ e^{2\pi\mathrm{i}M_{d}}\,=\,(S_{d}^{-})^{-1}\,e^{2\pi\mathrm{i}[A]}\,S_{d}^{+},\
 
 For each $k=1,\dots,n$, Tang–Xu attach to the system $\nabla F=0$ a
 $(n-1)\times(n-1)$-block linear difference equation in a discrete variable
-$m$:
+$\ell$:
 
 ```math
-\Psi(m+1)\,=\,L_{k}(m)\,\Psi(m),\qquad L_{k}(m)\,=\,\frac{1}{u_{k}I-u_{\hat k\hat k}}\Bigl((mI+A_{\hat k\hat k})\,-\,A_{\hat k k}\,\frac{1}{mI+A_{kk}}\,A_{k\hat k}\Bigr),
+\Psi(\ell+1)\,=\,L_{k}(\ell)\,\Psi(\ell),\qquad L_{k}(\ell)\,=\,\frac{1}{u_{k}I-u_{\hat k\hat k}}\Bigl((\ell I+A_{\hat k\hat k})\,-\,A_{\hat k k}\,\frac{1}{\ell I+A_{kk}}\,A_{k\hat k}\Bigr),
 ```
 
 where the hat removes the $k$th block row/column, $A_{kk}$ is the
-$m_{k}\times m_{k}$ diagonal block of $A$, and so on. The matrix $L_{k}(m)$
+$m_{k}\times m_{k}$ diagonal block of $A$, and so on. The matrix $L_{k}(\ell)$
 — the recursive matrix $L_k$ of the system — is the algebraic
 companion of $\nabla$ along the coalescence direction $k$.
 
 The classical asymptotic theory of linear difference equations
 (Birkhoff–Trjitzinsky, Braaksma; in the blocked case, the formulation used
 in Tang–Xu) constructs from $L_{k}$ a pair of *canonical analytic
-solutions* $\mathcal{L}_{k}^{+}(z)$ and $\mathcal{L}_{k}^{-}(z)$ on
+solutions* $\mathcal{L}_{k}^{+}(\ell)$ and $\mathcal{L}_{k}^{-}(\ell)$ on
 half-planes in the discrete variable, given as one-sided convergent infinite
 products:
 
 ```math
-\mathcal{L}_{k}^{+}(1+z)^{-1}\,=\,(u_{k}I-u_{\hat k\hat k})^{1+z}\,\lim_{p\to\infty}\,p^{-zI-[L_{k}]_{ss}}\,\frac{(u_{k}I-u_{\hat k\hat k})^{p}}{p!}\,\overleftarrow{\prod_{m=1}^{p}}L_{k}(m+z),
+\mathcal{L}_{k}^{+}(1+\ell)^{-1}\,=\,(u_{k}I-u_{\hat k\hat k})^{1+\ell}\,\lim_{p\to\infty}\,p^{-\ell I-[L_{k}]_{ss}}\,\frac{(u_{k}I-u_{\hat k\hat k})^{p}}{p!}\,\overleftarrow{\prod_{r=1}^{p}}L_{k}(r+\ell),
 ```
 
 and an analogous formula for $\mathcal{L}_{k}^{-}$ as $p\to-\infty$. These
@@ -160,7 +160,7 @@ limits exist under explicit non-resonance and dominance hypotheses, and the
 tail of the product
 
 ```math
-\Bigl|\Bigl(\overleftarrow{\prod_{m=K}^{p}}L_{k}(m+z)\Bigr)\,-\,\bigl(\text{leading asymptotic}\bigr)\Bigr|
+\Bigl|\Bigl(\overleftarrow{\prod_{r=K}^{p}}L_{k}(r+\ell)\Bigr)\,-\,\bigl(\text{leading asymptotic}\bigr)\Bigr|
 ```
 
 is bounded uniformly in $p$ by a function of $K$ that can be made smaller
@@ -182,9 +182,9 @@ Vary $u=(u_{1},\dots,u_{n})$ in the regular configuration space
 ```
 
 By the theorem of Jimbo–Miwa–Ueno (1981), there is a unique flat connection
-on the trivial $\mathrm{Mat}_{N}(\mathbb{C})$-bundle over
+on the trivial $\mathrm{Mat}_{m}(\mathbb{C})$-bundle over
 $(\mathbb{C}^{n})_{\mathrm{reg}}$ whose parallel transport preserves all
-monodromy data $\{S_{[\tau]},\,C_{d},\,e^{2\pi\mathrm{i}M_{d}}\}$. Its
+monodromy data $\{S_{[\tau]},\,\Omega_{d},\,e^{2\pi\mathrm{i}M_{d}}\}$. Its
 horizontal sections solve the explicit nonlinear system, for $k=1,\dots,n$,
 
 ```math
@@ -214,7 +214,7 @@ realizes a generator of the *isomonodromy braid action* on
 $\{S_{[\tau]}\}$.
 
 Operationally: dragging a puncture $u_{k}$ in the visualizer transports $A$
-along the chosen path under this flow, so that the displayed $(S_{d},C_{d})$
+along the chosen path under this flow, so that the displayed $(S_{d},\Omega_{d})$
 remain constant outside wall-crossings; the discontinuities a user sees
 correspond exactly to anti-Stokes rays sweeping past $d$ during the motion.
 
@@ -229,7 +229,7 @@ non-trivial $(i,j)$ block of the elementary Stokes matrix $S_{[\tau]}$ as a
 limit of explicit one-sided products of $L_{j}$:
 
 ```math
-(u_{j}-u_{i})^{A_{ii}}\,\frac{(S_{[\tau]})_{ij}}{2\pi\mathrm{i}}\,(u_{j}-u_{i})^{-A_{jj}}\,=\,\lim_{p\to\infty}\frac{(u_{j}-u_{i})^{p+1}}{p!}\,p^{[A_{ii}-A_{jj}-I]}\,\Bigl(\overleftarrow{\prod_{m=1}^{p}}L_{j}(m)\Bigr)_{i\hat{\jmath}}\,\Bigl(-\frac{1}{u_{j}I-u_{\hat{\jmath}\hat{\jmath}}}A_{\hat{\jmath}j}\Bigr),
+(u_{j}-u_{i})^{A_{ii}}\,\frac{(S_{[\tau]})_{ij}}{2\pi\mathrm{i}}\,(u_{j}-u_{i})^{-A_{jj}}\,=\,\lim_{p\to\infty}\frac{(u_{j}-u_{i})^{p+1}}{p!}\,p^{[A_{ii}-A_{jj}-I]}\,\Bigl(\overleftarrow{\prod_{\ell=1}^{p}}L_{j}(\ell)\Bigr)_{i\hat{\jmath}}\,\Bigl(-\frac{1}{u_{j}I-u_{\hat{\jmath}\hat{\jmath}}}A_{\hat{\jmath}j}\Bigr),
 ```
 
 with $\overleftarrow{\prod}_{m=1}^{p}L_{j}(m)=L_{j}(p)L_{j}(p-1)\cdots L_{j}(1)$
@@ -250,7 +250,7 @@ $A$ has non-trivial Jordan structure on the diagonal blocks (the case
 $m_{k}>1$).
 
 A symmetric formula expresses $(S_{[\tau]})_{ij}$ as a one-sided product of
-$L_{i}(m)$ with $m=-1,-2,\dots,-p$. The two presentations agree on the
+$L_{i}(\ell)$ with $\ell=-1,-2,\dots,-p$. The two presentations agree on the
 overlap of their convergence regions, providing a built-in consistency
 check used internally by the visualizer.
 
@@ -378,7 +378,7 @@ formal monodromy $e^{2\pi\mathrm{i}[A]}$.
 
 - **Left panel.** The configuration data: $n$ and the multiplicities
   $m_{1},\dots,m_{n}$; the eigenvalues $u_{1},\dots,u_{n}$; the residue
-  matrix $A$ of size $N\times N$; the direction $d$ (in units of $\pi$);
+  matrix $A$ of size $m\times m$; the direction $d$ (in units of $\pi$);
   and a precision selector controlling the truncation order $p$ of the
   one-sided infinite product of Section 4.
 - **Middle panel.** The complex $u$ plane. Punctures $\{u_{k}\}$ are
@@ -389,7 +389,7 @@ formal monodromy $e^{2\pi\mathrm{i}[A]}$.
   $\alpha\in\{+,-\}^{L-1}$ of the path is the topological invariant being
   visualized.
 - **Right panel.** The normalized Stokes matrix $S_{d}$ and the central
-  connection matrix $C_{d}$ (labeled $\Omega_{d}$) as $N\times N$ block
+  connection matrix $\Omega_{d}$ as $m\times m$ block
   grids, with several view modes (block, full numerical, polar). Clicking
   an $(i,j)$ block selects the entry; the selected-entry display shows the
   value of $\rho_{U,A}(\boldsymbol{\gamma}_{ij}^{(d)})$ to the configured
@@ -401,7 +401,7 @@ formal monodromy $e^{2\pi\mathrm{i}[A]}$.
   slider track.
 
 Dragging a puncture realizes the isomonodromy flow of Section 3 along the
-chosen path of $u$: $A$ is updated so $(S_{d},C_{d})$ remain constant outside
+chosen path of $u$: $A$ is updated so $(S_{d},\Omega_{d})$ remain constant outside
 wall-crossings, and any visible discontinuity is an anti-Stokes ray
 sweeping past $d$. Dragging a path vertex changes the geometric
 representative of $\boldsymbol{\gamma}_{ij}^{(d)}$ within its homotopy
@@ -412,17 +412,16 @@ representation-theoretic invariance of the Stokes entry.
 
 ## 7. Conventions
 
-- $N=\sum_{i}m_{i}$; $n$ is the number of distinct eigenvalues of $U$;
+- $m=\sum_{i}m_{i}$; $n$ is the number of distinct eigenvalues of $U$;
   $[A]$ is the block-diagonal part of $A$ adapted to $U$.
 - Imaginary unit: $\mathrm{i}$.
 - Anti-Stokes set: $\mathrm{aS}(u)=\bigcup_{i\neq j}(-\arg(u_{j}-u_{i})+2\pi\mathbb{Z})$.
 - Stokes-matrix conventions: $S_{d}^{\pm}=F_{d\pm\pi}^{-1}F_{d}$,
   $S_{d}=S_{d}^{+}-S_{d}^{-}$. The formal monodromy at $z=\infty$ is
   $e^{2\pi\mathrm{i}[A]}$, satisfying $e^{2\pi\mathrm{i}M_{d}}=(S_{d}^{-})^{-1}e^{2\pi\mathrm{i}[A]}S_{d}^{+}$.
-- Central connection matrix $C_{d}=F_{d}^{-1}F^{[0]}$, displayed in the
-  right panel as $\Omega_{d}$.
+- Central connection matrix $\Omega_{d}=F_{d}^{-1}F^{[0]}$.
 - Order of multiplication in infinite products:
-  $\overleftarrow{\prod}_{m=1}^{p}T_{j}(m)=T_{j}(p)\cdots T_{j}(1)$.
+  $\overleftarrow{\prod}_{\ell=1}^{p}L_{j}(\ell)=L_{j}(p)\cdots L_{j}(1)$.
 - $[i]\,\alpha\,[j]$ denotes a path class from $u_{i}$ to $u_{j}$ with
   intermediate sign string $\alpha\in\{+,-\}^{\bullet}$ recording which
   side of each intermediate puncture the path passes; $\alpha\pm\beta$
