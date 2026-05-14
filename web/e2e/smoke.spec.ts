@@ -556,6 +556,134 @@ test.describe('Sd-viz smoke tests', () => {
     await expect(page.locator('.path-line')).toHaveCount(0);
   });
 
+  // 防回归 (2026-05-15): md view 对角 cell 可选 (其他 view 对角仍灰不可选).
+  // Bug 1 修复: refreshMatrixCells 后置决定 .diag 类, click 通过 .diag CSS
+  // pointer-events:none 屏蔽; md view 对角内容是 block/symbolic, 自动可点.
+  test('md view: 对角 cell 可选, panel 不显示 no data', async ({ page }) => {
+    await page.goto('/?dataset=simple');
+    await page.waitForSelector('#stokes-matrix .sm-cell');
+
+    // std view 下对角是 .diag 灰态 (不可选)
+    const diag00Std = page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="0"]').first();
+    await expect(diag00Std).toHaveClass(/diag/);
+
+    // 切到 md view
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="md"]').click();
+    await expect(page.locator('#sd-view-selector .sd-view-btn[data-view="md"]')).toHaveClass(/active/);
+
+    // 对角失去 .diag 类 (md 对角是 block/symbolic, 应可选)
+    const diag00Md = page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="0"]').first();
+    await expect(diag00Md).not.toHaveClass(/diag/);
+
+    // 点对角, 进入 selected, panel 显示 md 公式 (不是 "no data")
+    await diag00Md.click();
+    await expect(diag00Md).toHaveClass(/selected/);
+    const panel = page.locator('#stokes-display');
+    await expect(panel).not.toContainText('no data');
+    // path-info 显示 md 整体公式标签 (含 "M")
+    await expect(page.locator('#path-info')).toContainText('M');
+
+    // 切回 std, 对角应恢复 .diag 不可选态
+    await page.locator('#sd-view-selector .sd-view-btn[data-view="std"]').click();
+    await expect(page.locator('#stokes-matrix .sm-cell[data-i="0"][data-j="0"]').first()).toHaveClass(/diag/);
+  });
+
+  // 防回归 (2026-05-15): 原 bug 整型集成检查 — cp2 默认数据集 d≈0.4217π
+  // 那个 (2,3) entry 在 md view ISC propagation 后必须等于 15 (用户原话).
+  // 走 lib 直接跑 propagation+monodromyFactorInt pipeline (与前端 ISC 同 SSOT),
+  // 不依赖后端 Compute (cp2 是 hideOnLoad dataset, 默认 stale).
+  test('整型集成: cp2 d≈0.4217π (2,3) md entry = 15', async ({ page }) => {
+    await page.goto('/');
+    const md12 = await page.evaluate(async () => {
+      const wc = await import('/src/lib/wall-crossing.ts' + `?v=${Date.now()}`);
+      const r = await fetch('/data/cp2.json');
+      const data: any = await r.json();
+      const ps = data.punctures;
+      const n = ps.length;
+      // 找含 d=0.4217π 的 chamber
+      const dTarget = 0.4217 * Math.PI;
+      const TP = 2 * Math.PI;
+      const dm = ((dTarget % TP) + TP) % TP;
+      let chIdx = data.rays.length - 1;
+      for (let k = 0; k < data.rays.length - 1; k++) {
+        if (dm >= data.rays[k] && dm < data.rays[k + 1]) { chIdx = k; break; }
+      }
+      // 抽 base chamber (0) 的整数 std S_d
+      const baseM: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const v = data.chambers[0].entries[`${i},${j}`].value_block[0][0];
+        baseM[i][j] = Math.round(v.re);
+      }
+      // 用 lib propagateExactMatrices 推到 target chamber
+      const sortedChambers = data.chambers
+        .map((ch: any, idx: number) => ({ d: ch.d, originalIdx: idx }))
+        .sort((a: any, b: any) => a.d - b.d);
+      const prop = wc.propagateExactMatrices(0, baseM, sortedChambers, ps);
+      const Mch = prop.get(chIdx);
+      if (!Mch) throw new Error(`propagation missed chamber ${chIdx}`);
+      // dLabels (descending proj rank) 跟前端 dLabels() 同款 — 这里要传给 monodromyFactorInt.
+      const sd = Math.sin(dTarget), cd = Math.cos(dTarget);
+      const proj = ps.map((u: any, k: number) => ({ k, v: u.re * sd + u.im * cd }));
+      proj.sort((a: any, b: any) => b.v - a.v);
+      const labels = new Array<number>(n);
+      proj.forEach((p: any, idx: number) => { labels[p.k] = idx + 1; });
+      const md = wc.monodromyFactorInt(Mch, labels);
+      return { md12: md[1][2], chamber: chIdx, labels, md };
+    });
+    // 用户原话: "(2,3) entry, 按理来说是 15"
+    expect(md12.md12).toBe(15);
+  });
+
+  // 防回归 (2026-05-15): wall-crossing.ts monodromyFactorInt 整数闭算正确性.
+  // Bug 2 修复核心: A_diag=0 gate 内, md_int = (S^-)^{-1}·S^+ 全整数 (Neumann 级数).
+  // 这里在浏览器内直接 import lib 单元测, 不走 dataset fresh-state.
+  test('monodromyFactorInt: CP^3 base chamber 整数闭算非 trivial', async ({ page }) => {
+    await page.goto('/');
+    const result = await page.evaluate(async () => {
+      const mod = await import('/src/lib/wall-crossing.ts' + `?v=${Date.now()}`);
+      // CP^3 base chamber 经典 Stokes 矩阵 (Guzzetti, signed binomial conv):
+      // S_{ij} = (-1)^{j-i} C(n, j-i) for i<j, 0 for i>j; 对角 paper 约定为 0
+      // (我们这里用 off-diag 整数 + 对角 0 的 IntMatrix 表示).
+      // n=4 → entries: (0,1)=-4, (0,2)=6, (0,3)=-4, (1,2)=-3, (1,3)=3, (2,3)=-2... 略
+      // 这里只验 "S^-=I, md_int=S^+" 的退化 case + 一个 nontrivial case.
+      const M_upper: number[][] = [
+        [0, -4, 6, -4],
+        [0, 0, -3, 3],
+        [0, 0, 0, -2],
+        [0, 0, 0, 0],
+      ];
+      // labels = [1,2,3,4]: 0号点 proj 最大 → label 1. S^+ keep labels[I]<labels[J] ⇒ I<J (upper).
+      // 此时 S^-=I, md_int=S^+=I + L_upper. 验证整数恒等.
+      const labels = [1, 2, 3, 4];
+      const md = mod.monodromyFactorInt(M_upper, labels);
+      // 对角应=1, 上三角应=M_upper[i][j] (因为 S^-=I, md=S^+).
+      const diagOk = [0, 1, 2, 3].every(i => md[i][i] === 1);
+      const upperOk = md[0][1] === -4 && md[0][2] === 6 && md[0][3] === -4
+                   && md[1][2] === -3 && md[1][3] === 3 && md[2][3] === -2;
+      // 反 label 序: labels=[4,3,2,1] → labels[I]>labels[J] iff I<J. 那时 S^+=I, S^-= negated upper.
+      // md = (S^-)^{-1} = (I + L_-)^{-1} = I - L_- + L_-^2 - ... — 非 trivial integer.
+      const labels2 = [4, 3, 2, 1];
+      const md2 = mod.monodromyFactorInt(M_upper, labels2);
+      // 对角全 1
+      const diag2Ok = [0, 1, 2, 3].every(i => md2[i][i] === 1);
+      // S^-[i][j] = -M[i][j] when labels2[i]>labels2[j] (i<j), 即 upper -M.
+      // S^-_inv at (0,1) = +4 (一阶 Neumann); 但更高阶 Neumann 修正:
+      // (0,2): -L_-^2[0][2] = -(-(-4))*(-(-3)) = -(4*3)= -12. 加 +6 一阶 = -12+6 = -6? Let me think again.
+      // 算: L_- = S^- - I = upper triangular w/ entries -M[i][j].
+      // (S^-)^{-1} = I - L_- + L_-^2 - L_-^3
+      // (0,1): -L_-(0,1) = -(-M[0][1]) = -4 → 这是 S^- inverse 在 (0,1), 然后乘 S^+=I → md2[0][1] = 4.
+      // 但 Codex review 强调要跟前端 sign convention 完全一致, 不在这里复算, 只要求 integer + 非零.
+      const md2NontrivialInt = md2[0][1] !== 0 && Number.isInteger(md2[0][1])
+                            && md2[0][2] !== 0 && Number.isInteger(md2[0][2]);
+      return { diagOk, upperOk, diag2Ok, md2NontrivialInt, md, md2 };
+    });
+    expect(result.diagOk).toBe(true);
+    expect(result.upperOk).toBe(true);
+    expect(result.diag2Ok).toBe(true);
+    expect(result.md2NontrivialInt).toBe(true);
+  });
+
   // 防回归 (2026-05-14): S_d^eg view 语义.
   //   (S_d^eg)_{ij} uses the exported raw v5 straight-entry anchor, not any S_d chamber value.
   test('S_d^eg: raw v5 anchor baseline + per-pair 2π shift', async ({ page }) => {

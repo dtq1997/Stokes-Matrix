@@ -94,15 +94,21 @@ export function buildMatrixGrid(opts: BuildGridOpts): void {
     for (let fj = 0; fj < N; fj++) {
       const [J, b] = flatToBlock(ms, fj);
       const cell = document.createElement('div');
-      cell.className = 'sm-cell' + (I === J && !diagSelectable ? ' diag' : '');
+      cell.className = 'sm-cell';
+      // diag look + click 都是 refresh 时由 cellContent.kind 后置决定 (md view
+      // 让对角 block/symbolic 可选, std/plus/minus/eg 的对角 identity/zero 仍灰).
+      // diagSelectable 旧 build-time hint 现在只用作 initial state (后续 refresh
+      // 会覆盖). 留着是为不破老调用方 (Omega).
+      if (I === J && !diagSelectable) cell.classList.add('diag');
       if (rowBlocks && fi > 0 && a === 0) cell.classList.add('block-top');
       if (colBlocks && fj > 0 && b === 0) cell.classList.add('block-left');
       cell.dataset.i = String(I);
       cell.dataset.j = String(J);
       cell.dataset.a = String(a);
       cell.dataset.b = String(b);
-      const clickable = opts.onCellClick && (diagSelectable || I !== J);
-      if (clickable) {
+      // click listener 始终挂. 是否真的响应由 refreshMatrixCells 写入的 .diag CSS
+      // pointer-events:none 屏蔽 (off-diag 永远响应; diag 看 refresh 给的状态).
+      if (opts.onCellClick) {
         cell.addEventListener('click', () => opts.onCellClick!(I, J));
       }
       sm.appendChild(cell);
@@ -197,10 +203,22 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
 
     if (opts.isStale && (opts.staleIncludesDiag || I !== J)) {
       cell.innerHTML = `<span class="cs-zero" title="${staleTip}">—</span>`;
+      // stale 时对角按"无信息" 处理 → 显灰不可选
+      if (I === J) cell.classList.add('diag');
       continue;
     }
 
     const content = opts.getCellContent(I, J, a, b);
+    // 后置决定对角 cell 显灰 + 可选: 内容是 block/symbolic 时正常 (md view 对角
+    // 有信息); identity/zero/unavailable 时显灰不可选 (std/plus/minus/eg 对角).
+    // off-diag 永远不打 .diag, 保持原有可点行为 (含 plus/minus 过滤成 0 的 cell
+    // 和 unavailable cell).
+    if (I === J) {
+      const diagInert = content.kind === 'identity' || content.kind === 'zero' || content.kind === 'unavailable';
+      cell.classList.toggle('diag', diagInert);
+    } else {
+      cell.classList.remove('diag');
+    }
     switch (content.kind) {
       case 'zero':
         cell.innerHTML = `<span class="cs-zero">${opts.tex('0')}</span>`;

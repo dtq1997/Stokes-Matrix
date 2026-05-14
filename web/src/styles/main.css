@@ -767,6 +767,10 @@ h3 {
   font-size: 12px;
   text-align: center;
   align-items: center;
+  /* click listener 始终挂 (build 时不分对角/非对角), 由这条 pointer-events:none
+     在 .diag 状态下屏蔽点击. refreshMatrixCells 按 cellContent.kind 动态 toggle
+     .diag, 让 md view 的对角 block 可选. */
+  pointer-events: none;
 }
 
 /* 块结构分隔: block-top/left 加粗边框 (块边界视觉分隔, 区分 m_k>1 的子块) */

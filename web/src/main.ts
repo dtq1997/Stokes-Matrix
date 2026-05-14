@@ -12,7 +12,7 @@ import { expm, mident, minv, mmul } from './lib/matexp.js';
 import { parsePiInput, parseRational, formatPi } from './lib/pi-input.js';
 import { parseComplexExpr, exprToLatex, complexToExpr } from './lib/expr-parser.js';
 import { simpleIdentifyValue, buildComplexExprFromForms as buildLocalComplexExpr } from './lib/local-isc.js';
-import { propagateExactMatrices, type IntMatrix } from './lib/wall-crossing.js';
+import { propagateExactMatrices, monodromyFactorInt, type IntMatrix } from './lib/wall-crossing.js';
 
 function tex(s: string, displayMode = false): string {
   return katex.renderToString(s, { displayMode, throwOnError: false, strict: false });
@@ -319,6 +319,9 @@ async function main() {
   // 精确传播结果: chamberIdx → 整数矩阵 (off-diag). 由 wall-crossing 从 ISC 后的
   // base chamber 推出. 跟 iscLibrary 并行 — cell 渲染优先查它 (代数精确), 没命中再查 library.
   const exactByChamber = new Map<number, IntMatrix>();
+  // md view 平行表: e^{2πi M_d} 在 A_diag=0 gate 内的整数 entry. md_int = (S^-)^{-1}·S^+
+  // 全程整数闭算 (S^± unipotent 三角, Neumann 级数算逆). 跟 exactByChamber 一起 populated.
+  const exactMdByChamber = new Map<number, IntMatrix>();
   let iscRunning = false;
 
   // ---------- left panel: entry grid ----------
@@ -1391,13 +1394,13 @@ async function main() {
           const e = ch.entries[`${I},${J}`];
           if (e && !e.error && e.value_block) {
             const mod = modifiedBlock(e, ch.d, I, J);
-            if (!(ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, mod[0][0]))) {
+            if (!(ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, mod[0][0], 'std'))) {
               yield mod;
             }
           }
           // eg 也单独看一眼 (用户可能在 eg view 下查看)
           const eg = egBlock(I, J);
-          if (eg && !(ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, eg[0][0]))) {
+          if (eg && !(ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, eg[0][0], 'eg'))) {
             yield eg;
           }
         }
@@ -1412,7 +1415,7 @@ async function main() {
           if (!mdFull) return { kind: 'unavailable', tooltip: 'monodromy factor unavailable' };
           const block = sliceFullBlock(mdFull, ms, I, J);
           if (ms[I] === 1 && ms[J] === 1) {
-            const sym = getSymbolicCellExpr(I, J, block[0][0]);
+            const sym = getSymbolicCellExpr(I, J, block[0][0], 'md');
             if (sym) return { kind: 'symbolic', latex: sym.latex, tooltip: sym.tooltip };
           }
           return { kind: 'block', block };
@@ -1443,7 +1446,7 @@ async function main() {
         if (ms[I] === 1 && ms[J] === 1) {
           const baseV = mod[0][0];
           const displayV = sign === -1 ? { re: -baseV.re, im: -baseV.im } : baseV;
-          const sym = getSymbolicCellExpr(I, J, displayV);
+          const sym = getSymbolicCellExpr(I, J, displayV, view);
           if (sym) return { kind: 'symbolic', latex: sym.latex, tooltip: sym.tooltip };
         }
         if (sign === -1) {
@@ -1933,11 +1936,13 @@ async function main() {
    *    都成功才合并成单复数表达式; 一边失败但浮点 ≈ 0 也算通过 (避免半浮点半符号 ugly).
    *  null = 至少一边没识别, 调用方回退浮点显示.
    *  SSOT: Stokes / Omega / 未来其他矩阵 cell 渲染都用这个入口. */
-  function getSymbolicCellExpr(I: number, J: number, v: ComplexNum): { latex: string; tooltip: string } | null {
+  function getSymbolicCellExpr(I: number, J: number, v: ComplexNum, view?: import('./lib/types.js').SdView): { latex: string; tooltip: string } | null {
     const tipSign = v.im >= 0 ? '+' : '−';
     const tooltip = `${v.re.toPrecision(8)} ${tipSign} ${Math.abs(v.im).toPrecision(8)}i`;
-    // 1) 精确传播命中: 当前 chamber 有 wall-crossing 算出的整数 M[I][J] 且 v 匹配 (含负号)
-    const M = exactByChamber.get(state.selectedChamber);
+    // 1) 精确传播命中: view='md' 时查 exactMdByChamber (md_int = (S^-)^{-1}·S^+,
+    //    A_diag=0 gate 内整数闭算); 其它 view 查 exactByChamber (std S_d 整数).
+    const effView = view ?? state.sdView;
+    const M = (effView === 'md' ? exactMdByChamber : exactByChamber).get(state.selectedChamber);
     if (M && I >= 0 && I < M.length && J >= 0 && J < M.length) {
       const n = M[I][J];
       const mag = Math.max(Math.abs(v.re), Math.abs(v.im), 1, Math.abs(n));
@@ -1997,6 +2002,7 @@ async function main() {
       iscCache.clear();
       iscLibrary.length = 0;
       exactByChamber.clear();
+      exactMdByChamber.clear();
       refreshStokesMatrix();
       renderIscResults();
       refreshIscLauncher();
@@ -2128,6 +2134,31 @@ async function main() {
         for (let i = 0; i < M.length; i++) for (let j = 0; j < M.length; j++) {
           if (i === j) continue;
           tryLocalRegister(M[i][j]);
+        }
+      }
+      // md view 平行传播 (A_diag=0 gate 内): 每 chamber 用整数 S_d_int 闭算
+      // md_int = (S^-)^{-1}·S^+, 存 exactMdByChamber. 用前端 md view 同款 -d
+      // DESCENDING-rank label (跟 main.ts dLabels() 完全一致).
+      exactMdByChamber.clear();
+      const labelsAt = (d: number): number[] => {
+        const sd = Math.sin(d), cd = Math.cos(d);
+        const proj = ps.map((u, k) => ({ k, v: u.re * sd + u.im * cd }));
+        proj.sort((a, b) => b.v - a.v);
+        const lab = new Array<number>(ps.length);
+        proj.forEach((p, idx) => { lab[p.k] = idx + 1; });
+        return lab;
+      };
+      for (const [chIdx, M] of propagated) {
+        const dCh = dataset.chambers[chIdx].d;
+        try {
+          const mdInt = monodromyFactorInt(M, labelsAt(dCh));
+          exactMdByChamber.set(chIdx, mdInt);
+          // md 整数 entry (含对角 — md diag 通常 ≠ 1) 入库, 兜底 library lookup.
+          for (let i = 0; i < mdInt.length; i++) for (let j = 0; j < mdInt.length; j++) {
+            tryLocalRegister(mdInt[i][j]);
+          }
+        } catch {
+          // unipotent gate failed (不该发生, gate 已经保证 S^- 是 unipotent 三角)
         }
       }
       // 防御性: 直接把 raw v5 eg 值也入库, 万一不在 chamber std 范围内
@@ -2324,8 +2355,11 @@ async function main() {
     }
     const [i, j] = state.selectedEntry;
     const ch = dataset.chambers[state.selectedChamber];
-    const e = ch.entries[`${i},${j}`];
-    if (!e) { el.innerHTML = '<span class="label">no data</span>'; return; }
+    // md view 对角可选, 但 ch.entries["i,i"] 不存在 (Stokes 只算 off-diag).
+    // 该 view 不依赖单 entry 的 provenance / error, 整块从 mdFull 派生. 单独 gate.
+    const isMdView = state.sdView === 'md';
+    const e = isMdView ? null : ch.entries[`${i},${j}`];
+    if (!isMdView && !e) { el.innerHTML = '<span class="label">no data</span>'; return; }
     const symMap = { std: 'S_d', plus: 'S_d^{+}', minus: 'S_d^{-}', eg: 'S_d^{\\mathrm{eg}}', md: '\\mathrm{e}^{2\\pi \\mathrm{i}M_d}' } as const;
     const labelTex = `(${symMap[state.sdView]})_{${i+1}${j+1}}`;
     if (!stokesValuesFresh()) {
@@ -2333,7 +2367,7 @@ async function main() {
         + '<div class="value dim">stale: recompute Stokes matrices</div>';
       return;
     }
-    if (e.error) {
+    if (e && e.error) {
       el.innerHTML = `<div class="label">${tex(labelTex)}</div>
         <div class="value" style="color: var(--bad)">FAIL: ${e.error}</div>`;
       return;
@@ -2358,7 +2392,8 @@ async function main() {
       }
       mod = eg;
     } else {
-      mod = modifiedBlock(e, ch.d, i, j);
+      // 非 md/eg: e 一定非空 (上方 isMdView && !e 早 return 守住).
+      mod = modifiedBlock(e!, ch.d, i, j);
     }
     // plus/minus 模式按 -d label 决定是否保留. selected entry 永远 off-diag (UI 不让点对角),
     // 但保险起见 i===j 时空 block.
@@ -2397,13 +2432,14 @@ async function main() {
     if (!state.selectedEntry) { el.textContent = '—'; return; }
     if (!stokesValuesFresh()) { el.textContent = '—'; return; }
     const [i, j] = state.selectedEntry;
-    const ch = dataset.chambers[state.selectedChamber];
-    const e = ch.entries[`${i},${j}`];
-    if (!e) { el.textContent = '—'; return; }
+    // md view: 整体公式标签, 不依赖单 entry. 对角也走这条 (ch.entries["i,i"] 不存在).
     if (state.sdView === 'md') {
       el.innerHTML = `<span class="label">${tex('\\mathrm{e}^{2\\pi \\mathrm{i}M_d}=(S_d^-)^{-1}\\mathrm{e}^{2\\pi \\mathrm{i}\\delta_u A}S_d^+')}</span>`;
       return;
     }
+    const ch = dataset.chambers[state.selectedChamber];
+    const e = ch.entries[`${i},${j}`];
+    if (!e) { el.textContent = '—'; return; }
     if (state.sdView === 'plus' || state.sdView === 'minus') {
       el.innerHTML = e.provenance
         ? `<span class="provenance-info" data-provenance="${escapeHtml(e.provenance)}" hidden>${escapeHtml(e.provenance)}</span>`

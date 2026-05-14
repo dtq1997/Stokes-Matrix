@@ -25,6 +25,86 @@
 
 export type IntMatrix = number[][];  // off-diag 用整数; 对角约定 0 (paper convention)
 
+// ---------------- Integer monodromy factor (A_diag=0 gate 内) ----------------
+//
+// 给定 propagated std S_d 整数矩阵 M + 该 chamber 的 -d label 排序, 整数闭算
+//   e^{2πi M_d} = (S_d^-)^{-1} · exp(2πi δ_u A) · S_d^+
+// 在 A_diag=0 时 exp 因子 = I, 即 md_int = (S_d^-)^{-1} · S_d^+.
+// S_d^± 在 -d-label 排序后 unipotent triangular 整数, det=1, inverse 闭在 Z.
+// 用 Neumann 级数 (I + L_-)^{-1} = Σ_{k=0}^{n-1} (-L_-)^k 算 (S^-)^{-1}, 全整数.
+//
+// 跟前端 main.ts stokesTriangularFactor / dLabels 完全同 sign / label 约定:
+//   labels[k] = puncture k 的 DESCENDING projection rank (1..n).
+//   S^+[I,J] = M[I][J] if labels[I] < labels[J] else (I==J ? 1 : 0).
+//   S^-[I,J] = -M[I][J] if labels[I] > labels[J] else (I==J ? 1 : 0).
+
+function identInt(n: number): IntMatrix {
+  return Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => i === j ? 1 : 0));
+}
+
+function mmulInt(A: IntMatrix, B: IntMatrix): IntMatrix {
+  const n = A.length, k = B.length, m = B[0].length;
+  const out: IntMatrix = Array.from({ length: n }, () => Array(m).fill(0));
+  for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
+    let s = 0;
+    for (let l = 0; l < k; l++) s += A[i][l] * B[l][j];
+    out[i][j] = s;
+  }
+  return out;
+}
+
+export function stokesPlusInt(M: IntMatrix, labels: number[]): IntMatrix {
+  const n = M.length;
+  const out = identInt(n);
+  for (let I = 0; I < n; I++) for (let J = 0; J < n; J++) {
+    if (I !== J && labels[I] < labels[J]) out[I][J] = M[I][J];
+  }
+  return out;
+}
+
+export function stokesMinusInt(M: IntMatrix, labels: number[]): IntMatrix {
+  const n = M.length;
+  const out = identInt(n);
+  for (let I = 0; I < n; I++) for (let J = 0; J < n; J++) {
+    if (I !== J && labels[I] > labels[J]) out[I][J] = -M[I][J];
+  }
+  return out;
+}
+
+/** Integer inverse of unipotent matrix I + L (L 在 -d-label 排序后 strictly
+ *  triangular, nilpotent). Neumann 级数, 全整数无除法.
+ *  caller 保证 S 的对角全 1; off-diag 非零结构是 strictly triangular w.r.t.
+ *  某个排序 (这里是 labels DESCENDING). */
+export function minvIntUnipotent(S: IntMatrix): IntMatrix {
+  const n = S.length;
+  const L: IntMatrix = S.map((row, i) => row.map((v, j) => i === j ? 0 : v));
+  const result = identInt(n);
+  let term: IntMatrix = identInt(n);
+  let sign = 1;
+  for (let k = 1; k < n; k++) {
+    term = mmulInt(term, L);
+    sign = -sign;
+    let anyNonzero = false;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      if (term[i][j] !== 0) {
+        anyNonzero = true;
+        result[i][j] += sign * term[i][j];
+      }
+    }
+    if (!anyNonzero) break;
+  }
+  return result;
+}
+
+/** 整数 monodromy factor (A_diag=0 gate 内). */
+export function monodromyFactorInt(M: IntMatrix, labels: number[]): IntMatrix {
+  const Splus = stokesPlusInt(M, labels);
+  const Sminus = stokesMinusInt(M, labels);
+  const SminusInv = minvIntUnipotent(Sminus);
+  return mmulInt(SminusInv, Splus);
+}
+
 /** k×k 整数矩阵深拷贝. */
 function copyM(S: IntMatrix): IntMatrix {
   return S.map(row => row.slice());
