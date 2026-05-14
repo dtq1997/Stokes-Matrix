@@ -150,8 +150,9 @@ async function main() {
   let aInputMode: 'pair' | 'expr' = datasetHasAExpr ? 'expr' : 'pair';
   // "Hide source" 子状态: 仅 expr 模式下生效, 隐藏 input 仅显示 KaTeX 预览.
   // 点 cell → 临时显示 input 可编辑, blur 后回隐藏 (.editing class 控制单 cell).
-  let uSourceHidden = false;
-  let aSourceHidden = false;
+  // dataset 自带 expr ⇒ 默认 hide source (CP^n 等); 否则默认显示源码.
+  let uSourceHidden = datasetHasPunctureExpr;
+  let aSourceHidden = datasetHasAExpr;
 
   function complexExprInputHtml(attrs: string, placeholder = 'a + bi'): string {
     return `<div class="cx-expr-cell">` +
