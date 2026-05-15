@@ -1499,7 +1499,23 @@ async function main() {
         let sign: 1 | -1 | 0 = 1;
         if (view === 'plus')  sign = labels![I] < labels![J] ? 1 : 0;
         if (view === 'minus') sign = labels![I] > labels![J] ? -1 : 0;
-        if (sign === 0) return { kind: 'zero' };
+        if (sign === 0) {
+          // 跨 view 同宽: 在 sign-zero cell 内附 std view 同 entry 的 HTML 当
+          // 隐藏 shadow, 让 grid max-content 列宽算入. 否则 plus/minus 某列
+          // 全 sign-zero `0` 极窄, 跟 std 列宽差.
+          let widthRefHtml: string | undefined;
+          const mod0 = blockCache.get(`${I},${J}`);
+          if (mod0 && ms[I] === 1 && ms[J] === 1) {
+            const baseV = mod0[0][0];
+            const sym = getSymbolicCellExpr(I, J, baseV, 'std');
+            if (sym) {
+              widthRefHtml = `<span class="cs-symbolic">${tex(sym.latex)}</span>`;
+            } else {
+              widthRefHtml = renderComplex(baseV, digits);
+            }
+          }
+          return { kind: 'zero', widthRefHtml };
+        }
         const mod = blockCache.get(`${I},${J}`);
         if (!mod) {
           return { kind: 'unavailable', tooltip: view === 'eg' ? 'straight-entry data unavailable' : 'entry data unavailable' };

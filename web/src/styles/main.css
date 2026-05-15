@@ -761,6 +761,20 @@ h3 {
 /* cs-zero: 淡灰色, 让 KaTeX 自带数学体 (不要叠 italic 否则字符歪) */
 .cs-zero { color: var(--fg-muted); }
 .cs-zero .katex { font-size: inherit; color: inherit; }
+/* 跨 view 同宽支撑: zero/identity cell 内放一个 cs-width-ref shadow, 视觉
+ * 隐藏但参与 grid max-content 列宽计算. cs-overlay 让 shadow 跟可见 0/1
+ * 重叠在 cell 内同一格 (grid-area 'shared'), 不占额外位置. */
+.sm-cell:has(.cs-overlay) {
+  display: grid;
+  grid-template-areas: "shared";
+  align-items: center;
+  justify-items: center;
+}
+.cs-overlay { grid-area: shared; }
+.cs-width-ref {
+  visibility: hidden;
+  pointer-events: none;
+}
 .matrix-grid .sm-cell:hover { background: #232932; }
 .matrix-grid .sm-cell.diag {
   background: transparent;

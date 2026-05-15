@@ -136,10 +136,14 @@ export function buildMatrixGrid(opts: BuildGridOpts): void {
   }
 }
 
-/** Cell 内容描述: 'zero' / 'identity' / block matrix / null (unavailable). */
+/** Cell 内容描述: 'zero' / 'identity' / block matrix / null (unavailable).
+ *  zero/identity 可附 widthRefHtml (隐藏 shadow span 的 HTML 字符串),
+ *  让 grid max-content 列宽算入参照内容. 用于跨 view 同宽: plus/minus
+ *  把某 entry 过滤成 0/1, 但仍要跟 std view 该 entry 列宽一致, caller
+ *  把 std view 的渲染 HTML 当 widthRefHtml 传入. */
 export type CellContent =
-  | { kind: 'zero' }
-  | { kind: 'identity' }
+  | { kind: 'zero'; widthRefHtml?: string }
+  | { kind: 'identity'; widthRefHtml?: string }
   | { kind: 'block'; block: ComplexNum[][] }
   | { kind: 'unavailable'; tooltip?: string }
   // ISC 给出的闭式表达, cell 渲染直接走 KaTeX. tooltip 显示原浮点值便于交叉核对.
@@ -248,12 +252,24 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
       cell.classList.remove('diag');
     }
     switch (content.kind) {
-      case 'zero':
-        cell.innerHTML = `<span class="cs-zero">${opts.tex('0')}</span>`;
+      case 'zero': {
+        // widthRefHtml 让 grid max-content 列宽算入参照 (跨 view 同宽). cell
+        // 用 grid 单 area 重叠两层: 可见 0 + 隐藏 shadow. shadow 占 layout 不占
+        // 视觉. caller 不传 widthRefHtml 时 shadow 为空, 行为跟之前一致.
+        const ref = content.widthRefHtml ?? '';
+        cell.innerHTML = ref
+          ? `<span class="cs-zero cs-overlay">${opts.tex('0')}</span><span class="cs-width-ref cs-overlay">${ref}</span>`
+          : `<span class="cs-zero">${opts.tex('0')}</span>`;
         break;
-      case 'identity':
-        cell.innerHTML = `<span class="cs-zero">${opts.tex(a === b ? '1' : '0')}</span>`;
+      }
+      case 'identity': {
+        const ref = content.widthRefHtml ?? '';
+        const tok = a === b ? '1' : '0';
+        cell.innerHTML = ref
+          ? `<span class="cs-zero cs-overlay">${opts.tex(tok)}</span><span class="cs-width-ref cs-overlay">${ref}</span>`
+          : `<span class="cs-zero">${opts.tex(tok)}</span>`;
         break;
+      }
       case 'unavailable':
         cell.innerHTML = `<span class="cs-zero"${content.tooltip ? ` title="${content.tooltip}"` : ''}>—</span>`;
         break;
