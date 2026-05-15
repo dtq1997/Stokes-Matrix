@@ -141,6 +141,11 @@ export interface RefreshOpts {
    *  通常是 std view 的所有 off-diag block (即未做 sign 过滤/取负). 不传则
    *  退化成 view-specific 自己扫一遍 — 但会出现 plus/minus 比 std 窄的不稳定. */
   widthReferenceBlocks?: () => Iterable<ComplexNum[][]>;
+  /** 跨 view 同尺寸 (symbolic 支线): 调用方提供当前 view (或其同宽组) 内所有
+   *  symbolic cell 的 latex 字符串. panel 估算这些字符串的 ch 等价宽度, 跟
+   *  浮点宽度合并取 max 设到 --cs-sym-w. ISC 出大整数 / 表达式时, 单元格框
+   *  不再被浮点公式 (var(--cs-int-w)+var(--cs-frac-w)+4ch) 压窄. */
+  widthReferenceLatex?: () => Iterable<string>;
   selectedEntry: [number, number] | null;
   /** 高亮模式:
    *  - 'entry' (default): 仅 (I,J) 匹配 selectedEntry 时高亮.
@@ -184,6 +189,21 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
   }
   sm.style.setProperty('--cs-int-w', `${maxInt}ch`);
   sm.style.setProperty('--cs-frac-w', `${maxFrac > 0 ? maxFrac + 1 : 0}ch`);
+
+  // Symbolic cell 宽度估算: KaTeX 字体下整数/分数/√/π 表达式按字符长度粗估
+  // (~0.65 ch/char, 经验值). 比浮点公式宽时撑大 cell, 否则不影响 (max 取大).
+  // 简单字符长度估; 复杂表达式 (sqrt/pi) 实际比字符数稍宽, 留 1ch 余量.
+  let maxSymCh = 0;
+  if (!opts.isStale && opts.widthReferenceLatex) {
+    for (const s of opts.widthReferenceLatex()) {
+      // 粗估: 数字字符 ~0.6ch, 字母/符号 ~0.7ch. 取均值 0.65ch.
+      // \sqrt{} / \pi 等 KaTeX 命令实际渲染比字符数短, 这里高估安全.
+      const visible = s.replace(/[\\{}]/g, '');
+      const est = visible.length * 0.65 + 1;
+      if (est > maxSymCh) maxSymCh = est;
+    }
+  }
+  sm.style.setProperty('--cs-sym-w', `${maxSymCh.toFixed(2)}ch`);
 
   const cells = sm.querySelectorAll<HTMLElement>('.sm-cell');
   const staleTip = opts.staleMessage ?? 'stale: recompute';

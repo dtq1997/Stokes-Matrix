@@ -1433,37 +1433,82 @@ async function main() {
       selectedEntry: state.selectedEntry,
       tex,
       renderComplex,
-      // 跨 view 同尺寸: 永远扫 std view 所有 off-diag block 当宽度上界,
-      // plus/minus/eg 即使 sign-zero 也不让列宽缩.
-      // 例外: m=1 cell 能 symbolic 化 (本地 simple-identify 或 cache 命中) 时, 它的
-      // 闭式宽度跟浮点完全无关, 不参与浮点小数点对齐计算 — 否则即使所有 cell 都
-      // symbolic, 列宽还是被原浮点宽度撑住, 看着拖泥带水.
+      // 跨 view 同尺寸分组 (用户偏好 2026-05-15):
+      //   - std/plus/minus 三 view 同宽 (互相切换时框不抖动): 只喂 std view 浮点 +
+      //     std 同区组内所有 symbolic latex.
+      //   - eg 独立: 只喂 eg view 自己的浮点 + symbolic.
+      //   - md 独立: 只喂 md view 自己的浮点 + symbolic.
+      // 框宽 = max(浮点公式 4ch+int+frac, symbolic 字符估算). symbolic cell 时浮点
+      // 上界不参与, 让 cell 框真正贴合 ISC 后的整数/表达式宽度.
       widthReferenceBlocks: function*() {
         if (!valuesFresh) return;
-        for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
-          if (I === J) continue;
-          // 同时考虑 std 跟 eg 的浮点宽度 — 哪边 symbolic 化都不参与对齐.
-          const e = ch.entries[`${I},${J}`];
-          if (e && !e.error && e.value_block) {
-            const mod = modifiedBlock(e, ch.d, I, J);
-            if (!(ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, mod[0][0], 'std'))) {
-              yield mod;
-            }
-          }
-          // eg 也单独看一眼 (用户可能在 eg view 下查看)
-          const eg = egBlock(I, J);
-          if (eg && !(ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, eg[0][0], 'eg'))) {
-            yield eg;
-          }
-        }
-        if (mdFull) {
+        if (view === 'md') {
+          if (!mdFull) return;
           for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
             const block = sliceFullBlock(mdFull, ms, I, J);
-            // md cell symbolic 化时 (ISC 后所有整数 entry 走 cs-symbolic) 不参与
-            // 浮点宽度对齐, 否则 ISC 之后 expMd 列宽还被原浮点宽度撑住.
+            // m=1 cell 且能 symbolic 化 → 不参与浮点宽度, 让 latex 估算定宽度.
             if (ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, block[0][0], 'md')) continue;
             yield block;
           }
+          return;
+        }
+        if (view === 'eg') {
+          for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
+            if (I === J) continue;
+            const eg = egBlock(I, J);
+            if (!eg) continue;
+            if (ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, eg[0][0], 'eg')) continue;
+            yield eg;
+          }
+          return;
+        }
+        // std / plus / minus: 三 view 同宽组, 用 std 浮点当上界.
+        for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
+          if (I === J) continue;
+          const e = ch.entries[`${I},${J}`];
+          if (!e || e.error || !e.value_block) continue;
+          const mod = modifiedBlock(e, ch.d, I, J);
+          if (ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, mod[0][0], 'std')) continue;
+          yield mod;
+        }
+      },
+      widthReferenceLatex: function*() {
+        if (!valuesFresh) return;
+        if (view === 'md') {
+          if (!mdFull) return;
+          for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
+            if (ms[I] !== 1 || ms[J] !== 1) continue;
+            const block = sliceFullBlock(mdFull, ms, I, J);
+            const sym = getSymbolicCellExpr(I, J, block[0][0], 'md');
+            if (sym) yield sym.latex;
+          }
+          return;
+        }
+        if (view === 'eg') {
+          for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
+            if (I === J || ms[I] !== 1 || ms[J] !== 1) continue;
+            const eg = egBlock(I, J);
+            if (!eg) continue;
+            const sym = getSymbolicCellExpr(I, J, eg[0][0], 'eg');
+            if (sym) yield sym.latex;
+          }
+          return;
+        }
+        // std/plus/minus 同宽组: 三 view 的 symbolic latex 全 yield, 互相不窄.
+        for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
+          if (I === J || ms[I] !== 1 || ms[J] !== 1) continue;
+          const e = ch.entries[`${I},${J}`];
+          if (!e || e.error || !e.value_block) continue;
+          const mod = modifiedBlock(e, ch.d, I, J);
+          const baseV = mod[0][0];
+          // std view latex
+          const symStd = getSymbolicCellExpr(I, J, baseV, 'std');
+          if (symStd) yield symStd.latex;
+          // minus view: 取负后的 latex
+          const negV = { re: -baseV.re, im: -baseV.im };
+          const symMinus = getSymbolicCellExpr(I, J, negV, 'minus');
+          if (symMinus) yield symMinus.latex;
+          // plus view 用同 baseV (跟 std 同符号), 已 yield 过.
         }
       },
       getCellContent: (I, J, _a, _b): CellContent => {
