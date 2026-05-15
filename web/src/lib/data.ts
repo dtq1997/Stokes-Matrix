@@ -123,6 +123,18 @@ function synthCpnDataset(n: number): SimpleDataset {
     const next = k + 1 < rays.length ? rays[k + 1] : rays[0] + TP;
     return { d: (r + next) / 2, entries: {} };
   });
+  // d_reg: 最大非正 chamber midpoint, normalize 到 [-π, π) (跟 v5 spec
+  // project_word_path_v5_spec.md 一致). 用来填 _v5.d_reg, 让前端切 n 之后 d
+  // 跟着新 dataset 的 d_reg 走, 不退回到 -π/2 fallback.
+  const dRegs = chambers
+    .map(c => {
+      let x = c.d;
+      while (x >= Math.PI) x -= TP;
+      while (x < -Math.PI) x += TP;
+      return x;
+    })
+    .filter(x => x <= 0);
+  const dReg = dRegs.length > 0 ? Math.max(...dRegs) : -Math.PI / 2;
   return {
     punctures,
     A_diag,
@@ -132,7 +144,8 @@ function synthCpnDataset(n: number): SimpleDataset {
     rays,
     chambers,
     _algorithm: 'cpn-synth-client',
-  };
+    _v5: { d_reg: dReg },
+  } as SimpleDataset;
 }
 
 export async function loadDataset(): Promise<SimpleDataset> {
