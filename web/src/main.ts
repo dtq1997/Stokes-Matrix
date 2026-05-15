@@ -1990,15 +1990,29 @@ async function main() {
     const tooltip = `${v.re.toPrecision(8)} ${tipSign} ${Math.abs(v.im).toPrecision(8)}i`;
     // 1) 精确传播命中: view='md' 时查 exactMdByChamber (md_int = (S^-)^{-1}·S^+,
     //    A_diag=0 gate 内整数闭算); 其它 view 查 exactByChamber (std S_d 整数).
+    //
+    // md 分支跳过浮点容差比对 — 整数 md 由整数代入 (S^-)^{-1}·S^+ 闭算得到, bit-exact 正确;
+    // 浮点 mdFull 是浮点求逆+三连乘, n≥9 的 CP^n 累积误差可达 1e-3, 容差 mag·1e-5 会被超.
+    // 整数矩阵存在即采用, 浮点不再是 source of truth.
+    //
+    // std/plus/minus 分支保留容差校验: 单 entry 直读 dataset, 跟整数偏差是 dataset 精度噪声,
+    // 容差是个 sanity gate, 不会因传播链路径长而爆.
     const effView = view ?? state.sdView;
-    const M = (effView === 'md' ? exactMdByChamber : exactByChamber).get(state.selectedChamber);
-    if (M && I >= 0 && I < M.length && J >= 0 && J < M.length) {
-      const n = M[I][J];
-      const mag = Math.max(Math.abs(v.re), Math.abs(v.im), 1, Math.abs(n));
-      const tol = mag * 1e-5;
-      if (Math.abs(v.im) < tol) {
-        if (Math.abs(v.re - n) < tol) return { latex: String(n), tooltip };
-        if (Math.abs(v.re + n) < tol) return { latex: String(-n), tooltip };
+    if (effView === 'md') {
+      const Mmd = exactMdByChamber.get(state.selectedChamber);
+      if (Mmd && I >= 0 && I < Mmd.length && J >= 0 && J < Mmd.length) {
+        return { latex: String(Mmd[I][J]), tooltip };
+      }
+    } else {
+      const M = exactByChamber.get(state.selectedChamber);
+      if (M && I >= 0 && I < M.length && J >= 0 && J < M.length) {
+        const n = M[I][J];
+        const mag = Math.max(Math.abs(v.re), Math.abs(v.im), 1, Math.abs(n));
+        const tol = mag * 1e-5;
+        if (Math.abs(v.im) < tol) {
+          if (Math.abs(v.re - n) < tol) return { latex: String(n), tooltip };
+          if (Math.abs(v.re + n) < tol) return { latex: String(-n), tooltip };
+        }
       }
     }
     // 2) iscLibrary 查询 (数值字典, identifyValue 入口)
