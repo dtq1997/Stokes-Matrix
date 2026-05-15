@@ -68,7 +68,10 @@ export function buildMatrixGrid(opts: BuildGridOpts): void {
   const rowBlocks = opts.rowBlocks !== false;
   const colBlocks = opts.colBlocks !== false;
   const diagSelectable = !!opts.diagSelectable;
-  sm.style.gridTemplateColumns = `auto repeat(${N}, 1fr)`;
+  // 列宽: minmax(min-width, max-content) — cell 按内容撑开, 容器装不下触发横向
+  // 滚动 (.matrix-grid 自己 overflow-x:auto). 不再 1fr 平分压扁 ISC 后的大整数.
+  // min-width 由 .sm-cell CSS 设的 max(浮点公式, --cs-sym-w) 决定 (matrix-panel.ts).
+  sm.style.gridTemplateColumns = `auto repeat(${N}, max-content)`;
   sm.innerHTML = '';
   // corner + 列 labels
   const corner = document.createElement('div');
