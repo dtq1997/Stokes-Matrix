@@ -346,20 +346,23 @@ async function main() {
   // buildMarkerStrip 推迟到 setD('init') 第一次调用时 (那时 currentK 才确定)
 
   // 默认 d: 优先用 dataset 里的 d_reg (v5 的 reference direction, 落在 [-π, π) 内);
-  // 没有时 fallback -π/2.
-  let initialD = -Math.PI / 2;
-  try {
-    const meta = (dataset as any)._v5;
-    const dReg = meta && typeof meta.d_reg === 'number' ? meta.d_reg : null;
-    if (dReg !== null) {
-      // d_reg 已经在 (-π, π] 区间内; normalize 到 [-π, π) 避开 +π 边界
-      let normalized = dReg;
-      while (normalized >= Math.PI) normalized -= 2 * Math.PI;
-      while (normalized < -Math.PI) normalized += 2 * Math.PI;
-      initialD = normalized;
-    }
-  } catch { /* ignore, use fallback */ }
-  let currentD = initialD;
+  // 没有时 fallback -π/2. 切例子 (cpn 改 n) 重建 dataset 后也要重提一次, 否则
+  // currentD 卡在上个 dataset 的 d_reg 上 (用户反馈 2026-05-15).
+  function extractDefaultD(): number {
+    try {
+      const meta = (dataset as any)._v5;
+      const dReg = meta && typeof meta.d_reg === 'number' ? meta.d_reg : null;
+      if (dReg !== null) {
+        // d_reg 已经在 (-π, π] 区间内; normalize 到 [-π, π) 避开 +π 边界
+        let normalized = dReg;
+        while (normalized >= Math.PI) normalized -= 2 * Math.PI;
+        while (normalized < -Math.PI) normalized += 2 * Math.PI;
+        return normalized;
+      }
+    } catch { /* ignore, use fallback */ }
+    return -Math.PI / 2;
+  }
+  let currentD = extractDefaultD();
 
   // 当前 d-window 的 k: d-window = [(2k-1)π, (2k+1)π).
   // 0-branch (k=0) 是 [-π, π); 输入 d=2.3π 时 k 切到 1, window = [π, 3π).
@@ -484,6 +487,10 @@ async function main() {
 
     n = newN;
     nInput.value = String(n);
+
+    // 切例子重置 d 到新 dataset 的 d_reg (用户偏好: 切 n 总是重置, 不保留旧 d).
+    // 必须在 setD 前 — setD 会用 currentRays() 重算 selectedChamber, 那时 chamber 已是新的.
+    setD(extractDefaultD(), 'init');
 
     // URL: 默认 n 省略 ?n=, 非默认才显式写; 顺带把 legacy ?dataset=cpK 改写成 cpn.
     const url = new URL(window.location.href);
