@@ -635,6 +635,50 @@ test.describe('Sd-viz smoke tests', () => {
     expect(md12.md12).toBe(15);
   });
 
+  // 防回归 (2026-05-15): antiStokesRays 的符号约定必须跟 sage SSOT
+  // (sd_chamber_geom.py::anti_stokes_rays = -arg(u_i - u_j) mod 2π) 严格一致.
+  // 历史 bug: commit 8981948 (2026-05-14) 引入时漏了负号, 用 +atan2(dy,dx),
+  // 导致 frontend rays 是 sage rays 关于 0 的镜像 → chamberOfDirection 错位.
+  test('antiStokesRays sign convention matches sage backend (negative arg)', async ({ page }) => {
+    await page.goto('/');
+    const out = await page.evaluate(async () => {
+      const geom = await import('/src/lib/geometry.ts' + `?v=${Date.now()}`);
+      // 三个泛位形 (镜像非对称, 才能区分 +/-arg 两种约定):
+      const cases = [
+        [{re:0,im:0},{re:1,im:1},{re:-1,im:2}],
+        [{re:0,im:0},{re:1,im:0.5}],
+        [{re:0,im:0},{re:2,im:1},{re:1,im:-0.5}],
+      ];
+      return cases.map(ps => geom.antiStokesRays(ps));
+    });
+    // 同款 sage 算法 (sd_chamber_geom.py:20) 的 expected:
+    function sageRays(ps: {re:number;im:number}[]): number[] {
+      const tp = 2 * Math.PI;
+      const set = new Set<number>();
+      for (let i = 0; i < ps.length; i++) for (let j = 0; j < ps.length; j++) {
+        if (i === j) continue;
+        const diffRe = ps[i].re - ps[j].re;
+        const diffIm = ps[i].im - ps[j].im;
+        if (Math.hypot(diffRe, diffIm) < 1e-8) continue;
+        const ang = ((-Math.atan2(diffIm, diffRe)) % tp + tp) % tp;
+        set.add(Math.round(ang * 1e10) / 1e10);
+      }
+      return Array.from(set).sort((a, b) => a - b);
+    }
+    const cases = [
+      [{re:0,im:0},{re:1,im:1},{re:-1,im:2}],
+      [{re:0,im:0},{re:1,im:0.5}],
+      [{re:0,im:0},{re:2,im:1},{re:1,im:-0.5}],
+    ];
+    for (let c = 0; c < cases.length; c++) {
+      const expected = sageRays(cases[c]);
+      expect(out[c].length).toBe(expected.length);
+      for (let k = 0; k < expected.length; k++) {
+        expect(out[c][k]).toBeCloseTo(expected[k], 6);
+      }
+    }
+  });
+
   // 防回归 (2026-05-15): wall-crossing.ts monodromyFactorInt 整数闭算正确性.
   // Bug 2 修复核心: A_diag=0 gate 内, md_int = (S^-)^{-1}·S^+ 全整数 (Neumann 级数).
   // 这里在浏览器内直接 import lib 单元测, 不走 dataset fresh-state.

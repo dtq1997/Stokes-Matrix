@@ -112,8 +112,9 @@ export function monodromyPhase(
 }
 
 /**
- * Anti-Stokes rays from punctures: arg(u_i - u_j) mod 2π for i ≠ j.
- * Sort 升序, 去重 (tol = 1e-8). 跟 sage 端 anti_stokes_rays 输出对齐.
+ * Anti-Stokes rays from punctures: -arg(u_i - u_j) mod 2π for i ≠ j.
+ * SSOT: sd_chamber_geom.py::anti_stokes_rays (Paper convention, 负 arg).
+ * Sort 升序, 去重 (tol = 1e-8). 跟 sage 端 anti_stokes_rays 输出严格对齐.
  * 用于 puncture 拖动后 live 重算 ray 集合 (代替 dataset.rays).
  */
 export function antiStokesRays(punctures: { re: number; im: number }[]): number[] {
@@ -126,7 +127,7 @@ export function antiStokesRays(punctures: { re: number; im: number }[]): number[
       const dx = punctures[i].re - punctures[j].re;
       const dy = punctures[i].im - punctures[j].im;
       if (Math.hypot(dx, dy) < tol) continue;
-      let a = Math.atan2(dy, dx);
+      let a = -Math.atan2(dy, dx);
       a = ((a % tp) + tp) % tp;
       rays.add(Math.round(a / tol) * tol);
     }
