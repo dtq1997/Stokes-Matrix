@@ -55,10 +55,11 @@ export interface BuildGridOpts {
   colBlocks?: boolean;
   /** 对角 cell 也可点击 (default false). */
   diagSelectable?: boolean;
-  /** 列宽策略 (default '1fr'): 1fr = cell 等分容器宽度 (默认, Omega 用); max-content
-   *  = cell 按内容撑开, 容器装不下走 overflow-x:auto 横滚 (Stokes 用, ISC 后大整数
-   *  不被压扁). */
-  columnSizing?: '1fr' | 'max-content';
+  /** 列宽策略 (default '1fr'): 1fr = cell 等分容器宽度 (Omega 用); 'content' =
+   *  全表统一列宽 = max(所有 cell 实测内容宽度), 容器装不下走 overflow-x:auto
+   *  横滚 (Stokes 用, ISC 后大整数不被压扁; 同时短 view 例如 plus/minus 不会
+   *  被某列内容稀疏压窄, 因为同宽组里所有 view 共享一个 max). */
+  columnSizing?: '1fr' | 'content';
   /** KaTeX 渲染函数 (调用方注入, 避免 lib 直接依赖 katex). */
   tex: (s: string) => string;
 }
@@ -75,7 +76,13 @@ export function buildMatrixGrid(opts: BuildGridOpts): void {
   // 列宽: 默认 1fr (cell 等分容器, Omega 用); caller 显式传 max-content 时
   // cell 按内容撑开, 容器装不下时 .matrix-grid 自带 overflow-x:auto 横滚
   // (Stokes 用, ISC 后大整数 cell 不被 1fr 压扁).
-  const colSize = opts.columnSizing ?? '1fr';
+  // 列宽: 默认 1fr (Omega 用, cell 等分容器); caller 显式传 'content' 时
+  // minmax(var(--cell-w), 1fr) — cell 不小于 --cell-w (按内容算的统一宽度,
+  // 大整数撑得开), 但容器有富余时 1fr 平分撑满 (跟 Omega 一致, 矩阵贴左).
+  // 容器装不下 N×--cell-w 时 .matrix-grid 自带 overflow-x:auto 横滚.
+  const colSize = opts.columnSizing === 'content'
+    ? 'minmax(var(--cell-w, 0px), 1fr)'
+    : '1fr';
   sm.style.gridTemplateColumns = `auto repeat(${N}, ${colSize})`;
   // diagSelectable 存到容器 dataset, refreshMatrixCells 读它决定 stale 时
   // 对角是否给 .diag 类 (避免 Omega 一直 stale + diagSelectable=true 但对角
@@ -216,6 +223,14 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
     }
   }
   sm.style.setProperty('--cs-sym-w', `${maxSymCh.toFixed(2)}ch`);
+
+  // 全表统一列宽 (columnSizing='content' 时生效, '1fr' 时被覆盖不参与 layout):
+  // 跟 .sm-cell min-width 公式同步 — max(浮点宽, symbolic 宽), 写入 --cell-w.
+  // CSS calc 解不了 max() with mixed units inside grid-template-columns
+  // (浏览器实现差异), 这里 JS 端先算好 ch 值再写.
+  const floatCh = maxInt + (maxFrac > 0 ? maxFrac + 1 : 0) + 4;  // sign+i+padding ≈ 4ch
+  const cellCh = Math.max(floatCh, maxSymCh);
+  sm.style.setProperty('--cell-w', `${cellCh.toFixed(2)}ch`);
 
   const cells = sm.querySelectorAll<HTMLElement>('.sm-cell');
   const staleTip = opts.staleMessage ?? 'stale: recompute';
