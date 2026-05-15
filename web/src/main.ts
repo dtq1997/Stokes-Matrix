@@ -1475,45 +1475,6 @@ async function main() {
           yield mod;
         }
       },
-      widthReferenceLatex: function*() {
-        if (!valuesFresh) return;
-        if (view === 'md') {
-          if (!mdFull) return;
-          for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
-            if (ms[I] !== 1 || ms[J] !== 1) continue;
-            const block = sliceFullBlock(mdFull, ms, I, J);
-            const sym = getSymbolicCellExpr(I, J, block[0][0], 'md');
-            if (sym) yield sym.latex;
-          }
-          return;
-        }
-        if (view === 'eg') {
-          for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
-            if (I === J || ms[I] !== 1 || ms[J] !== 1) continue;
-            const eg = egBlock(I, J);
-            if (!eg) continue;
-            const sym = getSymbolicCellExpr(I, J, eg[0][0], 'eg');
-            if (sym) yield sym.latex;
-          }
-          return;
-        }
-        // std/plus/minus 同宽组: 三 view 的 symbolic latex 全 yield, 互相不窄.
-        for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
-          if (I === J || ms[I] !== 1 || ms[J] !== 1) continue;
-          const e = ch.entries[`${I},${J}`];
-          if (!e || e.error || !e.value_block) continue;
-          const mod = modifiedBlock(e, ch.d, I, J);
-          const baseV = mod[0][0];
-          // std view latex
-          const symStd = getSymbolicCellExpr(I, J, baseV, 'std');
-          if (symStd) yield symStd.latex;
-          // minus view: 取负后的 latex
-          const negV = { re: -baseV.re, im: -baseV.im };
-          const symMinus = getSymbolicCellExpr(I, J, negV, 'minus');
-          if (symMinus) yield symMinus.latex;
-          // plus view 用同 baseV (跟 std 同符号), 已 yield 过.
-        }
-      },
       getCellContent: (I, J, _a, _b): CellContent => {
         if (view === 'md') {
           if (!mdFull) return { kind: 'unavailable', tooltip: 'monodromy factor unavailable' };

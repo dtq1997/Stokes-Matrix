@@ -76,13 +76,14 @@ export function buildMatrixGrid(opts: BuildGridOpts): void {
   // 列宽: 默认 1fr (cell 等分容器, Omega 用); caller 显式传 max-content 时
   // cell 按内容撑开, 容器装不下时 .matrix-grid 自带 overflow-x:auto 横滚
   // (Stokes 用, ISC 后大整数 cell 不被 1fr 压扁).
-  // 列宽: 默认 1fr (Omega 用, cell 等分容器); caller 显式传 'content' 时
-  // minmax(var(--cell-w), 1fr) — cell 不小于 --cell-w (按内容算的统一宽度,
-  // 大整数撑得开), 但容器有富余时 1fr 平分撑满 (跟 Omega 一致, 矩阵贴左).
-  // 容器装不下 N×--cell-w 时 .matrix-grid 自带 overflow-x:auto 横滚.
-  const colSize = opts.columnSizing === 'content'
-    ? 'minmax(var(--cell-w, 0px), 1fr)'
-    : '1fr';
+  // 列宽: 默认 1fr (Omega 用, cell 等分容器); 'content' 模式用
+  // minmax(max-content, 1fr) — 浏览器自动取每列内容 max-content 当 min, 容器
+  // 有富余时 1fr 撑满 (跟 Omega 一样贴左), 装不下时 max-content 不退让 →
+  // overflow-x:auto 横滚. 不需要任何 JS 估算 / DOM 实测.
+  // 全表统一列宽 (跨 view 不抖动) 由 widthReferenceBlocks/Latex 喂同宽组合集
+  // 给 .sm-cell min-width 间接保证 — 每个 cell 至少 max(浮点公式, --cs-sym-w),
+  // 三 view 共享同一个 max → max-content 列宽 = max(同宽组所有 cell 内容).
+  const colSize = opts.columnSizing === 'content' ? 'minmax(max-content, 1fr)' : '1fr';
   sm.style.gridTemplateColumns = `auto repeat(${N}, ${colSize})`;
   // diagSelectable 存到容器 dataset, refreshMatrixCells 读它决定 stale 时
   // 对角是否给 .diag 类 (避免 Omega 一直 stale + diagSelectable=true 但对角
@@ -160,11 +161,6 @@ export interface RefreshOpts {
    *  通常是 std view 的所有 off-diag block (即未做 sign 过滤/取负). 不传则
    *  退化成 view-specific 自己扫一遍 — 但会出现 plus/minus 比 std 窄的不稳定. */
   widthReferenceBlocks?: () => Iterable<ComplexNum[][]>;
-  /** 跨 view 同尺寸 (symbolic 支线): 调用方提供当前 view (或其同宽组) 内所有
-   *  symbolic cell 的 latex 字符串. panel 估算这些字符串的 ch 等价宽度, 跟
-   *  浮点宽度合并取 max 设到 --cs-sym-w. ISC 出大整数 / 表达式时, 单元格框
-   *  不再被浮点公式 (var(--cs-int-w)+var(--cs-frac-w)+4ch) 压窄. */
-  widthReferenceLatex?: () => Iterable<string>;
   selectedEntry: [number, number] | null;
   /** 高亮模式:
    *  - 'entry' (default): 仅 (I,J) 匹配 selectedEntry 时高亮.
@@ -208,29 +204,6 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
   }
   sm.style.setProperty('--cs-int-w', `${maxInt}ch`);
   sm.style.setProperty('--cs-frac-w', `${maxFrac > 0 ? maxFrac + 1 : 0}ch`);
-
-  // Symbolic cell 宽度估算: KaTeX 字体下整数/分数/√/π 表达式按字符长度粗估
-  // (~0.65 ch/char, 经验值). 比浮点公式宽时撑大 cell, 否则不影响 (max 取大).
-  // 简单字符长度估; 复杂表达式 (sqrt/pi) 实际比字符数稍宽, 留 1ch 余量.
-  let maxSymCh = 0;
-  if (!opts.isStale && opts.widthReferenceLatex) {
-    for (const s of opts.widthReferenceLatex()) {
-      // 粗估: 数字字符 ~0.6ch, 字母/符号 ~0.7ch. 取均值 0.65ch.
-      // \sqrt{} / \pi 等 KaTeX 命令实际渲染比字符数短, 这里高估安全.
-      const visible = s.replace(/[\\{}]/g, '');
-      const est = visible.length * 0.65 + 1;
-      if (est > maxSymCh) maxSymCh = est;
-    }
-  }
-  sm.style.setProperty('--cs-sym-w', `${maxSymCh.toFixed(2)}ch`);
-
-  // 全表统一列宽 (columnSizing='content' 时生效, '1fr' 时被覆盖不参与 layout):
-  // 跟 .sm-cell min-width 公式同步 — max(浮点宽, symbolic 宽), 写入 --cell-w.
-  // CSS calc 解不了 max() with mixed units inside grid-template-columns
-  // (浏览器实现差异), 这里 JS 端先算好 ch 值再写.
-  const floatCh = maxInt + (maxFrac > 0 ? maxFrac + 1 : 0) + 4;  // sign+i+padding ≈ 4ch
-  const cellCh = Math.max(floatCh, maxSymCh);
-  sm.style.setProperty('--cell-w', `${cellCh.toFixed(2)}ch`);
 
   const cells = sm.querySelectorAll<HTMLElement>('.sm-cell');
   const staleTip = opts.staleMessage ?? 'stale: recompute';

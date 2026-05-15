@@ -706,14 +706,11 @@ h3 {
   cursor: pointer;
   line-height: 1.15;
   /* layout stability: 0/I cell 也要撑到跟最宽 cs-grid cell 同尺寸, 避免 S_d ↔ S_d^±
-     切换时列宽 / 行高塌缩. width: sign+gap+i+padding ≈ 4ch + 全局 int/frac;
-     symbolic cell (ISC 后整数/表达式) 走 --cs-sym-w; 两个取 max 让 cell 框
-     适配实际显示宽度 (浮点 or symbolic 哪个宽就听哪个).
+     切换时列宽 / 行高塌缩. width: sign+gap+i+padding ≈ 4ch + 全局 int/frac.
+     symbolic cell (ISC 后整数/表达式) 不依赖此 min-width — grid-template-columns
+     用 minmax(max-content, 1fr) 自然按内容撑开列宽, 浏览器实测准确.
      height: cs-grid 实测 ~40px (2 行 × line-height + padding), 给固定 min-height. */
-  min-width: max(
-    calc(var(--cs-int-w, 1ch) + var(--cs-frac-w, 0ch) + 4ch),
-    var(--cs-sym-w, 0ch)
-  );
+  min-width: calc(var(--cs-int-w, 1ch) + var(--cs-frac-w, 0ch) + 4ch);
   min-height: 40px;
   display: flex;
   align-items: center;
