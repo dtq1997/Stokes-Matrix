@@ -55,6 +55,10 @@ export interface BuildGridOpts {
   colBlocks?: boolean;
   /** 对角 cell 也可点击 (default false). */
   diagSelectable?: boolean;
+  /** 列宽策略 (default '1fr'): 1fr = cell 等分容器宽度 (默认, Omega 用); max-content
+   *  = cell 按内容撑开, 容器装不下走 overflow-x:auto 横滚 (Stokes 用, ISC 后大整数
+   *  不被压扁). */
+  columnSizing?: '1fr' | 'max-content';
   /** KaTeX 渲染函数 (调用方注入, 避免 lib 直接依赖 katex). */
   tex: (s: string) => string;
 }
@@ -68,10 +72,15 @@ export function buildMatrixGrid(opts: BuildGridOpts): void {
   const rowBlocks = opts.rowBlocks !== false;
   const colBlocks = opts.colBlocks !== false;
   const diagSelectable = !!opts.diagSelectable;
-  // 列宽: minmax(min-width, max-content) — cell 按内容撑开, 容器装不下触发横向
-  // 滚动 (.matrix-grid 自己 overflow-x:auto). 不再 1fr 平分压扁 ISC 后的大整数.
-  // min-width 由 .sm-cell CSS 设的 max(浮点公式, --cs-sym-w) 决定 (matrix-panel.ts).
-  sm.style.gridTemplateColumns = `auto repeat(${N}, max-content)`;
+  // 列宽: 默认 1fr (cell 等分容器, Omega 用); caller 显式传 max-content 时
+  // cell 按内容撑开, 容器装不下时 .matrix-grid 自带 overflow-x:auto 横滚
+  // (Stokes 用, ISC 后大整数 cell 不被 1fr 压扁).
+  const colSize = opts.columnSizing ?? '1fr';
+  sm.style.gridTemplateColumns = `auto repeat(${N}, ${colSize})`;
+  // diagSelectable 存到容器 dataset, refreshMatrixCells 读它决定 stale 时
+  // 对角是否给 .diag 类 (避免 Omega 一直 stale + diagSelectable=true 但对角
+  // 被无脑加 diag 不可选的回归, 来自 3bab850).
+  sm.dataset.diagSelectable = diagSelectable ? '1' : '0';
   sm.innerHTML = '';
   // corner + 列 labels
   const corner = document.createElement('div');
@@ -210,6 +219,10 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
 
   const cells = sm.querySelectorAll<HTMLElement>('.sm-cell');
   const staleTip = opts.staleMessage ?? 'stale: recompute';
+  // diagSelectable 由 buildMatrixGrid 存到 sm.dataset (3bab850 起 .diag 由
+  // refresh 后置决定, 之前漏掉 stale 分支没看 diagSelectable, 导致 Omega 一直
+  // stale + 对角不可选).
+  const diagSelectable = sm.dataset.diagSelectable === '1';
   for (const cell of Array.from(cells)) {
     const I = Number(cell.dataset.i!);
     const J = Number(cell.dataset.j!);
@@ -226,8 +239,10 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
 
     if (opts.isStale && (opts.staleIncludesDiag || I !== J)) {
       cell.innerHTML = `<span class="cs-zero" title="${staleTip}">—</span>`;
-      // stale 时对角按"无信息" 处理 → 显灰不可选
-      if (I === J) cell.classList.add('diag');
+      // stale 时对角按"无信息" 处理 → 显灰不可选; 但 diagSelectable (Omega 那种
+      // 对角不特殊的 panel) 时仍要可选, 不加 .diag.
+      if (I === J && !diagSelectable) cell.classList.add('diag');
+      else if (I === J) cell.classList.remove('diag');
       continue;
     }
 
@@ -235,9 +250,11 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
     // 后置决定对角 cell 显灰 + 可选: 内容是 block/symbolic 时正常 (md view 对角
     // 有信息); identity/zero/unavailable 时显灰不可选 (std/plus/minus/eg 对角).
     // off-diag 永远不打 .diag, 保持原有可点行为 (含 plus/minus 过滤成 0 的 cell
-    // 和 unavailable cell).
+    // 和 unavailable cell). Omega (diagSelectable=true) 永远不加 .diag, 对角可选.
     if (I === J) {
-      const diagInert = content.kind === 'identity' || content.kind === 'zero' || content.kind === 'unavailable';
+      const diagInert = !diagSelectable && (
+        content.kind === 'identity' || content.kind === 'zero' || content.kind === 'unavailable'
+      );
       cell.classList.toggle('diag', diagInert);
     } else {
       cell.classList.remove('diag');

@@ -1242,6 +1242,8 @@ async function main() {
       containerId: 'stokes-matrix',
       ms,
       onCellClick: (I, J) => selectEntry(I, J),
+      // Stokes: cell 按内容撑开, ISC 后大整数不被 1fr 压扁; 容器超宽自带横滚.
+      columnSizing: 'max-content',
       tex,
     });
     refreshStokesMatrix();
