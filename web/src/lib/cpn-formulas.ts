@@ -1,13 +1,15 @@
-// CP^{K-1} 经典例子 (Guzzetti X gauge) 的精确表达式合成.
-// 数据本身 (re/im 浮点) 仍由 cp{N}.json 提供; 这里生成 expr 字符串 + 重归一化 U.
+// CP^{K-1} 经典例子 (Guzzetti X gauge) 的精确表达式 + 数据合成.
+// 数据本身 (re/im 浮点) 客户端按公式直接算出, 不依赖 cp{N}.json.
 //
-// 归一化: sage export 的 u_n = K * e^(2*pi*i*n/K), 这里除掉 K 因子, 取
+// 归一化:
 //   u_n = e^(2*pi*i*n/K),                       n = 0..K-1
-// 数学上 U → U/K 等同于 z → z·K 的 rescale, Stokes 矩阵不变.
-// 显示更自然 (CP^2 落在单位圆), 不影响后端计算 (按缩放后的 U 算).
+// (原 sage export 用 u_n = K * e^(...), 这里除掉 K 因子. U → U/K 等同 z → z·K
+// 的 rescale, Stokes 矩阵不变. 显示更自然: CP^2 punctures 落在单位圆.)
 //
 // A[i,j] = (1/(2K)) * Σ_{n=0..K-1} (K-1-2n) * e^(i*pi*(2n+1)*(j-i)/K)
 //        = 0 if i==j (μ_diag 求和为 0). A 不随 U 缩放.
+//
+// expr 字符串生成后再对分子/分母做 gcd 化简 (eg. K=3,5,7,...: 分子分母同除 2).
 
 function gcd(a: number, b: number): number {
   a = Math.abs(a); b = Math.abs(b);
@@ -27,14 +29,17 @@ export function cpnPunctureExpr(K: number, n: number): string {
   return `e^(${pre}pi*i${denom})`;
 }
 
-/** CP^{K-1} 的 A[i,j] 表达式 (0-indexed 块下标; CP^n 所有 m_k=1, 跟 sub-index 无关). */
+/** CP^{K-1} 的 A[i,j] 表达式 (0-indexed 块下标; CP^n 所有 m_k=1, 跟 sub-index 无关).
+ *  整体形式: (1/d) * (c_1 * t_1 + c_2 * t_2 + ...), d=2K, c_n=(K-1-2n), t_n=e^(...) 或 ±1.
+ *  最后对 d 跟所有 |c| 取 gcd 同除化简 (eg. K=3,5,7,...: ±2 跟 2K 同除 2 → (1/K)*(...)). */
 export function cpnAEntryExpr(K: number, i: number, j: number): string {
   if (i === j) return '0';
   const k = j - i;
   const denom = 2 * K;
-  const terms: string[] = [];
+  type Term = { coef: number; powTerm: string };  // powTerm = "1" or "e^(...)"
+  const collected: Term[] = [];
   for (let n = 0; n < K; n++) {
-    const coef = K - 1 - 2 * n;
+    let coef = K - 1 - 2 * n;
     if (coef === 0) continue;
     const num = (2 * n + 1) * k;
     // exponent = num*pi*i/K. 化简 num/K.
@@ -43,33 +48,51 @@ export function cpnAEntryExpr(K: number, i: number, j: number): string {
     const b = K / g;
     let powTerm: string;
     if (b === 1) {
-      const am = ((a % 2) + 2) % 2;  // 整数指数: a*pi*i; 取 mod 2
-      powTerm = am === 0 ? '1' : '-1';
+      // 整数指数 a*pi*i: e^(a*pi*i) = (-1)^a. 把符号吸进 coef, powTerm 留 "1".
+      const am = ((a % 2) + 2) % 2;
+      if (am === 1) coef = -coef;
+      powTerm = '1';
     } else {
-      // 把 a 收进 [0, 2b) 防止过大数字
       const am = ((a % (2 * b)) + 2 * b) % (2 * b);
       const pre = am === 1 ? '' : `${am}*`;
       powTerm = `e^(${pre}pi*i/${b})`;
     }
-    const sign = coef > 0 ? (terms.length === 0 ? '' : '+') : '-';
-    const absCoef = Math.abs(coef);
-    const isUnit = powTerm === '1' || powTerm === '-1';
-    let body: string;
-    if (isUnit) {
-      // ±absCoef * (±1) → 折叠成 ±absCoef
-      const folded = powTerm === '1' ? absCoef : -absCoef;
-      body = folded === 0 ? '0' : String(folded);
-      // 重新算正负号写入 terms (覆盖前面的 sign 逻辑)
-      if (terms.length === 0) terms.push(body);
-      else terms.push(folded >= 0 ? `+${body}` : `${body}`);
-      continue;
-    }
-    const coefStr = absCoef === 1 ? '' : `${absCoef}*`;
-    body = `${coefStr}${powTerm}`;
-    terms.push(`${sign}${body}`);
+    collected.push({ coef, powTerm });
   }
-  if (terms.length === 0) return '0';
-  return `(1/${denom})*(${terms.join('')})`;
+  if (collected.length === 0) return '0';
+  // 同 powTerm 合并系数 (K=6,8,9,... 里同一个根 ζ 在多个 n 上出现).
+  const merged = new Map<string, number>();
+  for (const t of collected) merged.set(t.powTerm, (merged.get(t.powTerm) ?? 0) + t.coef);
+  const aggregated: Term[] = [];
+  for (const [powTerm, coef] of merged) if (coef !== 0) aggregated.push({ coef, powTerm });
+  if (aggregated.length === 0) return '0';
+  // 维持原顺序: 按"首次出现位置"排 (Map 已保 insertion order).
+  collected.length = 0; for (const t of aggregated) collected.push(t);
+  // gcd(denom, all |coef|) 同除化简.
+  let g = denom;
+  for (const t of collected) g = gcd(g, Math.abs(t.coef));
+  const dRed = denom / g;
+  const parts: string[] = [];
+  for (let idx = 0; idx < collected.length; idx++) {
+    const { coef: c0, powTerm } = collected[idx];
+    const c = c0 / g;
+    const sign = c < 0 ? '-' : (idx === 0 ? '' : '+');
+    const absC = Math.abs(c);
+    let body: string;
+    if (powTerm === '1') {
+      body = String(absC);
+    } else if (absC === 1) {
+      body = powTerm;
+    } else {
+      body = `${absC}*${powTerm}`;
+    }
+    parts.push(`${sign}${body}`);
+  }
+  const sum = parts.join('');
+  if (dRed === 1) {
+    return parts.length === 1 ? sum : `(${sum})`;
+  }
+  return `(1/${dRed})*(${sum})`;
 }
 
 /** 给 CP^{K-1} 的 punctures / A_off 附上 expr 字段, 直接 mutate 传入数组.
@@ -84,4 +107,53 @@ export function attachCpnExprs(K: number, punctures: { re: number; im: number; e
   for (const e of aOff) {
     e.expr = cpnAEntryExpr(K, e.i, e.j);
   }
+}
+
+/** 数值求 A[i,j] = (1/(2K)) Σ_n (K-1-2n) e^(i*pi*(2n+1)*(j-i)/K). i==j 时为 0. */
+function cpnAEntryNumeric(K: number, i: number, j: number): { re: number; im: number } {
+  if (i === j) return { re: 0, im: 0 };
+  let re = 0, im = 0;
+  const k = j - i;
+  for (let n = 0; n < K; n++) {
+    const coef = K - 1 - 2 * n;
+    if (coef === 0) continue;
+    const theta = Math.PI * (2 * n + 1) * k / K;
+    re += coef * Math.cos(theta);
+    im += coef * Math.sin(theta);
+  }
+  re /= 2 * K;
+  im /= 2 * K;
+  return { re, im };
+}
+
+/** 客户端按公式生成 QH^*(CP^{K-1}) 整个 dataset (替代 cp{N}.json fetch).
+ *  - punctures: e^(2πin/K), n=0..K-1
+ *  - A_diag = 0 (μ_diag 求和为 0)
+ *  - A_off: K*(K-1) 个非对角 entry, 带精确 expr
+ *  - m_sizes = [1]*K
+ *  - rays / chambers 由前端 antiStokesRays 处填, 这里给空占位 (loadDataset 接管). */
+export function buildCpnDataset(K: number): {
+  punctures: { re: number; im: number; expr?: string }[];
+  A_diag: number[];
+  A_diag_block: number[][];
+  A_off: { i: number; j: number; a: number; b: number; re: number; im: number; expr?: string }[];
+  m_sizes: number[];
+} {
+  const punctures: { re: number; im: number; expr?: string }[] = [];
+  for (let n = 0; n < K; n++) {
+    const ang = 2 * Math.PI * n / K;
+    punctures.push({ re: Math.cos(ang), im: Math.sin(ang), expr: cpnPunctureExpr(K, n) });
+  }
+  const A_diag = Array.from({ length: K }, () => 0);
+  const A_diag_block = Array.from({ length: K }, () => [0]);
+  const A_off: { i: number; j: number; a: number; b: number; re: number; im: number; expr?: string }[] = [];
+  for (let i = 0; i < K; i++) {
+    for (let j = 0; j < K; j++) {
+      if (i === j) continue;
+      const v = cpnAEntryNumeric(K, i, j);
+      A_off.push({ i, j, a: 0, b: 0, re: v.re, im: v.im, expr: cpnAEntryExpr(K, i, j) });
+    }
+  }
+  const m_sizes = Array.from({ length: K }, () => 1);
+  return { punctures, A_diag, A_diag_block, A_off, m_sizes };
 }

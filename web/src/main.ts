@@ -1,5 +1,5 @@
 import katex from 'katex';
-import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey, iscQuery, iscIsValueForm, type IscCandidate } from './lib/data.js';
+import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey, iscQuery, iscIsValueForm, rebuildCpnDataset, CPN_N_BOUNDS, type IscCandidate } from './lib/data.js';
 import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js';
 import {
@@ -72,9 +72,11 @@ function setupDatasetSelect() {
     const opt = document.createElement('option');
     opt.value = entry.key;
     // KaTeX 不便嵌 <option>, dropdown 用纯文本; CP^n 用 unicode 上标.
+    // CP^{n-1} 保持符号形式 (n 由左边 n=输入框控制, 这里只是 label).
     opt.textContent = entry.label
       .replace(/\\mathbb\{CP\}/g, 'CP')
       .replace(/QH\^\*/g, 'QH*')
+      .replace(/\^\{n-1\}/g, '^(n-1)')
       .replace(/\^2/g, '²').replace(/\^3/g, '³').replace(/\^4/g, '⁴');
     if (entry.key === currentKey) opt.selected = true;
     sel.appendChild(opt);
@@ -453,12 +455,55 @@ async function main() {
   nInput.value = String(n);
   nInput.addEventListener('change', () => {
     const newN = Number(nInput.value);
-    if (!Number.isInteger(newN) || newN < 1 || newN > 20) {
-      nInput.value = String(n);
+    if (!Number.isInteger(newN)) { nInput.value = String(n); return; }
+    // cpn dataset: n 直接驱动 CP^{n-1} 公式重生成 (而不是保留旧 entries).
+    if (getDatasetKey() === 'cpn') {
+      const clamped = Math.max(CPN_N_BOUNDS.min, Math.min(CPN_N_BOUNDS.max, newN));
+      if (clamped !== newN) nInput.value = String(clamped);
+      if (clamped !== n) { pushHistory(); regenerateCpnN(clamped); }
       return;
     }
+    if (newN < 1 || newN > 20) { nInput.value = String(n); return; }
     if (newN !== n) { pushHistory(); resizeN(newN); }
   });
+
+  /** cpn dataset 专用: 按 CP^{newN-1} 公式重建整个 dataset, 不保留旧 (U, A). */
+  function regenerateCpnN(newN: number) {
+    const fresh = rebuildCpnDataset(newN);
+    Object.keys(dataset).forEach(k => delete (dataset as any)[k]);
+    Object.assign(dataset, fresh);
+
+    state.punctureOverrides = dataset.punctures.map(p => ({ ...p }));
+    state.AOverrides = rebuildInitialA().map(row => row.map(c => ({ ...c })));
+    state.mOverrides = [...dataset.m_sizes];
+    state.selectedEntry = null;
+    state.paths.clear();
+    state.stokesStale = true;
+    state.exampleAwaitingCompute = true;
+    state.selectedChamber = 0;
+
+    n = newN;
+    nInput.value = String(n);
+
+    // URL: 默认 n 省略 ?n=, 非默认才显式写; 顺带把 legacy ?dataset=cpK 改写成 cpn.
+    const url = new URL(window.location.href);
+    if (newN === CPN_N_BOUNDS.default) url.searchParams.delete('n');
+    else url.searchParams.set('n', String(newN));
+    const dsParam = url.searchParams.get('dataset');
+    if (dsParam && /^cp\d+$/.test(dsParam)) url.searchParams.set('dataset', 'cpn');
+    window.history.replaceState({}, '', url.toString());
+
+    buildUTable();
+    buildATable();
+    buildStokesMatrix();
+    buildOmegaMatrix();
+    updateDimInfo();
+    updateStaleBanner();
+    canvas.setState(state);
+    refreshStokesMatrix();
+    updateStokesPanel();
+    updatePathInfo();
+  }
 
   function resizeN(newN: number) {
     const oldN = n;

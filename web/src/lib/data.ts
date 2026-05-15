@@ -1,5 +1,6 @@
 import type { SimpleDataset } from './types.js';
-import { attachCpnExprs } from './cpn-formulas.js';
+import { buildCpnDataset } from './cpn-formulas.js';
+import { antiStokesRays } from './geometry.js';
 
 // =====================================================================
 // Backend URL resolution (Phase: tunnel-via-cloudflared 2026-05-12).
@@ -67,46 +68,88 @@ function defaultHeaders(extra?: Record<string, string>): Record<string, string> 
 // hideOnLoad: dataset 作为 "example" 加载, 初始 stokesStale = true,
 // Stokes 矩阵 cell 显示 "—", banner 提示点 Compute. 预计算值还在 JSON 里,
 // 但用户必须走后端重跑才能看到 (完整演示流程).
+// 单一 'cpn' 例子: 用户改左边 n= 输入框就切 CP^{n-1} (n=puncture count).
+// 旧 cp2/cp3/cp4 链接通过 URL 兼容 (跳到 cpn 并设对应 n).
 export const DATASET_REGISTRY: { key: string; file: string; label: string; hideOnLoad?: boolean }[] = [
-  { key: 'cp2',    file: 'cp2',       label: 'QH^*(\\mathbb{CP}^2)', hideOnLoad: true },
-  { key: 'cp3',    file: 'cp3',       label: 'QH^*(\\mathbb{CP}^3)', hideOnLoad: true },
-  { key: 'cp4',    file: 'cp4',       label: 'QH^*(\\mathbb{CP}^4)', hideOnLoad: true },
-  { key: 'simple', file: 'n4_simple', label: 'n=4, m=(1,1,1,1) simple spectrum' },
-  { key: 'block',  file: 'n4_block',  label: 'n=4, m=(2,2,2,2) blocks' },
+  { key: 'cpn',    file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1})', hideOnLoad: true },
+  { key: 'simple', file: 'n4_simple',     label: 'n=4, m=(1,1,1,1) simple spectrum' },
+  { key: 'block',  file: 'n4_block',      label: 'n=4, m=(2,2,2,2) blocks' },
 ];
-const DEFAULT_DATASET_KEY = 'cp2';
+const DEFAULT_DATASET_KEY = 'cpn';
+const CPN_DEFAULT_N = 4;   // 默认 n=4 ⇒ CP^3 (n = puncture 数 K = CP 维数+1)
+const CPN_MIN_N = 1;       // n=1 ⇒ CP^0 (1×1 退化, 没 off-diag, UI 也跑得通)
+const CPN_MAX_N = 10;      // n=10 ⇒ CP^9
 
 export function getDatasetKey(): string {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('dataset');
   if (raw === 'simple') return 'simple'; // legacy alias
+  // 旧 ?dataset=cp2/cp3/cp4 → 'cpn' (n 通过 URL 'n=' 走 getCpnN, 见 loadDataset).
+  if (raw && /^cp\d+$/.test(raw)) return 'cpn';
   if (raw && DATASET_REGISTRY.some(d => d.key === raw)) return raw;
   return DEFAULT_DATASET_KEY;
+}
+
+/** ?n=<int> for cpn dataset; legacy ?dataset=cpK 自动映射成 n = K+1. */
+export function getCpnN(): number {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('dataset');
+  const legacy = raw && /^cp(\d+)$/.exec(raw);
+  if (legacy) {
+    // cp2 → CP^2 = 3 punctures; cp4 → CP^4 = 5 punctures.
+    const n = parseInt(legacy[1], 10) + 1;
+    return Math.max(CPN_MIN_N, Math.min(CPN_MAX_N, n));
+  }
+  const nRaw = params.get('n');
+  const n = nRaw ? parseInt(nRaw, 10) : CPN_DEFAULT_N;
+  if (!Number.isInteger(n)) return CPN_DEFAULT_N;
+  return Math.max(CPN_MIN_N, Math.min(CPN_MAX_N, n));
+}
+
+export const CPN_N_BOUNDS = { min: CPN_MIN_N, max: CPN_MAX_N, default: CPN_DEFAULT_N };
+
+/** 客户端按公式构 cpn dataset, 不 fetch JSON. rays + 空 chambers 占位
+ *  (hideOnLoad=true ⇒ stokesStale=true ⇒ entries 全显 "—", 用户点 Compute 后由后端填).
+ *  chamber 个数 = rays 个数 (anti-Stokes 把 S^1 分成等数 chamber). 每个 chamber.d
+ *  取相邻两 ray 的中点 (wrap 处加 2π 后再取中点) — d-slider 初值用. */
+function synthCpnDataset(n: number): SimpleDataset {
+  const K = Math.max(CPN_MIN_N, Math.min(CPN_MAX_N, n));
+  const { punctures, A_diag, A_diag_block, A_off, m_sizes } = buildCpnDataset(K);
+  // rescale punctures: buildCpnDataset 给的是单位圆 (e^(2πi n/K)), attachCpnExprs 的
+  // 1/K rescale 这里跳过 (buildCpnDataset 不放大 K 倍, 直接落在单位圆).
+  const rays = antiStokesRays(punctures);
+  const TP = 2 * Math.PI;
+  const chambers = rays.map((r, k) => {
+    const next = k + 1 < rays.length ? rays[k + 1] : rays[0] + TP;
+    return { d: (r + next) / 2, entries: {} };
+  });
+  return {
+    punctures,
+    A_diag,
+    A_diag_block,
+    A_off,
+    m_sizes,
+    rays,
+    chambers,
+    _algorithm: 'cpn-synth-client',
+  };
 }
 
 export async function loadDataset(): Promise<SimpleDataset> {
   // BASE_URL: GH Pages = "/Stokes-Matrix/", 本地 dev = "/". cache-bust v= 强制每次拉新.
   // Dataset 是 GH Pages 上的 static JSON, 不走 backend tunnel.
   const key = getDatasetKey();
+  if (key === 'cpn') return synthCpnDataset(getCpnN());
   const entry = DATASET_REGISTRY.find(d => d.key === key) ?? DATASET_REGISTRY[0];
   const url = `${import.meta.env.BASE_URL}data/${entry.file}.json?v=${Date.now()}`.replace(/([^:])\/+/g, '$1/');
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Failed to load dataset: ${r.status}`);
-  const ds: SimpleDataset = await r.json();
-  // CP^{K-1} 例子: 把 puncture / A_off 浮点 entry 套上精确表达式 (e^(i*pi/...) 等).
-  // m_sizes 全 1, 长度 K. 数据格式跟其他 simple dataset 一致, 只是多了 expr 字段.
-  const cpMatch = key.match(/^cp(\d+)$/);
-  if (cpMatch) {
-    const K = parseInt(cpMatch[1], 10) + 1;
-    if (ds.m_sizes.every(m => m === 1) && ds.m_sizes.length === K && ds.punctures.length === K) {
-      attachCpnExprs(K, ds.punctures, ds.A_off);
-      // sage export 出来的 A_diag 是 -3.7e-39 量级浮点 dust, 数学上恒为 0
-      // (μ_diag 求和为 0). UI 里直接零化, 避免 cell 显示 "-3.67342e-39" 这种值.
-      ds.A_diag = ds.A_diag.map(() => 0);
-      if (ds.A_diag_block) ds.A_diag_block = ds.A_diag_block.map(row => row.map(() => 0));
-    }
-  }
-  return ds;
+  return r.json();
+}
+
+/** 重新合成 cpn dataset (用于左侧 n 输入变化后客户端就地重建, 不重载页面). */
+export function rebuildCpnDataset(n: number): SimpleDataset {
+  return synthCpnDataset(n);
 }
 
 /**
