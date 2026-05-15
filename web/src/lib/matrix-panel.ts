@@ -159,6 +159,10 @@ export interface RefreshOpts {
   /** stale 时是否对对角 cell 也显 '—' (default false, 保 Stokes 旧行为: diag 永远走 getCellContent).
    *  Ω/Ω^-1 对角不特殊, 传 true 让 stale 时 diag 也 '—'. */
   staleIncludesDiag?: boolean;
+  /** 对角 cell 是否当成普通 cell (不灰、可选). default false (std/+/-/eg view 行为).
+   *  md view 传 true: e^{2πiM_d} 对角不特殊, 不论 stale 还是 unavailable 都
+   *  按普通 cell 处理. 跟 buildMatrixGrid 的 diagSelectable 等效但 per-refresh. */
+  diagAsNormal?: boolean;
   /** 取 (I, J) entry block. I==J 也可调 (取对角 view 决定 zero/identity). */
   getCellContent: (I: number, J: number, a: number, b: number) => CellContent;
   /** 跨 view 同尺寸保证: 调用方提供 view-independent 的"宽度上界" block 集合.
@@ -229,11 +233,15 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
     ));
     cell.classList.toggle('selected', sel);
 
+    // "对角不灰可选" 的两条来源: buildMatrixGrid 时传 diagSelectable=true
+    // (Omega 用), 或 refresh 时传 diagAsNormal=true (md view 用). 任一为真
+    // 都让对角 cell 跟非对角看起来一样.
+    const diagNormal = diagSelectable || !!opts.diagAsNormal;
+
     if (opts.isStale && (opts.staleIncludesDiag || I !== J)) {
       cell.innerHTML = `<span class="cs-zero" title="${staleTip}">—</span>`;
-      // stale 时对角按"无信息" 处理 → 显灰不可选; 但 diagSelectable (Omega 那种
-      // 对角不特殊的 panel) 时仍要可选, 不加 .diag.
-      if (I === J && !diagSelectable) cell.classList.add('diag');
+      // stale 时对角按"无信息" 处理 → 显灰不可选; diagNormal 时对角不灰.
+      if (I === J && !diagNormal) cell.classList.add('diag');
       else if (I === J) cell.classList.remove('diag');
       continue;
     }
@@ -242,9 +250,9 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
     // 后置决定对角 cell 显灰 + 可选: 内容是 block/symbolic 时正常 (md view 对角
     // 有信息); identity/zero/unavailable 时显灰不可选 (std/plus/minus/eg 对角).
     // off-diag 永远不打 .diag, 保持原有可点行为 (含 plus/minus 过滤成 0 的 cell
-    // 和 unavailable cell). Omega (diagSelectable=true) 永远不加 .diag, 对角可选.
+    // 和 unavailable cell). diagNormal=true (Omega 或 md view) 永远不加 .diag.
     if (I === J) {
-      const diagInert = !diagSelectable && (
+      const diagInert = !diagNormal && (
         content.kind === 'identity' || content.kind === 'zero' || content.kind === 'unavailable'
       );
       cell.classList.toggle('diag', diagInert);

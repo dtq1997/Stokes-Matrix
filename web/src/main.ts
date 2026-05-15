@@ -1406,6 +1406,11 @@ async function main() {
     const ms = state.mOverrides ?? dataset.m_sizes;
     const mdFull = valuesFresh && view === 'md' ? monodromyFactorFull() : null;
 
+    // 面板标题随 view 变: md → "Monodromy factor" (e^{2πiM_d} 不是 Stokes 矩阵),
+    // 其它 view 还原 "Stokes matrix".
+    const titleEl = document.getElementById('stokes-panel-title');
+    if (titleEl) titleEl.textContent = view === 'md' ? 'Monodromy factor' : 'Stokes matrix';
+
     // 预算 (I,J) modified block 缓存 (sub-cell 共享, 块内 a/b 多次取同 block).
     const blockCache = new Map<string, ComplexNum[][]>();
     if (valuesFresh) {
@@ -1432,6 +1437,10 @@ async function main() {
       digits,
       isStale: !valuesFresh,
       staleIncludesDiag: view === 'md',
+      // md view (e^{2πiM_d}) 对角不特殊, 跟 off-diag 一样: stale 时不灰, 数据
+      // 来了对角 block/symbolic 可选. 跟 Omega diagSelectable=true 等效但
+      // per-refresh, view 切换自动跟随.
+      diagAsNormal: view === 'md',
       staleMessage: 'stale: recompute Stokes matrices',
       selectedEntry: state.selectedEntry,
       tex,
