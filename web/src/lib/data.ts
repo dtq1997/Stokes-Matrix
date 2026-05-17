@@ -104,11 +104,6 @@ export function getDatasetKey(): string {
   return DEFAULT_DATASET_KEY;
 }
 
-/** 暴露给外部, 把任意 key 安全 fallback 到 'cpn' (用作 cpn-family 默认变体). */
-export function defaultCpnKey(): string {
-  return DEFAULT_DATASET_KEY;
-}
-
 /** ?n=<int> for cpn dataset; legacy ?dataset=cpK 自动映射成 n = K+1. */
 export function getCpnN(): number {
   const params = new URLSearchParams(window.location.search);

@@ -926,6 +926,68 @@ test.describe('Sd-viz smoke tests', () => {
     await expect(page.locator('#state-recompute-omega')).toBeVisible();
   });
 
+  // 防回归 (2026-05-17): cpn↔cpn dropdown 切换走 SPA in-place swap, 不全页跳转.
+  // 这样 GitHub Pages CDN/浏览器在 deploy 后短期内拿陈旧 bundle 也不会让用户看到半渲染.
+  test('cpn variant 切换走 SPA in-place, 不导航 + 三个 variant 互不相同', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+    await page.goto('/?n=4&dataset=cpn');
+    await page.waitForSelector('.puncture');
+
+    // 收 A 表所有 off-diag expr 拼成签名串.
+    const aSignature = async (K: number): Promise<string> => {
+      const parts: string[] = [];
+      for (let i = 0; i < K; i++)
+        for (let j = 0; j < K; j++) {
+          if (i === j) continue;
+          const v = await page.locator(`#a-table input[data-i="${i}"][data-j="${j}"].cx-expr`).first().inputValue();
+          parts.push(`${i},${j}:${v}`);
+        }
+      return parts.join('|');
+    };
+    const uExpr = async (k: number) =>
+      await page.locator(`#u-table input[data-k="${k}"].cx-expr`).first().inputValue();
+
+    const sig_guzz = await aSignature(4);
+
+    // 标记 JS context — 真发生全页跳转的话 window 会被销毁, marker 丢失.
+    await page.evaluate(() => { (window as any).__swapTestMarker = 'before-swap'; });
+
+    const sel = page.locator('#dataset-select');
+
+    // 切到 Coxeter shift +1
+    await sel.selectOption('cpn-coxeter');
+    await page.waitForFunction(() => {
+      return new URL(window.location.href).searchParams.get('dataset') === 'cpn-coxeter';
+    });
+    expect(await page.evaluate(() => (window as any).__swapTestMarker)).toBe('before-swap');
+    const sig_cox = await aSignature(4);
+    expect(sig_cox).not.toBe(sig_guzz);
+
+    // 切到 Coxeter shift +2: 跟前两个都不同
+    await sel.selectOption('cpn-coxeter2');
+    await page.waitForFunction(() => {
+      return new URL(window.location.href).searchParams.get('dataset') === 'cpn-coxeter2';
+    });
+    expect(await page.evaluate(() => (window as any).__swapTestMarker)).toBe('before-swap');
+    const sig_cox2 = await aSignature(4);
+    expect(sig_cox2).not.toBe(sig_guzz);
+    expect(sig_cox2).not.toBe(sig_cox);
+
+    // U 三 variant 完全一致 (canonical 序, 用户拍板)
+    expect(await uExpr(0)).toBe('1');
+    expect(await uExpr(1)).toBe('e^(pi*i/2)');
+    expect(await uExpr(2)).toBe('-1');
+    expect(await uExpr(3)).toBe('e^(3*pi*i/2)');
+
+    // 切回 Guzzetti, 整个 A 签名应该回到 baseline
+    await sel.selectOption('cpn');
+    expect(await aSignature(4)).toBe(sig_guzz);
+
+    // 全程无 JS 错误
+    expect(errors.join('\n')).toBe('');
+  });
+
   // 防回归 (2026-05-13): U/A input 支持分式输入 "a/b" (a, b 可带 sign + 小数)
   test('U/A input 接受分式 a/b 输入', async ({ page }) => {
     await page.goto('/?dataset=block');

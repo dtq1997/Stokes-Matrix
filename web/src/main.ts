@@ -81,13 +81,8 @@ function setupDatasetSelect() {
     if (entry.key === currentKey) opt.selected = true;
     sel.appendChild(opt);
   }
-  sel.addEventListener('change', () => {
-    const key = sel.value;
-    const url = new URL(window.location.href);
-    if (key === DATASET_REGISTRY[0].key) url.searchParams.delete('dataset');
-    else url.searchParams.set('dataset', key);
-    window.location.href = url.toString();
-  });
+  // change 监听器不在此挂: main() 闭包里挂, 同 family (cpn↔cpn) 走 SPA in-place
+  // swap, 避免 GitHub Pages/浏览器 cache 在 query-string-only 变更下返回旧 bundle.
 }
 
 async function main() {
@@ -511,6 +506,56 @@ async function main() {
     refreshStokesMatrix();
     updateStokesPanel();
     updatePathInfo();
+  }
+
+  /** cpn↔cpn variant 切换 (dropdown 内): SPA in-place swap. 不导航, 不踩缓存. */
+  function swapCpnVariant(newKey: string) {
+    if (!isCpnKey(newKey)) return;
+    const fresh = rebuildCpnDataset(n, cpnVariantOfKey(newKey));
+    Object.keys(dataset).forEach(k => delete (dataset as any)[k]);
+    Object.assign(dataset, fresh);
+
+    state.punctureOverrides = dataset.punctures.map(p => ({ ...p }));
+    state.AOverrides = rebuildInitialA().map(row => row.map(c => ({ ...c })));
+    state.mOverrides = [...dataset.m_sizes];
+    state.selectedEntry = null;
+    state.paths.clear();
+    state.stokesStale = true;
+    state.exampleAwaitingCompute = true;
+    state.selectedChamber = 0;
+
+    setD(extractDefaultD(), 'init');
+
+    const url = new URL(window.location.href);
+    if (newKey === DATASET_REGISTRY[0].key) url.searchParams.delete('dataset');
+    else url.searchParams.set('dataset', newKey);
+    window.history.replaceState({}, '', url.toString());
+
+    buildUTable();
+    buildATable();
+    buildStokesMatrix();
+    buildOmegaMatrix();
+    updateDimInfo();
+    updateStaleBanner();
+    canvas.setState(state);
+  }
+
+  // dropdown change: cpn↔cpn 走 SPA swap, 跨 family 走 full reload (老行为).
+  const datasetSelect = document.getElementById('dataset-select') as HTMLSelectElement | null;
+  if (datasetSelect) {
+    datasetSelect.addEventListener('change', () => {
+      const newKey = datasetSelect.value;
+      const curKey = getDatasetKey();
+      if (isCpnKey(curKey) && isCpnKey(newKey)) {
+        pushHistory();
+        swapCpnVariant(newKey);
+        return;
+      }
+      const url = new URL(window.location.href);
+      if (newKey === DATASET_REGISTRY[0].key) url.searchParams.delete('dataset');
+      else url.searchParams.set('dataset', newKey);
+      window.location.href = url.toString();
+    });
   }
 
   function resizeN(newN: number) {
