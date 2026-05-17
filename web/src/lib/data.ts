@@ -76,6 +76,8 @@ export const DATASET_REGISTRY: { key: string; file: string; label: string; hideO
   { key: 'cpn',          file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1}) (Guzzetti)',         hideOnLoad: true, cpnVariant: 'guzzetti' },
   { key: 'cpn-coxeter',  file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1}) (Coxeter shift +1)', hideOnLoad: true, cpnVariant: 'coxeter' },
   { key: 'cpn-coxeter2', file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1}) (Coxeter shift +2)', hideOnLoad: true, cpnVariant: 'coxeter2' },
+  { key: 'a3',           file: 'a3_frobenius',  label: 'A_3 Frobenius manifold (Duke CDG §22)',       hideOnLoad: true },
+  { key: 'a4',           file: 'a4_frobenius',  label: 'A_4 mock (block-diag, spectrum only)',        hideOnLoad: true },
   { key: 'simple',       file: 'n4_simple',     label: 'n=4, m=(1,1,1,1) simple spectrum' },
   { key: 'block',        file: 'n4_block',      label: 'n=4, m=(2,2,2,2) blocks' },
 ];
