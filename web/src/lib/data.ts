@@ -1,5 +1,5 @@
 import type { SimpleDataset } from './types.js';
-import { buildCpnDataset } from './cpn-formulas.js';
+import { buildCpnDataset, type CpnVariant } from './cpn-formulas.js';
 import { antiStokesRays } from './geometry.js';
 
 // =====================================================================
@@ -68,14 +68,28 @@ function defaultHeaders(extra?: Record<string, string>): Record<string, string> 
 // hideOnLoad: dataset 作为 "example" 加载, 初始 stokesStale = true,
 // Stokes 矩阵 cell 显示 "—", banner 提示点 Compute. 预计算值还在 JSON 里,
 // 但用户必须走后端重跑才能看到 (完整演示流程).
-// 单一 'cpn' 例子: 用户改左边 n= 输入框就切 CP^{n-1} (n=puncture count).
+// cpn 系: 全部用 '__synth_cpn__' 占位 file, 区别在 cpnVariant 字段. variant ≠
+// 'guzzetti' 时按 σ ∈ S_K 置换 u_k 标号, A 同步置换 (A^σ_{ij}=A_{σ(i),σ(j)}).
+// 同 K-th roots of unity, 同一辫子轨道的不同 marked 代表. n 输入框切 K, dropdown 切 σ.
 // 旧 cp2/cp3/cp4 链接通过 URL 兼容 (跳到 cpn 并设对应 n).
-export const DATASET_REGISTRY: { key: string; file: string; label: string; hideOnLoad?: boolean }[] = [
-  { key: 'cpn',    file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1})', hideOnLoad: true },
-  { key: 'simple', file: 'n4_simple',     label: 'n=4, m=(1,1,1,1) simple spectrum' },
-  { key: 'block',  file: 'n4_block',      label: 'n=4, m=(2,2,2,2) blocks' },
+export const DATASET_REGISTRY: { key: string; file: string; label: string; hideOnLoad?: boolean; cpnVariant?: CpnVariant }[] = [
+  { key: 'cpn',          file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1})\\ (\\text{Guzzetti})',         hideOnLoad: true, cpnVariant: 'guzzetti' },
+  { key: 'cpn-coxeter',  file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1})\\ (\\text{Coxeter shift})',     hideOnLoad: true, cpnVariant: 'coxeter' },
+  { key: 'cpn-reversed', file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1})\\ (\\text{reversed order})',    hideOnLoad: true, cpnVariant: 'reversed' },
+  { key: 'simple',       file: 'n4_simple',     label: 'n=4, m=(1,1,1,1) simple spectrum' },
+  { key: 'block',        file: 'n4_block',      label: 'n=4, m=(2,2,2,2) blocks' },
 ];
 const DEFAULT_DATASET_KEY = 'cpn';
+
+/** 任何 cpn 系 (含 variant) 的 key 都返回 true. main.ts 切 n 时识别. */
+export function isCpnKey(key: string): boolean {
+  return DATASET_REGISTRY.some(d => d.key === key && d.cpnVariant !== undefined);
+}
+
+export function cpnVariantOfKey(key: string): CpnVariant {
+  const entry = DATASET_REGISTRY.find(d => d.key === key);
+  return entry?.cpnVariant ?? 'guzzetti';
+}
 const CPN_DEFAULT_N = 4;   // 默认 n=4 ⇒ CP^3 (n = puncture 数 K = CP 维数+1)
 const CPN_MIN_N = 1;       // n=1 ⇒ CP^0 (1×1 退化, 没 off-diag, UI 也跑得通)
 const CPN_MAX_N = 10;      // n=10 ⇒ CP^9
@@ -87,6 +101,11 @@ export function getDatasetKey(): string {
   // 旧 ?dataset=cp2/cp3/cp4 → 'cpn' (n 通过 URL 'n=' 走 getCpnN, 见 loadDataset).
   if (raw && /^cp\d+$/.test(raw)) return 'cpn';
   if (raw && DATASET_REGISTRY.some(d => d.key === raw)) return raw;
+  return DEFAULT_DATASET_KEY;
+}
+
+/** 暴露给外部, 把任意 key 安全 fallback 到 'cpn' (用作 cpn-family 默认变体). */
+export function defaultCpnKey(): string {
   return DEFAULT_DATASET_KEY;
 }
 
@@ -112,9 +131,9 @@ export const CPN_N_BOUNDS = { min: CPN_MIN_N, max: CPN_MAX_N, default: CPN_DEFAU
  *  (hideOnLoad=true ⇒ stokesStale=true ⇒ entries 全显 "—", 用户点 Compute 后由后端填).
  *  chamber 个数 = rays 个数 (anti-Stokes 把 S^1 分成等数 chamber). 每个 chamber.d
  *  取相邻两 ray 的中点 (wrap 处加 2π 后再取中点) — d-slider 初值用. */
-function synthCpnDataset(n: number): SimpleDataset {
+function synthCpnDataset(n: number, variant: CpnVariant = 'guzzetti'): SimpleDataset {
   const K = Math.max(CPN_MIN_N, Math.min(CPN_MAX_N, n));
-  const { punctures, A_diag, A_diag_block, A_off, m_sizes } = buildCpnDataset(K);
+  const { punctures, A_diag, A_diag_block, A_off, m_sizes } = buildCpnDataset(K, variant);
   // rescale punctures: buildCpnDataset 给的是单位圆 (e^(2πi n/K)), attachCpnExprs 的
   // 1/K rescale 这里跳过 (buildCpnDataset 不放大 K 倍, 直接落在单位圆).
   const rays = antiStokesRays(punctures);
@@ -152,7 +171,7 @@ export async function loadDataset(): Promise<SimpleDataset> {
   // BASE_URL: GH Pages = "/Stokes-Matrix/", 本地 dev = "/". cache-bust v= 强制每次拉新.
   // Dataset 是 GH Pages 上的 static JSON, 不走 backend tunnel.
   const key = getDatasetKey();
-  if (key === 'cpn') return synthCpnDataset(getCpnN());
+  if (isCpnKey(key)) return synthCpnDataset(getCpnN(), cpnVariantOfKey(key));
   const entry = DATASET_REGISTRY.find(d => d.key === key) ?? DATASET_REGISTRY[0];
   const url = `${import.meta.env.BASE_URL}data/${entry.file}.json?v=${Date.now()}`.replace(/([^:])\/+/g, '$1/');
   const r = await fetch(url);
@@ -161,8 +180,8 @@ export async function loadDataset(): Promise<SimpleDataset> {
 }
 
 /** 重新合成 cpn dataset (用于左侧 n 输入变化后客户端就地重建, 不重载页面). */
-export function rebuildCpnDataset(n: number): SimpleDataset {
-  return synthCpnDataset(n);
+export function rebuildCpnDataset(n: number, variant: CpnVariant = 'guzzetti'): SimpleDataset {
+  return synthCpnDataset(n, variant);
 }
 
 /**

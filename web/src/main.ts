@@ -1,5 +1,5 @@
 import katex from 'katex';
-import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey, iscQuery, iscIsValueForm, rebuildCpnDataset, CPN_N_BOUNDS, type IscCandidate } from './lib/data.js';
+import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey, isCpnKey, cpnVariantOfKey, iscQuery, iscIsValueForm, rebuildCpnDataset, CPN_N_BOUNDS, type IscCandidate } from './lib/data.js';
 import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js';
 import {
@@ -459,8 +459,8 @@ async function main() {
   nInput.addEventListener('change', () => {
     const newN = Number(nInput.value);
     if (!Number.isInteger(newN)) { nInput.value = String(n); return; }
-    // cpn dataset: n 直接驱动 CP^{n-1} 公式重生成 (而不是保留旧 entries).
-    if (getDatasetKey() === 'cpn') {
+    // cpn 系 dataset: n 直接驱动 CP^{n-1} 公式重生成 (而不是保留旧 entries).
+    if (isCpnKey(getDatasetKey())) {
       const clamped = Math.max(CPN_N_BOUNDS.min, Math.min(CPN_N_BOUNDS.max, newN));
       if (clamped !== newN) nInput.value = String(clamped);
       if (clamped !== n) { pushHistory(); regenerateCpnN(clamped); }
@@ -470,9 +470,10 @@ async function main() {
     if (newN !== n) { pushHistory(); resizeN(newN); }
   });
 
-  /** cpn dataset 专用: 按 CP^{newN-1} 公式重建整个 dataset, 不保留旧 (U, A). */
+  /** cpn dataset 专用: 按 CP^{newN-1} 公式重建整个 dataset, 不保留旧 (U, A).
+   *  variant 跟当前 dataset key 走 (Guzzetti / Coxeter shift / reversed 各一份 σ). */
   function regenerateCpnN(newN: number) {
-    const fresh = rebuildCpnDataset(newN);
+    const fresh = rebuildCpnDataset(newN, cpnVariantOfKey(getDatasetKey()));
     Object.keys(dataset).forEach(k => delete (dataset as any)[k]);
     Object.assign(dataset, fresh);
 

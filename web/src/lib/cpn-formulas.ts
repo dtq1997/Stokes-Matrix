@@ -1,7 +1,7 @@
 // CP^{K-1} 经典例子 (Guzzetti X gauge) 的精确表达式 + 数据合成.
 // 数据本身 (re/im 浮点) 客户端按公式直接算出, 不依赖 cp{N}.json.
 //
-// 归一化:
+// 归一化 (canonical / 'guzzetti' variant):
 //   u_n = e^(2*pi*i*n/K),                       n = 0..K-1
 // (原 sage export 用 u_n = K * e^(...), 这里除掉 K 因子. U → U/K 等同 z → z·K
 // 的 rescale, Stokes 矩阵不变. 显示更自然: CP^2 punctures 落在单位圆.)
@@ -10,6 +10,20 @@
 //        = 0 if i==j (μ_diag 求和为 0). A 不随 U 缩放.
 //
 // expr 字符串生成后再对分子/分母做 gcd 化简 (eg. K=3,5,7,...: 分子分母同除 2).
+//
+// Variant 字段 = QH^*(CP^{K-1}) 的不同 marked basis (差 σ ∈ S_K 置换),
+// 都是同一辫子轨道的代表. 用户拍板: U 同 diagonal (允许差 σ), A 各不相同.
+
+export type CpnVariant = 'guzzetti' | 'coxeter' | 'reversed';
+
+/** σ(k) = canonical-index that goes to position k under this variant. */
+function permIdx(K: number, variant: CpnVariant, k: number): number {
+  switch (variant) {
+    case 'guzzetti': return k;
+    case 'coxeter':  return (k + 1) % K;
+    case 'reversed': return ((K - 1 - k) % K + K) % K;
+  }
+}
 
 function gcd(a: number, b: number): number {
   a = Math.abs(a); b = Math.abs(b);
@@ -18,11 +32,12 @@ function gcd(a: number, b: number): number {
 }
 
 /** CP^{K-1} 的第 n 个 puncture u_n 表达式 (归一化后: u_n = e^(2*pi*i*n/K)). */
-export function cpnPunctureExpr(K: number, n: number): string {
-  if (n === 0) return '1';
-  if (2 * n === K) return '-1';
-  const g = gcd(2 * n, K);
-  const a = (2 * n) / g;
+export function cpnPunctureExpr(K: number, n: number, variant: CpnVariant = 'guzzetti'): string {
+  const idx = permIdx(K, variant, n);
+  if (idx === 0) return '1';
+  if (2 * idx === K) return '-1';
+  const g = gcd(2 * idx, K);
+  const a = (2 * idx) / g;
   const b = K / g;
   const pre = a === 1 ? '' : `${a}*`;
   const denom = b === 1 ? '' : `/${b}`;
@@ -31,10 +46,13 @@ export function cpnPunctureExpr(K: number, n: number): string {
 
 /** CP^{K-1} 的 A[i,j] 表达式 (0-indexed 块下标; CP^n 所有 m_k=1, 跟 sub-index 无关).
  *  整体形式: (1/d) * (c_1 * t_1 + c_2 * t_2 + ...), d=2K, c_n=(K-1-2n), t_n=e^(...) 或 ±1.
- *  最后对 d 跟所有 |c| 取 gcd 同除化简 (eg. K=3,5,7,...: ±2 跟 2K 同除 2 → (1/K)*(...)). */
-export function cpnAEntryExpr(K: number, i: number, j: number): string {
-  if (i === j) return '0';
-  const k = j - i;
+ *  最后对 d 跟所有 |c| 取 gcd 同除化简 (eg. K=3,5,7,...: ±2 跟 2K 同除 2 → (1/K)*(...)).
+ *  variant ≠ 'guzzetti' 时: A^σ_{ij} = A_{σ(i), σ(j)} (置换标号). */
+export function cpnAEntryExpr(K: number, i: number, j: number, variant: CpnVariant = 'guzzetti'): string {
+  const ri = permIdx(K, variant, i);
+  const rj = permIdx(K, variant, j);
+  if (ri === rj) return '0';
+  const k = rj - ri;
   const denom = 2 * K;
   type Term = { coef: number; powTerm: string };  // powTerm = "1" or "e^(...)"
   const collected: Term[] = [];
@@ -109,11 +127,14 @@ export function attachCpnExprs(K: number, punctures: { re: number; im: number; e
   }
 }
 
-/** 数值求 A[i,j] = (1/(2K)) Σ_n (K-1-2n) e^(i*pi*(2n+1)*(j-i)/K). i==j 时为 0. */
-function cpnAEntryNumeric(K: number, i: number, j: number): { re: number; im: number } {
-  if (i === j) return { re: 0, im: 0 };
+/** 数值求 A[i,j] = (1/(2K)) Σ_n (K-1-2n) e^(i*pi*(2n+1)*(j-i)/K). i==j 时为 0.
+ *  variant 非 guzzetti 时按 σ 置换标号 (A^σ_{ij} = A_{σ(i), σ(j)}). */
+function cpnAEntryNumeric(K: number, i: number, j: number, variant: CpnVariant = 'guzzetti'): { re: number; im: number } {
+  const ri = permIdx(K, variant, i);
+  const rj = permIdx(K, variant, j);
+  if (ri === rj) return { re: 0, im: 0 };
   let re = 0, im = 0;
-  const k = j - i;
+  const k = rj - ri;
   for (let n = 0; n < K; n++) {
     const coef = K - 1 - 2 * n;
     if (coef === 0) continue;
@@ -132,7 +153,7 @@ function cpnAEntryNumeric(K: number, i: number, j: number): { re: number; im: nu
  *  - A_off: K*(K-1) 个非对角 entry, 带精确 expr
  *  - m_sizes = [1]*K
  *  - rays / chambers 由前端 antiStokesRays 处填, 这里给空占位 (loadDataset 接管). */
-export function buildCpnDataset(K: number): {
+export function buildCpnDataset(K: number, variant: CpnVariant = 'guzzetti'): {
   punctures: { re: number; im: number; expr?: string }[];
   A_diag: number[];
   A_diag_block: number[][];
@@ -141,8 +162,9 @@ export function buildCpnDataset(K: number): {
 } {
   const punctures: { re: number; im: number; expr?: string }[] = [];
   for (let n = 0; n < K; n++) {
-    const ang = 2 * Math.PI * n / K;
-    punctures.push({ re: Math.cos(ang), im: Math.sin(ang), expr: cpnPunctureExpr(K, n) });
+    const idx = permIdx(K, variant, n);
+    const ang = 2 * Math.PI * idx / K;
+    punctures.push({ re: Math.cos(ang), im: Math.sin(ang), expr: cpnPunctureExpr(K, n, variant) });
   }
   const A_diag = Array.from({ length: K }, () => 0);
   const A_diag_block = Array.from({ length: K }, () => [0]);
@@ -150,8 +172,8 @@ export function buildCpnDataset(K: number): {
   for (let i = 0; i < K; i++) {
     for (let j = 0; j < K; j++) {
       if (i === j) continue;
-      const v = cpnAEntryNumeric(K, i, j);
-      A_off.push({ i, j, a: 0, b: 0, re: v.re, im: v.im, expr: cpnAEntryExpr(K, i, j) });
+      const v = cpnAEntryNumeric(K, i, j, variant);
+      A_off.push({ i, j, a: 0, b: 0, re: v.re, im: v.im, expr: cpnAEntryExpr(K, i, j, variant) });
     }
   }
   const m_sizes = Array.from({ length: K }, () => 1);
