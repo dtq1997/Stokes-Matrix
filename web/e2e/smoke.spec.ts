@@ -929,13 +929,13 @@ test.describe('Sd-viz smoke tests', () => {
   // 防回归 (2026-05-17): cpn↔cpn dropdown 切换走 SPA in-place swap, 不全页跳转.
   // 这样 GitHub Pages CDN/浏览器在 deploy 后短期内拿陈旧 bundle 也不会让用户看到半渲染.
   // 防回归 (2026-05-17): a3 静态例子可以加载, 无 JS 错.
+  // a3 现在用 Duke (22.5) coalescence form: 2 punctures, m=(2,1), 总维度 3.
   test('a3 dropdown 例子可以加载, 无 JS 错', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
     await page.goto('/?dataset=a3');
     await page.waitForSelector('.puncture');
-    // a3 三个 punctures
-    expect(await page.locator('.puncture').count()).toBe(3);
+    expect(await page.locator('.puncture').count()).toBe(2);
     expect(errors.join('\n')).toBe('');
   });
 
