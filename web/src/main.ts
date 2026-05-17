@@ -2379,6 +2379,8 @@ async function main() {
     // - identifyValue / library 完全 view/matrix 无关.
     const valueProducers: Array<() => Iterable<ComplexNum>> = [
       // S_d std + 各 chamber. plus/minus 通过 library negation 自动覆盖, 不需独立列.
+      // 必须枚举每个 block 全部 (a, b) sub-entry, 不能只读 [0][0] — block dataset
+      // (m_i × m_j > 1) cross-block 漏 sub-entry → 对应 cell 显示原始浮点不被识别.
       function*() {
         for (let chIdx = 0; chIdx < dataset.chambers.length; chIdx++) {
           const ch = dataset.chambers[chIdx];
@@ -2387,12 +2389,17 @@ async function main() {
             if (i === j) continue;
             const e = ch.entries[`${i},${j}`];
             if (!e || e.error || !e.value_block) continue;
-            const v = modifiedBlock(e, ch.d, i, j)[0]?.[0];
-            if (v) yield v;
+            const block = modifiedBlock(e, ch.d, i, j);
+            for (let a = 0; a < block.length; a++) {
+              const row = block[a]; if (!row) continue;
+              for (let b = 0; b < row.length; b++) {
+                if (row[b]) yield row[b];
+              }
+            }
           }
         }
       },
-      // S_d^eg: raw v5 anchor + per-pair 2π lift. 每个 chamber 的 d 都要扫一遍 lift.
+      // S_d^eg: raw v5 anchor + per-pair 2π lift. 同样枚举全 sub-entries.
       function*() {
         if (!dataset._v5_eg_entries) return;
         for (let chIdx = 0; chIdx < dataset.chambers.length; chIdx++) {
@@ -2400,8 +2407,13 @@ async function main() {
           for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
             if (i === j) continue;
             const eg = egBlock(i, j, ch.d);
-            const v = eg?.[0]?.[0];
-            if (v) yield v;
+            if (!eg) continue;
+            for (let a = 0; a < eg.length; a++) {
+              const row = eg[a]; if (!row) continue;
+              for (let b = 0; b < row.length; b++) {
+                if (row[b]) yield row[b];
+              }
+            }
           }
         }
       },
@@ -2416,6 +2428,7 @@ async function main() {
     }
     refreshStokesMatrix();
     // Step 1: 收集 local 没接住、需要 RIES 的 cell. 按数值去重.
+    // 同 valueProducers: 枚举每个 block 全部 (a, b) sub-entry, block dataset 适配.
     for (let chIdx = 0; chIdx < dataset.chambers.length; chIdx++) {
       const ch = dataset.chambers[chIdx];
       if (!ch || !ch.entries) continue;
@@ -2424,7 +2437,11 @@ async function main() {
           if (i === j) continue;
           const e = ch.entries[`${i},${j}`];
           if (!e || e.error || !e.value_block) continue;
-          const v = modifiedBlock(e, ch.d, i, j)[0]?.[0];
+          const block = modifiedBlock(e, ch.d, i, j);
+          for (let a = 0; a < block.length; a++) {
+            const row = block[a]; if (!row) continue;
+            for (let b = 0; b < row.length; b++) {
+          const v = row[b];
           if (!v) continue;
           if (Math.abs(v.re) < 1e-12 && Math.abs(v.im) < 1e-12) continue;
           // 库命中 → 不需要 RIES
@@ -2434,8 +2451,10 @@ async function main() {
           if (seen.some(s => numEq(s, v) || numEq(s, { re: -v.re, im: -v.im }))) continue;
           seen.push(v);
           todo.push({ chamberIdx: chIdx, i, j, v });
-        }
-      }
+            }  // end b
+          }  // end a
+        }  // end j
+      }  // end i
     }
     if (todo.length === 0) {
       panel.hidden = false;
