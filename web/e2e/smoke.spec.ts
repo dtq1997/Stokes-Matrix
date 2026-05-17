@@ -928,7 +928,8 @@ test.describe('Sd-viz smoke tests', () => {
 
   // 防回归 (2026-05-17): cpn↔cpn dropdown 切换走 SPA in-place swap, 不全页跳转.
   // 这样 GitHub Pages CDN/浏览器在 deploy 后短期内拿陈旧 bundle 也不会让用户看到半渲染.
-  test('cpn variant 切换走 SPA in-place, 不导航 + 三个 variant 互不相同', async ({ page }) => {
+  // 防回归 (2026-05-17): 参数化 dataset (cpn / an) 间 dropdown 切换走 SPA in-place swap.
+  test('cpn↔an dropdown 切换走 SPA in-place, A 签名变, 不导航', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
     await page.goto('/?n=4&dataset=cpn');
@@ -945,44 +946,23 @@ test.describe('Sd-viz smoke tests', () => {
         }
       return parts.join('|');
     };
-    const uExpr = async (k: number) =>
-      await page.locator(`#u-table input[data-k="${k}"].cx-expr`).first().inputValue();
-
-    const sig_guzz = await aSignature(4);
+    const sig_cpn = await aSignature(4);
 
     // 标记 JS context — 真发生全页跳转的话 window 会被销毁, marker 丢失.
     await page.evaluate(() => { (window as any).__swapTestMarker = 'before-swap'; });
-
     const sel = page.locator('#dataset-select');
 
-    // 切到 Coxeter shift +1
-    await sel.selectOption('cpn-coxeter');
-    await page.waitForFunction(() => {
-      return new URL(window.location.href).searchParams.get('dataset') === 'cpn-coxeter';
-    });
+    // 切到 A_n
+    await sel.selectOption('an');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('dataset') === 'an');
     expect(await page.evaluate(() => (window as any).__swapTestMarker)).toBe('before-swap');
-    const sig_cox = await aSignature(4);
-    expect(sig_cox).not.toBe(sig_guzz);
+    const sig_an = await aSignature(4);
+    expect(sig_an).not.toBe(sig_cpn);  // 不同 family, A 必然不同
 
-    // 切到 Coxeter shift +2: 跟前两个都不同
-    await sel.selectOption('cpn-coxeter2');
-    await page.waitForFunction(() => {
-      return new URL(window.location.href).searchParams.get('dataset') === 'cpn-coxeter2';
-    });
-    expect(await page.evaluate(() => (window as any).__swapTestMarker)).toBe('before-swap');
-    const sig_cox2 = await aSignature(4);
-    expect(sig_cox2).not.toBe(sig_guzz);
-    expect(sig_cox2).not.toBe(sig_cox);
-
-    // U 三 variant 完全一致 (canonical 序, 用户拍板)
-    expect(await uExpr(0)).toBe('1');
-    expect(await uExpr(1)).toBe('e^(pi*i/2)');
-    expect(await uExpr(2)).toBe('-1');
-    expect(await uExpr(3)).toBe('e^(3*pi*i/2)');
-
-    // 切回 Guzzetti, 整个 A 签名应该回到 baseline
+    // 切回 cpn, A 签名回到 baseline
     await sel.selectOption('cpn');
-    expect(await aSignature(4)).toBe(sig_guzz);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('dataset') !== 'an');
+    expect(await aSignature(4)).toBe(sig_cpn);
 
     // 全程无 JS 错误
     expect(errors.join('\n')).toBe('');
