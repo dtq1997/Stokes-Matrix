@@ -203,11 +203,20 @@ export function refreshMatrixCells(opts: RefreshOpts): void {
     if (opts.widthReferenceBlocks) {
       for (const b of opts.widthReferenceBlocks()) accumulate(b);
     }
+    // SSOT: 宽度测量必须逐 sub-cell (I, J, a, b) 调 getCellContent, 跟 cell 渲染
+    // 同协议. block 内可能混合 'symbolic' (KaTeX 渲染, 不需 --cs-int-w/frac-w 对齐)
+    // 跟 'block' (renderComplex 浮点渲染, 需对齐). 只对真渲染浮点的 sub-cell
+    // accumulate, 别整块算 — 否则被符号化的 sub-cell 的旧浮点宽度也会污染 var.
     const n_ch = opts.ms.length;
     for (let I = 0; I < n_ch; I++) for (let J = 0; J < n_ch; J++) {
       if (I === J) continue;
-      const c = opts.getCellContent(I, J, 0, 0);
-      if (c.kind === 'block') accumulate(c.block);
+      const mI = opts.ms[I], mJ = opts.ms[J];
+      for (let a = 0; a < mI; a++) for (let b = 0; b < mJ; b++) {
+        const c = opts.getCellContent(I, J, a, b);
+        if (c.kind !== 'block') continue;
+        const v = c.block[a]?.[b];
+        if (v) accumulate([[v]]);
+      }
     }
   }
   sm.style.setProperty('--cs-int-w', `${maxInt}ch`);
