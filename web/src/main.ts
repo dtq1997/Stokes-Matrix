@@ -2292,6 +2292,7 @@ async function main() {
       iscRunning = true; refreshIscLauncher();
       panel.hidden = false;
       panel.innerHTML = `<div class="isc-loading">Propagating base chamber ${baseSorted.originalIdx} (d=${baseSorted.d.toFixed(3)}) integer matrix via wall-crossing…</div>`;
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       // 短 await 让 DOM 喘一口气, 否则计算太快用户看不到 loading 状态
       await new Promise(r => setTimeout(r, 0));
       const propagated = propagateExactMatrices(baseSorted.originalIdx, baseM, sortedChambers, ps);
@@ -2356,9 +2357,11 @@ async function main() {
     // 非整数 case: 落回老 path (扫所有 chamber 本地 simple-identify + RIES 兜底).
     // 这条 path 数值字典匹配, 不是真传播, 但对 CP^n 之外 (非整数 entry) 没 wall-crossing 闭式时也能挽救一些.
     // ⚠ panel.hidden=false 必须立刻设, 否则下方扫描/RIES 步骤都不及, 用户点了看不到任何提示 →
-    // 以为 "ISC 按钮没反应" (实际是 panel 还隐藏着).
+    // 以为 "ISC 按钮没反应" (实际是 panel 还隐藏着). 顺便 scrollIntoView - panel 在
+    // right-panel 底部, ISC 按钮在顶部, 不滚一下用户看不到 hint.
     panel.hidden = false;
     panel.innerHTML = `<div class="isc-hint">Base chamber not all-integer (block dataset or non-CP); scanning per-chamber for local symbolic identification…</div>`;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     // 扫所有 chamber 所有 off-diag entry; 按数值去重 (chamber 间常出现重复值,
     // 一次 RIES 入库后其他 cell 走 library 命中); 跳过 local-identify 已接住的.
     const todo: Array<{ chamberIdx: number; i: number; j: number; v: ComplexNum }> = [];
