@@ -1497,15 +1497,36 @@ async function main() {
       //   - md 独立: 只喂 md view 自己的浮点 + symbolic.
       // 框宽 = max(浮点公式 4ch+int+frac, symbolic 字符估算). symbolic cell 时浮点
       // 上界不参与, 让 cell 框真正贴合 ISC 后的整数/表达式宽度.
+      // SSOT: widthReferenceBlocks 必须跟 cell 渲染同协议, 逐 sub-cell (a, b) 看
+      // 是否 symbolic. 老代码 'ms[I]===1 && ms[J]===1 ? 全块 yield' gate 在 block
+      // dataset (m>1) 上把已 ISC 化的 sub-cell 对应浮点也算入宽度上界 → cell
+      // 撑得比真实 KaTeX 宽很多, 自适应崩.
       widthReferenceBlocks: function*() {
         if (!valuesFresh) return;
+        const yieldPerSubCell = (
+          block: ComplexNum[][],
+          I: number, J: number, vw: import('./lib/types.js').SdView,
+        ) => {
+          const rows: ComplexNum[][] = [];
+          for (let a = 0; a < block.length; a++) {
+            const row = block[a]; if (!row) continue;
+            const newRow: ComplexNum[] = [];
+            for (let b = 0; b < row.length; b++) {
+              const v = row[b];
+              if (!v) { newRow.push({ re: 0, im: 0 }); continue; }
+              // sub-cell 能 symbolic 化 → 不参与浮点宽度
+              if (getSymbolicCellExpr(I, J, v, vw)) { newRow.push({ re: 0, im: 0 }); continue; }
+              newRow.push(v);
+            }
+            rows.push(newRow);
+          }
+          return rows;
+        };
         if (view === 'md') {
           if (!mdFull) return;
           for (let I = 0; I < ms.length; I++) for (let J = 0; J < ms.length; J++) {
             const block = sliceFullBlock(mdFull, ms, I, J);
-            // m=1 cell 且能 symbolic 化 → 不参与浮点宽度, 让 latex 估算定宽度.
-            if (ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, block[0][0], 'md')) continue;
-            yield block;
+            yield yieldPerSubCell(block, I, J, 'md');
           }
           return;
         }
@@ -1514,8 +1535,7 @@ async function main() {
             if (I === J) continue;
             const eg = egBlock(I, J);
             if (!eg) continue;
-            if (ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, eg[0][0], 'eg')) continue;
-            yield eg;
+            yield yieldPerSubCell(eg, I, J, 'eg');
           }
           return;
         }
@@ -1525,8 +1545,7 @@ async function main() {
           const e = ch.entries[`${I},${J}`];
           if (!e || e.error || !e.value_block) continue;
           const mod = modifiedBlock(e, ch.d, I, J);
-          if (ms[I] === 1 && ms[J] === 1 && getSymbolicCellExpr(I, J, mod[0][0], 'std')) continue;
-          yield mod;
+          yield yieldPerSubCell(mod, I, J, 'std');
         }
       },
       getCellContent: (I, J, a, b): CellContent => {
