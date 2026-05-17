@@ -928,18 +928,14 @@ test.describe('Sd-viz smoke tests', () => {
 
   // 防回归 (2026-05-17): cpn↔cpn dropdown 切换走 SPA in-place swap, 不全页跳转.
   // 这样 GitHub Pages CDN/浏览器在 deploy 后短期内拿陈旧 bundle 也不会让用户看到半渲染.
-  // 防回归 (2026-05-17): dropdown 含 a3 / a4 静态例子, 选中后加载无 JS 错.
-  test('a3 / a4 dropdown 例子可以加载, 无 JS 错', async ({ page }) => {
+  // 防回归 (2026-05-17): a3 静态例子可以加载, 无 JS 错.
+  test('a3 dropdown 例子可以加载, 无 JS 错', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
     await page.goto('/?dataset=a3');
     await page.waitForSelector('.puncture');
     // a3 三个 punctures
     expect(await page.locator('.puncture').count()).toBe(3);
-    // 切到 a4
-    await page.goto('/?dataset=a4');
-    await page.waitForSelector('.puncture');
-    expect(await page.locator('.puncture').count()).toBe(4);
     expect(errors.join('\n')).toBe('');
   });
 

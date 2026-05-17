@@ -71,13 +71,11 @@ function defaultHeaders(extra?: Record<string, string>): Record<string, string> 
 // dataset registry. hideOnLoad=true 保证 Stokes 表格初始全 "—", 必须用户点
 // Compute 走 backend 拿真值 — 不存在前端预热缓存伪装算法结果.
 //   cpn: QH*(CP^{n-1}) = quantum cohomology of CP^{n-1} (synth, n 可调).
-//   a3:  Duke CDG §22 A_3 Frobenius manifold (t→0 limit, V 严格按 Duke 给).
-//   a4:  A_4 mock (block-diagonal placeholder, 谱对但 V 不是严格 A_4 Frobenius).
+//   a3:  Duke CDG §22 A_3 Frobenius manifold (t→0 limit, V 严格按 Duke).
 // 旧 cp2/cp3/cp4 URL 兼容 (跳到 cpn 并设对应 n).
 export const DATASET_REGISTRY: { key: string; file: string; label: string; hideOnLoad?: boolean; cpnVariant?: CpnVariant }[] = [
   { key: 'cpn',    file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1}) (Guzzetti)',                hideOnLoad: true, cpnVariant: 'guzzetti' },
   { key: 'a3',     file: 'a3_frobenius',  label: 'A_3 Frobenius manifold (Duke CDG §22)',              hideOnLoad: true },
-  { key: 'a4',     file: 'a4_frobenius',  label: 'A_4 mock (block-diag placeholder, spectrum-only)',   hideOnLoad: true },
   { key: 'simple', file: 'n4_simple',     label: 'n=4, m=(1,1,1,1) simple spectrum' },
   { key: 'block',  file: 'n4_block',      label: 'n=4, m=(2,2,2,2) blocks' },
 ];
