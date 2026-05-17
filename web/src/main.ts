@@ -1529,12 +1529,14 @@ async function main() {
           yield mod;
         }
       },
-      getCellContent: (I, J, _a, _b): CellContent => {
+      getCellContent: (I, J, a, b): CellContent => {
         if (view === 'md') {
           if (!mdFull) return { kind: 'unavailable', tooltip: 'monodromy factor unavailable' };
           const block = sliceFullBlock(mdFull, ms, I, J);
-          if (ms[I] === 1 && ms[J] === 1) {
-            const sym = getSymbolicCellExpr(I, J, block[0][0], 'md');
+          // per sub-cell symbolic lookup: block 大于 1×1 也能识别 (跟 1×1 一样走 library)
+          const v = block[a]?.[b];
+          if (v) {
+            const sym = getSymbolicCellExpr(I, J, v, 'md');
             if (sym) return { kind: 'symbolic', latex: sym.latex, tooltip: sym.tooltip };
           }
           return { kind: 'block', block };
@@ -1578,8 +1580,9 @@ async function main() {
         // 关键不变量: 不管 view, cell 渲染只 ask "这个浮点对应哪个闭式" — library 不感知 view.
         // minus 时把 value 取负再 lookup — 让 library + negateForm 给干净负形式 (避 -(-3)).
         // SSOT: 未来加新矩阵 (从 S_d 派生的 Ω 等) 一样走 getSymbolicCellExpr(I, J, displayedValue).
-        if (ms[I] === 1 && ms[J] === 1) {
-          const baseV = mod[0][0];
+        // per sub-cell symbolic lookup: block 大于 1×1 同样查 library.
+        const baseV = mod[a]?.[b];
+        if (baseV) {
           const displayV = sign === -1 ? { re: -baseV.re, im: -baseV.im } : baseV;
           const sym = getSymbolicCellExpr(I, J, displayV, view);
           if (sym) return { kind: 'symbolic', latex: sym.latex, tooltip: sym.tooltip };

@@ -962,3 +962,46 @@ test.describe('Sd-viz smoke tests', () => {
   });
 });
 
+
+
+test.describe('a3 block ISC regression', () => {
+test('block dataset 大于 1×1 cell 也能 ISC 成符号', async ({ page }) => {
+  // Mock backend让 Compute 走通, 返回整数 Stokes 数据 (m=(2,1) cross block 含 1, -1)
+  await page.route('**/api/dataset', r => r.fulfill({ json: { ok: true } }));
+  await page.route('**/api/recompute', r => r.fulfill({ json: { job_id: 'mock' } }));
+  await page.route('**/api/job/**', r => r.fulfill({ json: {
+    status: 'done', progress: 1, chambers_done: 2, chambers_total: 2, elapsed_s: 0.1,
+    error: null,
+    result: {
+      _algorithm: 'v5_full', _v5: { residual_max: 1e-15, d_reg: -Math.PI/2 },
+      punctures: [{ re: 0, im: 0 }, { re: 1, im: 0 }],
+      m_sizes: [2, 1], A_diag: [0, 0], A_diag_block: [[0, 0], [0]], A_off: [],
+      rays: [Math.PI/2, 3*Math.PI/2],
+      chambers: [
+        { d: Math.PI, entries: {
+            "0,1": { value_block: [[{re: 1, im: 0}], [{re: -1, im: 0}]], path: null, provenance: 'v5' },
+            "1,0": { value_block: [[{re: 0, im: 0}, {re: 0, im: 0}]], path: null, provenance: 'v5' },
+        }},
+        { d: 0, entries: {
+            "0,1": { value_block: [[{re: 0, im: 0}], [{re: 0, im: 0}]], path: null, provenance: 'v5' },
+            "1,0": { value_block: [[{re: 1, im: 0}, {re: -1, im: 0}]], path: null, provenance: 'v5' },
+        }},
+      ],
+    },
+  } }));
+  await page.goto('/?dataset=a3');
+  await page.waitForSelector('.puncture');
+  await page.locator('#state-recompute').click();
+  await page.waitForFunction(() =>
+    !document.querySelector('#stokes-matrix .sm-cell[data-i="1"][data-j="0"][data-a="0"][data-b="0"]')?.textContent?.includes('—'),
+    { timeout: 10000 });
+  await page.locator('#sd-isc-btn').click();
+  await page.waitForTimeout(500);
+  // cross block (m=2×1 / 1×2) sub-cell 应该 render 为 cs-symbolic 而非 cs-...
+  const sel = (i: number, j: number, a: number, b: number) =>
+    `#stokes-matrix .sm-cell[data-i="${i}"][data-j="${j}"][data-a="${a}"][data-b="${b}"]`;
+  // value 1 → symbolic '1'; value -1 → symbolic '-1'
+  await expect(page.locator(sel(1, 0, 0, 0) + ' .cs-symbolic')).toBeVisible();
+  await expect(page.locator(sel(1, 0, 0, 1) + ' .cs-symbolic')).toBeVisible();
+});
+});
