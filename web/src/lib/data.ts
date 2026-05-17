@@ -73,9 +73,9 @@ function defaultHeaders(extra?: Record<string, string>): Record<string, string> 
 // 同 K-th roots of unity, 同一辫子轨道的不同 marked 代表. n 输入框切 K, dropdown 切 σ.
 // 旧 cp2/cp3/cp4 链接通过 URL 兼容 (跳到 cpn 并设对应 n).
 export const DATASET_REGISTRY: { key: string; file: string; label: string; hideOnLoad?: boolean; cpnVariant?: CpnVariant }[] = [
-  { key: 'cpn',          file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1})\\ (\\text{Guzzetti})',           hideOnLoad: true, cpnVariant: 'guzzetti' },
-  { key: 'cpn-coxeter',  file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1})\\ (\\text{Coxeter shift } +1)',  hideOnLoad: true, cpnVariant: 'coxeter' },
-  { key: 'cpn-coxeter2', file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1})\\ (\\text{Coxeter shift } +2)',  hideOnLoad: true, cpnVariant: 'coxeter2' },
+  { key: 'cpn',          file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1}) (Guzzetti)',         hideOnLoad: true, cpnVariant: 'guzzetti' },
+  { key: 'cpn-coxeter',  file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1}) (Coxeter shift +1)', hideOnLoad: true, cpnVariant: 'coxeter' },
+  { key: 'cpn-coxeter2', file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1}) (Coxeter shift +2)', hideOnLoad: true, cpnVariant: 'coxeter2' },
   { key: 'simple',       file: 'n4_simple',     label: 'n=4, m=(1,1,1,1) simple spectrum' },
   { key: 'block',        file: 'n4_block',      label: 'n=4, m=(2,2,2,2) blocks' },
 ];
