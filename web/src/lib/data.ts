@@ -1,6 +1,5 @@
 import type { SimpleDataset } from './types.js';
 import { buildCpnDataset, type CpnVariant } from './cpn-formulas.js';
-import { buildAnDataset } from './an-formulas.js';
 import { antiStokesRays } from './geometry.js';
 
 // =====================================================================
@@ -69,23 +68,19 @@ function defaultHeaders(extra?: Record<string, string>): Record<string, string> 
 // hideOnLoad: dataset 作为 "example" 加载, 初始 stokesStale = true,
 // Stokes 矩阵 cell 显示 "—", banner 提示点 Compute. 预计算值还在 JSON 里,
 // 但用户必须走后端重跑才能看到 (完整演示流程).
-// 参数化 (synth) datasets: file 字段是占位符, 客户端按 n 现算 (U, A). hideOnLoad=true
-// 保证 Stokes 表格初始全 "—", 必须用户点 Compute 走 backend 拿真值 — 不存在
-// 前端预热缓存伪装算法结果.
-//   cpn: QH*(CP^{n-1}) = quantum cohomology of CP^{n-1}, μ̂ 整数谱.
-//   an : A_n Coxeter Frobenius (mock V), μ̂ 非整数谱, 形式 monodromy 是单位根.
+// dataset registry. hideOnLoad=true 保证 Stokes 表格初始全 "—", 必须用户点
+// Compute 走 backend 拿真值 — 不存在前端预热缓存伪装算法结果.
+//   cpn: QH*(CP^{n-1}) = quantum cohomology of CP^{n-1} (synth, n 可调).
+//   a3:  Duke CDG §22 A_3 Frobenius manifold (t→0 limit, V 严格按 Duke 给).
+//   a4:  A_4 mock (block-diagonal placeholder, 谱对但 V 不是严格 A_4 Frobenius).
 // 旧 cp2/cp3/cp4 URL 兼容 (跳到 cpn 并设对应 n).
-type DatasetEntry = { key: string; file: string; label: string; hideOnLoad?: boolean; cpnVariant?: CpnVariant; kind?: 'cpn' | 'an' };
-export const DATASET_REGISTRY: DatasetEntry[] = [
-  { key: 'cpn',    file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1}) (Guzzetti)',           hideOnLoad: true, cpnVariant: 'guzzetti', kind: 'cpn' },
-  { key: 'an',     file: '__synth_an__',  label: 'A_n Frobenius manifold (block-diag mock)',      hideOnLoad: true,                          kind: 'an'  },
+export const DATASET_REGISTRY: { key: string; file: string; label: string; hideOnLoad?: boolean; cpnVariant?: CpnVariant }[] = [
+  { key: 'cpn',    file: '__synth_cpn__', label: 'QH^*(\\mathbb{CP}^{n-1}) (Guzzetti)',                hideOnLoad: true, cpnVariant: 'guzzetti' },
+  { key: 'a3',     file: 'a3_frobenius',  label: 'A_3 Frobenius manifold (Duke CDG §22)',              hideOnLoad: true },
+  { key: 'a4',     file: 'a4_frobenius',  label: 'A_4 mock (block-diag placeholder, spectrum-only)',   hideOnLoad: true },
   { key: 'simple', file: 'n4_simple',     label: 'n=4, m=(1,1,1,1) simple spectrum' },
   { key: 'block',  file: 'n4_block',      label: 'n=4, m=(2,2,2,2) blocks' },
 ];
-
-export function datasetKindOfKey(key: string): 'cpn' | 'an' | undefined {
-  return DATASET_REGISTRY.find(d => d.key === key)?.kind;
-}
 const DEFAULT_DATASET_KEY = 'cpn';
 
 /** 任何 cpn 系 (含 variant) 的 key 都返回 true. main.ts 切 n 时识别. */
@@ -169,40 +164,11 @@ function synthCpnDataset(n: number, variant: CpnVariant = 'guzzetti'): SimpleDat
   } as SimpleDataset;
 }
 
-/** A_n synth: 跟 cpn 同模式 (n 客户端参数, 不 fetch JSON). */
-function synthAnDataset(n: number): SimpleDataset {
-  const K = Math.max(CPN_MIN_N, Math.min(CPN_MAX_N, n));
-  const { punctures, A_diag, A_diag_block, A_off, m_sizes } = buildAnDataset(K);
-  const rays = antiStokesRays(punctures);
-  const TP = 2 * Math.PI;
-  const chambers = rays.map((r, k) => {
-    const next = k + 1 < rays.length ? rays[k + 1] : rays[0] + TP;
-    return { d: (r + next) / 2, entries: {} };
-  });
-  const dRegs = chambers
-    .map(c => {
-      let x = c.d;
-      while (x >= Math.PI) x -= TP;
-      while (x < -Math.PI) x += TP;
-      return x;
-    })
-    .filter(x => x <= 0);
-  const dReg = dRegs.length > 0 ? Math.max(...dRegs) : -Math.PI / 2;
-  return {
-    punctures, A_diag, A_diag_block, A_off, m_sizes,
-    rays, chambers,
-    _algorithm: 'an-synth-client',
-    _v5: { d_reg: dReg },
-  } as SimpleDataset;
-}
-
 export async function loadDataset(): Promise<SimpleDataset> {
   // BASE_URL: GH Pages = "/Stokes-Matrix/", 本地 dev = "/". cache-bust v= 强制每次拉新.
   // Dataset 是 GH Pages 上的 static JSON, 不走 backend tunnel.
   const key = getDatasetKey();
-  const kind = datasetKindOfKey(key);
-  if (kind === 'cpn') return synthCpnDataset(getCpnN(), cpnVariantOfKey(key));
-  if (kind === 'an')  return synthAnDataset(getCpnN());
+  if (isCpnKey(key)) return synthCpnDataset(getCpnN(), cpnVariantOfKey(key));
   const entry = DATASET_REGISTRY.find(d => d.key === key) ?? DATASET_REGISTRY[0];
   const url = `${import.meta.env.BASE_URL}data/${entry.file}.json?v=${Date.now()}`.replace(/([^:])\/+/g, '$1/');
   const r = await fetch(url);
@@ -213,24 +179,6 @@ export async function loadDataset(): Promise<SimpleDataset> {
 /** 重新合成 cpn dataset (用于左侧 n 输入变化后客户端就地重建, 不重载页面). */
 export function rebuildCpnDataset(n: number, variant: CpnVariant = 'guzzetti'): SimpleDataset {
   return synthCpnDataset(n, variant);
-}
-
-/** 重新合成 A_n dataset. */
-export function rebuildAnDataset(n: number): SimpleDataset {
-  return synthAnDataset(n);
-}
-
-/** parametric (cpn / an) family 通用 rebuild dispatch. */
-export function rebuildParametricDataset(key: string, n: number): SimpleDataset {
-  const kind = datasetKindOfKey(key);
-  if (kind === 'cpn') return synthCpnDataset(n, cpnVariantOfKey(key));
-  if (kind === 'an')  return synthAnDataset(n);
-  throw new Error(`rebuildParametricDataset: '${key}' is not a parametric dataset key`);
-}
-
-/** key 是 cpn 系 或 an 系 (synth, n 可调). */
-export function isParametricKey(key: string): boolean {
-  return datasetKindOfKey(key) !== undefined;
 }
 
 /**

@@ -928,43 +928,18 @@ test.describe('Sd-viz smoke tests', () => {
 
   // 防回归 (2026-05-17): cpn↔cpn dropdown 切换走 SPA in-place swap, 不全页跳转.
   // 这样 GitHub Pages CDN/浏览器在 deploy 后短期内拿陈旧 bundle 也不会让用户看到半渲染.
-  // 防回归 (2026-05-17): 参数化 dataset (cpn / an) 间 dropdown 切换走 SPA in-place swap.
-  test('cpn↔an dropdown 切换走 SPA in-place, A 签名变, 不导航', async ({ page }) => {
+  // 防回归 (2026-05-17): dropdown 含 a3 / a4 静态例子, 选中后加载无 JS 错.
+  test('a3 / a4 dropdown 例子可以加载, 无 JS 错', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
-    await page.goto('/?n=4&dataset=cpn');
+    await page.goto('/?dataset=a3');
     await page.waitForSelector('.puncture');
-
-    // 收 A 表所有 off-diag expr 拼成签名串.
-    const aSignature = async (K: number): Promise<string> => {
-      const parts: string[] = [];
-      for (let i = 0; i < K; i++)
-        for (let j = 0; j < K; j++) {
-          if (i === j) continue;
-          const v = await page.locator(`#a-table input[data-i="${i}"][data-j="${j}"].cx-expr`).first().inputValue();
-          parts.push(`${i},${j}:${v}`);
-        }
-      return parts.join('|');
-    };
-    const sig_cpn = await aSignature(4);
-
-    // 标记 JS context — 真发生全页跳转的话 window 会被销毁, marker 丢失.
-    await page.evaluate(() => { (window as any).__swapTestMarker = 'before-swap'; });
-    const sel = page.locator('#dataset-select');
-
-    // 切到 A_n
-    await sel.selectOption('an');
-    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('dataset') === 'an');
-    expect(await page.evaluate(() => (window as any).__swapTestMarker)).toBe('before-swap');
-    const sig_an = await aSignature(4);
-    expect(sig_an).not.toBe(sig_cpn);  // 不同 family, A 必然不同
-
-    // 切回 cpn, A 签名回到 baseline
-    await sel.selectOption('cpn');
-    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('dataset') !== 'an');
-    expect(await aSignature(4)).toBe(sig_cpn);
-
-    // 全程无 JS 错误
+    // a3 三个 punctures
+    expect(await page.locator('.puncture').count()).toBe(3);
+    // 切到 a4
+    await page.goto('/?dataset=a4');
+    await page.waitForSelector('.puncture');
+    expect(await page.locator('.puncture').count()).toBe(4);
     expect(errors.join('\n')).toBe('');
   });
 

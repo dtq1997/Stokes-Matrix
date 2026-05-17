@@ -1,5 +1,5 @@
 import katex from 'katex';
-import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey, isParametricKey, rebuildParametricDataset, iscQuery, iscIsValueForm, CPN_N_BOUNDS, type IscCandidate } from './lib/data.js';
+import { loadDataset, recomputeAsync, cancelJob, backendOnline, getBackendBase, setBackendBase, DATASET_REGISTRY, getDatasetKey, isCpnKey, cpnVariantOfKey, rebuildCpnDataset, iscQuery, iscIsValueForm, CPN_N_BOUNDS, type IscCandidate } from './lib/data.js';
 import type { JobStatus } from './lib/data.js';
 import type { VizState, ComplexNum, PathRep, SdEntryData } from './lib/types.js';
 import {
@@ -454,20 +454,20 @@ async function main() {
   nInput.addEventListener('change', () => {
     const newN = Number(nInput.value);
     if (!Number.isInteger(newN)) { nInput.value = String(n); return; }
-    // 参数化 dataset (cpn / an): n 直接驱动 公式重生成 (不保留旧 entries).
-    if (isParametricKey(getDatasetKey())) {
+    // cpn 系 dataset: n 直接驱动 CP^{n-1} 公式重生成 (不保留旧 entries).
+    if (isCpnKey(getDatasetKey())) {
       const clamped = Math.max(CPN_N_BOUNDS.min, Math.min(CPN_N_BOUNDS.max, newN));
       if (clamped !== newN) nInput.value = String(clamped);
-      if (clamped !== n) { pushHistory(); regenerateParametricN(clamped); }
+      if (clamped !== n) { pushHistory(); regenerateCpnN(clamped); }
       return;
     }
     if (newN < 1 || newN > 20) { nInput.value = String(n); return; }
     if (newN !== n) { pushHistory(); resizeN(newN); }
   });
 
-  /** 参数化 dataset (cpn / an) 专用: 按 n 公式重建整个 dataset, 不保留旧 (U, A). */
-  function regenerateParametricN(newN: number) {
-    const fresh = rebuildParametricDataset(getDatasetKey(), newN);
+  /** cpn dataset 专用: 按 CP^{newN-1} 公式重建整个 dataset, 不保留旧 (U, A). */
+  function regenerateCpnN(newN: number) {
+    const fresh = rebuildCpnDataset(newN, cpnVariantOfKey(getDatasetKey()));
     Object.keys(dataset).forEach(k => delete (dataset as any)[k]);
     Object.assign(dataset, fresh);
 
@@ -507,10 +507,10 @@ async function main() {
     updatePathInfo();
   }
 
-  /** 参数化 dataset 间 dropdown 切换: SPA in-place swap. 不导航, 不踩缓存. */
-  function swapParametricDataset(newKey: string) {
-    if (!isParametricKey(newKey)) return;
-    const fresh = rebuildParametricDataset(newKey, n);
+  /** cpn↔cpn dropdown 切换 SPA in-place swap (留作未来 variant 扩展). */
+  function swapCpnVariant(newKey: string) {
+    if (!isCpnKey(newKey)) return;
+    const fresh = rebuildCpnDataset(n, cpnVariantOfKey(newKey));
     Object.keys(dataset).forEach(k => delete (dataset as any)[k]);
     Object.assign(dataset, fresh);
 
@@ -545,9 +545,9 @@ async function main() {
     datasetSelect.addEventListener('change', () => {
       const newKey = datasetSelect.value;
       const curKey = getDatasetKey();
-      if (isParametricKey(curKey) && isParametricKey(newKey)) {
+      if (isCpnKey(curKey) && isCpnKey(newKey)) {
         pushHistory();
-        swapParametricDataset(newKey);
+        swapCpnVariant(newKey);
         return;
       }
       const url = new URL(window.location.href);
