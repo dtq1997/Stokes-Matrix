@@ -14,14 +14,17 @@
 // Variant 字段 = QH^*(CP^{K-1}) 的不同 marked basis (差 σ ∈ S_K 置换),
 // 都是同一辫子轨道的代表. 用户拍板: U 同 diagonal (允许差 σ), A 各不相同.
 
-export type CpnVariant = 'guzzetti' | 'coxeter' | 'reversed';
+export type CpnVariant = 'guzzetti' | 'coxeter' | 'coxeter2';
 
-/** σ(k) = canonical-index that goes to position k under this variant. */
+/** σ(k) = canonical-index that goes to position k under this variant.
+ *  只用 Z/K cyclic shift — CP^{n-1} 的 Coxeter 自同构, 保持辫子轨道.
+ *  非 cyclic 的 σ (例如 reversed) 给 A 跟原 U_canon 配出来不在 CP^{n-1} 轨道,
+ *  实测 entries 是 {0,1,2} 不是 binomial; 故不用. */
 function permIdx(K: number, variant: CpnVariant, k: number): number {
   switch (variant) {
     case 'guzzetti': return k;
     case 'coxeter':  return (k + 1) % K;
-    case 'reversed': return ((K - 1 - k) % K + K) % K;
+    case 'coxeter2': return (k + 2) % K;
   }
 }
 
@@ -31,13 +34,14 @@ function gcd(a: number, b: number): number {
   return a || 1;
 }
 
-/** CP^{K-1} 的第 n 个 puncture u_n 表达式 (归一化后: u_n = e^(2*pi*i*n/K)). */
-export function cpnPunctureExpr(K: number, n: number, variant: CpnVariant = 'guzzetti'): string {
-  const idx = permIdx(K, variant, n);
-  if (idx === 0) return '1';
-  if (2 * idx === K) return '-1';
-  const g = gcd(2 * idx, K);
-  const a = (2 * idx) / g;
+/** CP^{K-1} 的第 n 个 puncture u_n 表达式 (归一化后: u_n = e^(2*pi*i*n/K)).
+ *  注: U 在所有 variant 间统一不变 (canonical 序), 只有 A 按 σ 置换标号.
+ *  variant 参数留作 API 一致, 这里直接忽略 (puncture 永远 canonical). */
+export function cpnPunctureExpr(K: number, n: number, _variant: CpnVariant = 'guzzetti'): string {
+  if (n === 0) return '1';
+  if (2 * n === K) return '-1';
+  const g = gcd(2 * n, K);
+  const a = (2 * n) / g;
   const b = K / g;
   const pre = a === 1 ? '' : `${a}*`;
   const denom = b === 1 ? '' : `/${b}`;
@@ -161,10 +165,12 @@ export function buildCpnDataset(K: number, variant: CpnVariant = 'guzzetti'): {
   m_sizes: number[];
 } {
   const punctures: { re: number; im: number; expr?: string }[] = [];
+  // U 跨 variant 统一不变 (用户要求, 见 cpnPunctureExpr 注释): 都用 canonical 序 u_k=e^{2πi k/K}.
+  // σ 只作用在 A 上 (A^σ_{ij}=A_{σ(i),σ(j)}), 此时 (U_canon, A^σ) 仍是 CP^{n-1},
+  // 通过 gauge P^{-1} 跟 (P^{-1} U_canon P, A_canon) 共轭, 所以 Stokes 同辫子轨道.
   for (let n = 0; n < K; n++) {
-    const idx = permIdx(K, variant, n);
-    const ang = 2 * Math.PI * idx / K;
-    punctures.push({ re: Math.cos(ang), im: Math.sin(ang), expr: cpnPunctureExpr(K, n, variant) });
+    const ang = 2 * Math.PI * n / K;
+    punctures.push({ re: Math.cos(ang), im: Math.sin(ang), expr: cpnPunctureExpr(K, n) });
   }
   const A_diag = Array.from({ length: K }, () => 0);
   const A_diag_block = Array.from({ length: K }, () => [0]);
