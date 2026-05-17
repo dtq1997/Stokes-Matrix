@@ -2440,7 +2440,10 @@ async function main() {
     if (todo.length === 0) {
       panel.hidden = false;
       panel.innerHTML = `<div class="isc-hint">Local simple-identify registered ${localHits} value(s). No residual cells need RIES.</div>`;
-      renderIscResults();
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      // 不调 renderIscResults: iscCache 是空的话它会 panel.hidden=true 把刚显示的 hint 立刻收掉
+      // (block dataset 整数 Stokes 被 local-identify 全接住的情况, 用户感知为 "ISC 没反应").
+      refreshStokesMatrix();  // 让 cell 显示 local-identified 闭式
       return;
     }
     iscRunning = true; refreshIscLauncher();
