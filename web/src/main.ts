@@ -2280,7 +2280,8 @@ async function main() {
     if (!baseAllInteger) {
       const reasons: string[] = [];
       if (!allBlocksSize1) reasons.push(`m_sizes not all 1: ${JSON.stringify(msEff)}`);
-      if (!aDiagAllZero) reasons.push('A_diag not all zero (>1e-12)');
+      // aDiagAllZero 仅在 allBlocksSize1 下才实际检查 A_diag, 否则 default false 不是 \"A_diag 真非零\".
+      if (allBlocksSize1 && !aDiagAllZero) reasons.push('A_diag not all zero (>1e-12)');
       if (allBlocksSize1 && aDiagAllZero && worstOffender) {
         const w = worstOffender;
         reasons.push(`base S_d entry (${w.i},${w.j}) = ${w.v.re.toPrecision(6)}+${w.v.im.toPrecision(2)}i, err=${w.err.toExponential(2)} > tol=${w.tol.toExponential(2)}`);
@@ -2354,7 +2355,10 @@ async function main() {
 
     // 非整数 case: 落回老 path (扫所有 chamber 本地 simple-identify + RIES 兜底).
     // 这条 path 数值字典匹配, 不是真传播, 但对 CP^n 之外 (非整数 entry) 没 wall-crossing 闭式时也能挽救一些.
-    panel.innerHTML = `<div class="isc-hint">Base chamber not integer — falling back to per-value local + RIES sweep.</div>`;
+    // ⚠ panel.hidden=false 必须立刻设, 否则下方扫描/RIES 步骤都不及, 用户点了看不到任何提示 →
+    // 以为 "ISC 按钮没反应" (实际是 panel 还隐藏着).
+    panel.hidden = false;
+    panel.innerHTML = `<div class="isc-hint">Base chamber not all-integer (block dataset or non-CP); scanning per-chamber for local symbolic identification…</div>`;
     // 扫所有 chamber 所有 off-diag entry; 按数值去重 (chamber 间常出现重复值,
     // 一次 RIES 入库后其他 cell 走 library 命中); 跳过 local-identify 已接住的.
     const todo: Array<{ chamberIdx: number; i: number; j: number; v: ComplexNum }> = [];
